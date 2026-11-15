@@ -89,20 +89,24 @@ final class QuantumClient: NSObject, URLSessionTaskDelegate {
         try await data(request("resources/preview", query: ["source": source, "path": file.path,
             "size": "small", "key": file.modified ?? ""]))
     }
-    func streamURL(source: String, path: String) async throws -> URL {
+    func streamRequest(source: String, path: String) async throws -> URLRequest {
         let file = try await resource(source: source, path: path)
         guard let viewToken = file.viewToken, !viewToken.isEmpty else { throw APIError.forbidden }
         // Quantum requires both a view grant and user authentication on this route.
-        return try request("media/stream", query: ["source": source, "file": path, "viewToken": viewToken]).url!
+        return try request("media/stream", query: ["source": source, "file": path, "viewToken": viewToken])
     }
-    func playbackCookies() throws -> [HTTPCookie] {
-        let credential = try token ?? TokenStore.read(connection.id)
-        let path = connection.url.path.isEmpty ? "/" : connection.url.path + "/"
-        guard let cookie = HTTPCookie(properties: [
-            .name: "filebrowser_quantum_jwt", .value: credential, .originURL: connection.url,
-            .path: path, .secure: "TRUE", .discard: "TRUE"
-        ]) else { throw APIError.authentication }
-        return [cookie]
+    func streamChunk(_ request: URLRequest, offset: Int64, length: Int) async throws -> MediaChunk {
+        guard offset >= 0, length > 0, length <= MediaRange.chunkSize,
+              offset <= Int64.max - Int64(length) else { throw URLError(.badURL) }
+        try Task.checkCancellation()
+        var bounded = request
+        bounded.cachePolicy = .reloadIgnoringLocalCacheData
+        bounded.setValue("bytes=\(offset)-\(offset + Int64(length) - 1)", forHTTPHeaderField: "Range")
+        bounded.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        let (bytes, response) = try await session.data(for: bounded)
+        try check(response)
+        guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        return try MediaChunk.decode(bytes, response: http, offset: offset, length: length)
     }
     func download(source: String, path: String) async throws -> URL {
         let (url, response) = try await session.download(for: request("resources/download", query: ["source": source, "file": path]))

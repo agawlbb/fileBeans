@@ -58,16 +58,13 @@ final class TransportTests: XCTestCase {
             (200, Data(#"{"name":"clip.mp4","path":"/clip.mp4","type":"video/mp4","viewToken":"scoped-view-token"}"#.utf8))
         }
         let client = client(); defer { client.close() }
-        let url = try await client.streamURL(source: "disk", path: "/clip.mp4")
+        let request = try await client.streamRequest(source: "disk", path: "/clip.mp4")
+        let url = try XCTUnwrap(request.url)
         XCTAssertEqual(url.path, "/quantum/api/media/stream")
         XCTAssertFalse(url.absoluteString.contains("synthetic-api-token"))
         let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
         XCTAssertEqual(components.queryItems?.first { $0.name == "viewToken" }?.value, "scoped-view-token")
-        let cookie = try XCTUnwrap(client.playbackCookies().first)
-        XCTAssertEqual(cookie.name, "filebrowser_quantum_jwt")
-        XCTAssertEqual(cookie.domain, "files.example.com")
-        XCTAssertEqual(cookie.path, "/quantum/")
-        XCTAssertTrue(cookie.isSecure)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer synthetic-api-token")
     }
     func testExpiredTokenBecomesActionableAuthenticationError() async throws {
         StubProtocol.response = { _ in (401, Data("private server details".utf8)) }

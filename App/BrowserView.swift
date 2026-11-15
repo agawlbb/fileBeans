@@ -231,8 +231,9 @@ struct BrowserView: View {
         Task {
             await model.perform {
                 if item.file.isMedia {
-                    movie = Movie(url: try await client.streamURL(source: item.source, path: item.file.path),
-                                  name: item.file.name, cookies: try client.playbackCookies())
+                    let request = try await client.streamRequest(source: item.source, path: item.file.path)
+                    movie = Movie(name: item.file.name,
+                                  stream: MediaStream(client: client, request: request, name: item.file.name))
                 } else {
                     _ = try FilePath.child(item.file.name, in: "/")
                     let downloaded = try await client.download(source: item.source, path: item.file.path)
@@ -260,7 +261,7 @@ private struct ImportedMedia: Transferable {
     }
 }
 
-private struct Movie: Identifiable { let id = UUID(); let url: URL; let name: String; let cookies: [HTTPCookie] }
+private struct Movie: Identifiable { let id = UUID(); let name: String; let stream: MediaStream }
 private struct MovieView: View {
     let movie: Movie
     @Environment(\.dismiss) private var dismiss
@@ -273,10 +274,9 @@ private struct MovieView: View {
                 .navigationTitle(movie.name).navigationBarTitleDisplayMode(.inline)
                 .toolbar { Button("Done") { dismiss() } }
                 .onAppear {
-                    let asset = AVURLAsset(url: movie.url, options: [AVURLAssetHTTPCookiesKey: movie.cookies])
-                    player.replaceCurrentItem(with: AVPlayerItem(asset: asset)); player.play()
+                    player.replaceCurrentItem(with: AVPlayerItem(asset: movie.stream.asset())); player.play()
                 }
-                .onDisappear { player.pause(); player.replaceCurrentItem(with: nil) }
+                .onDisappear { player.pause(); player.replaceCurrentItem(with: nil); movie.stream.cancel() }
                 .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime)) { notification in
                     guard let item = notification.object as? AVPlayerItem, item === player.currentItem else { return }
                     showFailure(item, error: notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? NSError)
