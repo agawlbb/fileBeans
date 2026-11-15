@@ -12,4 +12,4 @@ Use a disposable Quantum v2 instance or test account and synthetic files. Do not
 - Stream a large supported video, seek near its end, interrupt the connection, and reopen after view-token expiry. Test an unsupported codec and a document without a native preview.
 - Inspect logs, Git changes, and packaged resources for secrets and private user data before sharing. Verify signed-device behavior for both extension entitlements before a TestFlight upload.
 
-The initial implementation has not yet passed an Apple SDK build or signed-device checks. Static parsing alone does not validate Apple framework types, signing, Files lifecycle behavior, server interoperability, or playback codecs.
+The app and Files extension passed Apple SDK compilation and all 19 simulator unit tests on [GitHub macOS/Xcode 26.3](https://github.com/agawlbb/myFiles/actions/runs/43733327992). Validate iOS also builds an unsigned Release archive for actual devices. Signed-device checks, Files lifecycle behavior, live-server interoperability, and playback codecs still require the acceptance checks above.
