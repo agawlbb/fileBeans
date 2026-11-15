@@ -60,7 +60,7 @@ final class CatalogTests: XCTestCase {
         let url = directory.appendingPathComponent("catalog.json")
         try Data("invalid".utf8).write(to: url)
         XCTAssertThrowsError(try store.connections())
-        XCTAssertEqual(try String(contentsOf: url), "invalid")
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "invalid")
     }
     func testNarrowingSourceScopeKeepsNewRootAndRemovesOldDescendants() throws {
         let root = try store.reconcile(connection: connection, parent: "root", source: "disk",

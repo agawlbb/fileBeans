@@ -32,6 +32,31 @@ struct BrowserView: View {
     }
     private var chosen: [StoredItem] { model.items.filter { selected.contains($0.id) } }
     var body: some View {
+        browserWithActions
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.data], allowsMultipleSelection: true) { result in
+            do { if let parent { model.enqueue(urls: try result.get(), parent: parent) } }
+            catch { model.error = error.localizedDescription }
+        }
+        .onChange(of: photos) { _, picks in
+            Task {
+                for pick in picks {
+                    do {
+                        if let file = try await pick.loadTransferable(type: ImportedMedia.self), let parent {
+                            model.enqueue(urls: [file.url], parent: parent, scoped: false)
+                            try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent())
+                        }
+                    } catch { model.error = error.localizedDescription }
+                }
+                photos = []
+            }
+        }
+        .quickLookPreview($preview)
+        .onChange(of: preview) { previous, current in
+            if current == nil, let previous { try? FileManager.default.removeItem(at: previous.deletingLastPathComponent()) }
+        }
+        .sheet(item: $movie) { MovieView(movie: $0) }
+    }
+    private var fileContent: some View {
         Group {
             if grid {
                 ScrollView {
@@ -44,17 +69,78 @@ struct BrowserView: View {
                     .listStyle(.plain)
             }
         }
+    }
+    private var browserContent: some View {
+        fileContent
         .navigationTitle(parent?.file.name ?? connection.name)
         .searchable(text: $search, prompt: "Search this folder")
-        .overlay {
+        .overlay { emptyState }
+        .safeAreaInset(edge: .bottom) { transferStatus }
+        .toolbar { browserToolbar }
+        .refreshable { await reload() }
+        .task { await reload() }
+    }
+    private var browserWithAlerts: some View {
+        browserContent
+        .alert("myFiles", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
+            Button("OK") { model.error = nil }
+            Button("Refresh") { Task { await reload() } }
+        } message: { Text(model.error ?? "") }
+        .alert("Rename", isPresented: Binding(get: { renameItem != nil }, set: { if !$0 { renameItem = nil } })) {
+            TextField("Name", text: $proposedName)
+            Button("Cancel", role: .cancel) { renameItem = nil }
+            Button("Save") {
+                guard let item = renameItem, let parent else { return }
+                renameItem = nil
+                Task { await model.perform { try await model.repository?.move(item, to: parent, name: proposedName); await reload() } }
+            }
+        }
+        .alert("New Folder", isPresented: $newFolder) {
+            TextField("Name", text: $proposedName)
+            Button("Cancel", role: .cancel) {}
+            Button("Create") {
+                guard let parent else { return }
+                Task { await model.perform { try await model.repository?.createFolder(name: proposedName, parent: parent); await reload() } }
+            }
+        }
+    }
+    private var browserWithActions: some View {
+        browserWithAlerts
+        .confirmationDialog("Delete \(chosen.count) item(s)?", isPresented: $deleting, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                let items = chosen
+                Task {
+                    let succeeded = await model.perform { for item in items { try await model.repository?.delete(item) } }
+                    if succeeded { selected.removeAll(); selecting = false; await reload() }
+                }
+            }
+        }
+        .sheet(isPresented: $moving) {
+            if let repository = model.repository, let parent {
+                NavigationStack {
+                    FolderDestination(repository: repository, folder: nil, source: parent.source, excluded: chosen) { destination in
+                        let items = chosen
+                        moving = false
+                        Task {
+                            let succeeded = await model.perform {
+                                for item in items { try await repository.move(item, to: destination, name: item.file.name) }
+                            }
+                            if succeeded { selected.removeAll(); selecting = false; await reload() }
+                        }
+                    }.toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { moving = false } } }
+                }
+            }
+        }
+    }
+    @ViewBuilder private var emptyState: some View {
             if model.busy && model.items.isEmpty { ProgressView() }
             else if model.items.isEmpty && model.error == nil {
                 ContentUnavailableView("No files", systemImage: "folder")
             } else if !model.items.isEmpty && visible.isEmpty {
                 ContentUnavailableView.search(text: search)
             }
-        }
-        .safeAreaInset(edge: .bottom) {
+    }
+    @ViewBuilder private var transferStatus: some View {
             if let progress = model.uploadProgress {
                 HStack {
                     VStack(alignment: .leading) {
@@ -66,8 +152,8 @@ struct BrowserView: View {
             } else if model.canRetry {
                 Button("Retry Upload", systemImage: "arrow.clockwise") { model.retry() }.padding()
             }
-        }
-        .toolbar {
+    }
+    @ToolbarContentBuilder private var browserToolbar: some ToolbarContent {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 if selecting {
                     Button("Move", systemImage: "folder") { moving = true }
@@ -95,77 +181,6 @@ struct BrowserView: View {
                     }
                 }
             }
-        }
-        .refreshable { await reload() }
-        .task { await reload() }
-        .alert("myFiles", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
-            Button("OK") { model.error = nil }
-            Button("Refresh") { Task { await reload() } }
-        } message: { Text(model.error ?? "") }
-        .alert("Rename", isPresented: Binding(get: { renameItem != nil }, set: { if !$0 { renameItem = nil } })) {
-            TextField("Name", text: $proposedName)
-            Button("Cancel", role: .cancel) { renameItem = nil }
-            Button("Save") {
-                guard let item = renameItem, let parent else { return }
-                renameItem = nil
-                Task { await model.perform { try await model.repository?.move(item, to: parent, name: proposedName); await reload() } }
-            }
-        }
-        .alert("New Folder", isPresented: $newFolder) {
-            TextField("Name", text: $proposedName)
-            Button("Cancel", role: .cancel) {}
-            Button("Create") {
-                guard let parent else { return }
-                Task { await model.perform { try await model.repository?.createFolder(name: proposedName, parent: parent); await reload() } }
-            }
-        }
-        .confirmationDialog("Delete \(chosen.count) item(s)?", isPresented: $deleting, titleVisibility: .visible) {
-            Button("Delete", role: .destructive) {
-                let items = chosen
-                Task {
-                    let succeeded = await model.perform { for item in items { try await model.repository?.delete(item) } }
-                    if succeeded { selected.removeAll(); selecting = false; await reload() }
-                }
-            }
-        }
-        .sheet(isPresented: $moving) {
-            if let repository = model.repository, let parent {
-                NavigationStack {
-                    FolderDestination(repository: repository, folder: nil, source: parent.source, excluded: chosen) { destination in
-                        let items = chosen
-                        moving = false
-                        Task {
-                            let succeeded = await model.perform {
-                                for item in items { try await repository.move(item, to: destination, name: item.file.name) }
-                            }
-                            if succeeded { selected.removeAll(); selecting = false; await reload() }
-                        }
-                    }.toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { moving = false } } }
-                }
-            }
-        }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.data], allowsMultipleSelection: true) { result in
-            do { if let parent { model.enqueue(urls: try result.get(), parent: parent) } }
-            catch { model.error = error.localizedDescription }
-        }
-        .onChange(of: photos) { _, picks in
-            Task {
-                for pick in picks {
-                    do {
-                        if let file = try await pick.loadTransferable(type: ImportedMedia.self), let parent {
-                            model.enqueue(urls: [file.url], parent: parent, scoped: false)
-                            try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent())
-                        }
-                    } catch { model.error = error.localizedDescription }
-                }
-                photos = []
-            }
-        }
-        .quickLookPreview($preview)
-        .onChange(of: preview) { previous, current in
-            if current == nil, let previous { try? FileManager.default.removeItem(at: previous.deletingLastPathComponent()) }
-        }
-        .sheet(item: $movie) { MovieView(movie: $0) }
     }
     @ViewBuilder private func entry(_ item: StoredItem, large: Bool) -> some View {
         Group {
