@@ -136,6 +136,10 @@ final class ProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFi
                 guard version.metadataVersion == ProviderItem(item).itemVersion.metadataVersion else { throw APIError.conflict }
                 let remote = try await repo.client.resource(source: item.source, path: item.file.path)
                 guard version.contentVersion == remote.file.version else { throw APIError.conflict }
+                if item.file.isDirectory && !options.contains(.recursive) {
+                    let children = try await repo.children(item)
+                    guard children.isEmpty else { throw NSFileProviderError(.directoryNotEmpty) }
+                }
                 try await repo.delete(item)
                 completionHandler(nil)
             } catch { completionHandler(providerError(error)) }

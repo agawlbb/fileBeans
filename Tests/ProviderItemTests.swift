@@ -3,10 +3,11 @@ import FileProvider
 @testable import myFiles
 
 final class ProviderItemTests: XCTestCase {
-    func testUnavailableRemoteVersionUsesSupportedProviderError() {
+    func testRemoteConflictUsesPortableErrorAndExplainsRecovery() {
         let error = providerError(APIError.conflict) as NSError
-        XCTAssertEqual(error.domain, NSFileProviderErrorDomain)
-        XCTAssertEqual(error.code, NSFileProviderError.Code.versionNoLongerAvailable.rawValue)
+        XCTAssertEqual(error.domain, NSCocoaErrorDomain)
+        XCTAssertEqual(error.code, CocoaError.Code.fileWriteUnknown.rawValue)
+        XCTAssertEqual(error.localizedDescription, APIError.conflict.localizedDescription)
     }
     func testReadOnlyFilesDoNotExposeMutations() {
         let stored = StoredItem(id: "file", parent: "folder", source: "disk",

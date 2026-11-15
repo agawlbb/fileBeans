@@ -40,7 +40,10 @@ func providerError(_ error: Error) -> Error {
     switch api {
     case .authentication: return NSFileProviderError(.notAuthenticated)
     case .missing: return NSFileProviderError(.noSuchItem)
-    case .conflict: return NSFileProviderError(.versionNoLongerAvailable)
+    case .conflict:
+        // The version-specific File Provider error is macOS-only. Keep the iOS
+        // operation pending and explain the conflict without replacing local edits.
+        return CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: api.localizedDescription])
     case .forbidden: return CocoaError(.fileWriteNoPermission)
     default: return error
     }
