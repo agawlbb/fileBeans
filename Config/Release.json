@@ -6,6 +6,6 @@
   "certificateID": "7497F7YVX2",
   "sku": "myfiles-ios",
   "primaryLocale": "en-US",
-  "repository": "agawlbb/myFiles",
+  "repository": "agawlbb/fileBeans",
   "environment": "testflight"
 }

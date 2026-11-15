@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 export function validateReleaseConfig(config) {
   if (!/^com\.agawlbb\.myfiles$/.test(config.bundleID) || config.appGroup !== `group.${config.bundleID}` ||
-      config.repository !== 'agawlbb/myFiles' || config.environment !== 'testflight' ||
+      config.repository !== 'agawlbb/fileBeans' || config.environment !== 'testflight' ||
       !/^[A-Z0-9]{10}$/.test(config.teamID)) throw new Error('Unexpected release configuration');
   return config;
 }
