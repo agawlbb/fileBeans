@@ -52,6 +52,8 @@ When refreshing credentials for this project, the shared VM helper installs the 
 
 ## Manual workflow
 
+Build verification on November 15, 2026: source `e335203` passed all 19 tests and produced an unsigned device Release archive for version **0.1.0 (1)**. The [successful run](https://github.com/agawlbb/myFiles/actions/runs/43734190564) includes the archive artifact. Its downloaded artifact digest matched GitHub, and both bundle identifiers, the embedded Files extension, iOS 18 minimum, and iPhone/iPad support were verified. The archive SHA-256 is `b2fd58c41e00a24c64a61c4358b58b91b1c8853814f9735c497748d2fcfd5876`. It has no distribution signature and has not been uploaded to TestFlight.
+
 The TestFlight workflow has three explicit operations:
 
 - **preflight** (default): Ubuntu-only credential, profile, App Group, Keychain, app-record and certificate checks. No build or upload.
@@ -60,4 +62,4 @@ The TestFlight workflow has three explicit operations:
 
 A custom positive build number is optional; otherwise the workflow run number is used. An already-uploaded number is rejected. Run Validate iOS and the [device acceptance checks](TESTING.md) before an authorized release. The workflow does not configure testers, submit an App Store release, or change tester groups.
 
-The workflows use Xcode 26.3 on `macos-15`, meeting Apple's [Xcode 26 / iOS 26 SDK upload requirement](https://developer.apple.com/news/upcoming-requirements/?id=04282026a), while targeting iOS 18+. The app and extension compile and all 19 simulator unit tests pass. Signed-device checks and TestFlight upload remain pending. Verify privacy answers, the privacy manifest and encryption declaration against the final shipped behavior before release.
+The workflows use Xcode 26.3 on `macos-15`, meeting Apple's [Xcode 26 / iOS 26 SDK upload requirement](https://developer.apple.com/news/upcoming-requirements/?id=04282026a), while targeting iOS 18+. Signed-device checks and TestFlight upload remain pending. Verify privacy answers, the privacy manifest and encryption declaration against the final shipped behavior before release.
