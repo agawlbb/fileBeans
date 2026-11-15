@@ -72,10 +72,21 @@ final class MediaStreamTests: XCTestCase {
         let stream = MediaStream(client: client, request: request, name: "probe.mp4")
         defer { stream.cancel() }
         let asset = stream.asset()
-        let playable = try await asset.load(.isPlayable)
-        XCTAssertTrue(playable)
-        let duration = try await asset.load(.duration)
-        XCTAssertEqual(duration.seconds, 1, accuracy: 0.1)
-        XCTAssertTrue(offsets.contains { $0 > (4 << 20) }, "Native loader must reach metadata past the response cap")
+        let loaded = expectation(description: "Native asset loaded through capped byte ranges")
+        let operation = Task { @MainActor in
+            defer { loaded.fulfill() }
+            do {
+                let playable = try await asset.load(.isPlayable)
+                XCTAssertTrue(playable)
+                let duration = try await asset.load(.duration)
+                XCTAssertEqual(duration.seconds, 1, accuracy: 0.1)
+                let requestedOffsets = lock.withLock { offsets }
+                XCTAssertTrue(requestedOffsets.contains { $0 > (4 << 20) }, "Native loader must reach metadata past the response cap")
+            } catch {
+                if !Task.isCancelled { XCTFail("Native asset loading failed: \(error)") }
+            }
+        }
+        defer { operation.cancel(); asset.cancelLoading() }
+        await fulfillment(of: [loaded], timeout: 30)
     }
 }
