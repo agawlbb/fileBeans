@@ -68,9 +68,15 @@ struct Resource: Decodable {
     var viewToken: String?
     var folders: [RemoteFile]?
     var files: [RemoteFile]?
-    var children: [RemoteFile] { (folders ?? []) + (files ?? []) }
+    var children: [RemoteFile] {
+        ((folders ?? []) + (files ?? [])).map {
+            var file = $0
+            file.path = FilePath.normalized(file.path)
+            return file
+        }
+    }
     var file: RemoteFile {
-        RemoteFile(name: name, path: path, type: type, size: size, modified: modified,
+        RemoteFile(name: name, path: FilePath.normalized(path), type: type, size: size, modified: modified,
                    hasPreview: hasPreview, viewToken: viewToken)
     }
 }

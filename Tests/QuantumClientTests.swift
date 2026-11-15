@@ -46,4 +46,10 @@ final class QuantumClientTests: XCTestCase {
         XCTAssertFalse(FilePath.contains("/photos-old", in: "/photos"))
         XCTAssertTrue(FilePath.contains("/photos/2026", in: "/photos"))
     }
+    func testDirectoryTrailingSlashesDoNotChangeCatalogPaths() throws {
+        let listing = Data(#"{"name":"photos","path":"/photos/","type":"directory","folders":[{"name":"2026","path":"/photos/2026/","type":"directory"}]}"#.utf8)
+        let resource = try JSONDecoder().decode(Resource.self, from: listing)
+        XCTAssertEqual(resource.file.path, "/photos")
+        XCTAssertEqual(resource.children[0].path, try FilePath.child("2026", in: resource.file.path))
+    }
 }

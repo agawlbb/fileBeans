@@ -40,7 +40,7 @@ func providerError(_ error: Error) -> Error {
     switch api {
     case .authentication: return NSFileProviderError(.notAuthenticated)
     case .missing: return NSFileProviderError(.noSuchItem)
-    case .conflict: return NSFileProviderError(.versionOutOfDate)
+    case .conflict: return NSFileProviderError(.versionNoLongerAvailable)
     case .forbidden: return CocoaError(.fileWriteNoPermission)
     default: return error
     }
