@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 export function validateReleaseConfig(config) {
   if (!/^com\.agawlbb\.myfiles$/.test(config.bundleID) || config.appGroup !== `group.${config.bundleID}` ||
       config.repository !== 'agawlbb/myFiles' || config.environment !== 'testflight' ||
-      !/^[A-Z0-9]{10}$/.test(config.teamID)) throw new Error('Unexpected myFiles release configuration');
+      !/^[A-Z0-9]{10}$/.test(config.teamID)) throw new Error('Unexpected release configuration');
   return config;
 }
 
@@ -78,7 +78,11 @@ async function main() {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       ...(data ? { body: JSON.stringify({ data }) } : {})
     });
-    if (!response.ok) throw new Error(`Apple setup request failed: ${method} ${path.split('?')[0]} HTTP ${response.status}`);
+    if (!response.ok) {
+      const document = await response.json().catch(() => ({}));
+      const codes = (document.errors || []).map(error => String(error.code || '').replace(/[^A-Za-z0-9_.-]/g, '')).filter(Boolean);
+      throw new Error(`Apple setup request failed: ${method} ${path.split('?')[0]} HTTP ${response.status}${codes.length ? ' (' + codes.join(', ') + ')' : ''}`);
+    }
     return response.json();
   }
   const query = fields => new URLSearchParams(fields).toString();
@@ -143,7 +147,7 @@ async function main() {
     if (registrations.some(r => !r.registered || !r.appGroupsEnabled)) blockers.push('Register both bundle IDs and their App Groups capability');
     const apps = await request('/v1/apps?' + query({ 'filter[bundleId]': config.bundleID, 'fields[apps]': 'name,bundleId,sku' }));
     apps.data = apps.data.filter(app => app.attributes.bundleId === config.bundleID);
-    if (apps.data.length !== 1) blockers.push('Create the myFiles iOS app record on the App Store Connect website');
+    if (apps.data.length !== 1) blockers.push(`Create the ${config.name} iOS app record on the App Store Connect website`);
     const certificate = (await request(`/v1/certificates/${config.certificateID}`)).data;
     const cert = new crypto.X509Certificate(Buffer.from(certificate.attributes.certificateContent, 'base64'));
     if (certificate.attributes.certificateType !== 'DISTRIBUTION' || cert.validToDate.getTime() < Date.now() + 86400000) {

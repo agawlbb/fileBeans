@@ -1,10 +1,10 @@
-# myFiles
+# fileBeans
 
 A native iPhone and iPad client for File Browser Quantum v2. An independent project, not affiliated with File Browser Quantum or Google.
 
 Browse folders in list or grid view, preview server-generated thumbnails, move and rename items, create folders, delete files, and upload from Files or Photos. Videos and audio stream through the native player. Each connection is also available as a read/write location in Apple's Files app and document pickers.
 
-Requires iOS/iPadOS 18+, a Quantum v2 HTTPS server, and an API token with API access enabled. Add a connection using the server's base URL, a display name, and its token. Enable myFiles under **Files → Browse → Edit** if it is not visible automatically. Server permissions still apply.
+Requires iOS/iPadOS 18+, a Quantum v2 HTTPS server, and an API token with API access enabled. Add a connection using the server's base URL, a display name, and its token. Enable fileBeans under **Files → Browse → Edit** if it is not visible automatically. Server permissions still apply.
 
 ## Development
 

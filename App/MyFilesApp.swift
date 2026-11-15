@@ -44,7 +44,7 @@ struct ConnectionsView: View {
                     }
                 }
             }
-            .navigationTitle("myFiles")
+            .navigationTitle("fileBeans")
             .toolbar { Button("Add Connection", systemImage: "plus") { adding = true } }
             .overlay {
                 if model.connections.isEmpty {

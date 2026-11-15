@@ -82,7 +82,7 @@ struct BrowserView: View {
     }
     private var browserWithAlerts: some View {
         browserContent
-        .alert("myFiles", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
+        .alert("fileBeans", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
             Button("OK") { model.error = nil }
             Button("Refresh") { Task { await reload() } }
         } message: { Text(model.error ?? "") }

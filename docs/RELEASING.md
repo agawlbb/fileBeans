@@ -4,7 +4,8 @@ The public app identity is recorded in `Config/Release.json` and `Config/Project
 
 | Setting | Value |
 | --- | --- |
-| App | myFiles |
+| App display name | fileBeans |
+| App Store Connect record | FileBeans (`6835142643`) |
 | Main bundle ID | `com.agawlbb.myfiles` |
 | Files extension | `com.agawlbb.myfiles.FileProvider` |
 | Shared App Group | `group.com.agawlbb.myfiles` |
@@ -14,16 +15,15 @@ The public app identity is recorded in `Config/Release.json` and `Config/Project
 
 ## Current setup
 
-Both bundle IDs are registered with App Groups enabled. The GitHub `testflight` environment is restricted to the `main` branch. Its Apple team/bundle variables and five API/P12 credential secrets are configured. The reusable distribution identity expires November 15, 2027; its public certificate ID is recorded in release configuration.
+Both bundle IDs and their shared App Group are registered and linked. The GitHub `testflight` environment is restricted to the `main` branch. Its Apple team/bundle variables, five API/P12 credential secrets, and both provisioning-profile secrets are configured. The reusable distribution identity expires November 15, 2027; its public certificate ID is recorded in release configuration.
 
 The encrypted private key, P12, password and reuse helper are permanently retained in the VM's private Apple store, accessible read-only inside development. The installed `apple-signing inspect` command verifies them. **Do not delete the retained files after configuring GitHub or create a certificate for each project.** Future projects should use the shared workspace signing-reuse instructions. This repository contains no private signing material.
 
-Two website registrations remain before provisioning profiles can be finalized:
+The App Store Connect iOS record now exists as **FileBeans**, with the registered bundle ID and SKU above. Apple rejected the original myFiles name; the device app and Files extension display **fileBeans**. Repository, target, bundle IDs, App Group and SKU retain their existing identifiers.
 
-1. In [Apple Developer identifiers](https://developer.apple.com/account/resources/identifiers/list), register `group.com.agawlbb.myfiles` as an App Group and assign it to **both** bundle IDs above.
-2. In [App Store Connect Apps](https://appstoreconnect.apple.com/apps), create the iOS app record with the name, main bundle ID, SKU and primary locale above. Apple's public API cannot create this initial app record.
+The two App Store profiles were generated and validated against the registered App Group, shared Keychain access, and retained distribution certificate. Apple registration and signing setup are complete.
 
-Once those registrations are complete, run the setup helper from the VM:
+To inspect the setup or refresh app-specific profiles, run the helper from the VM:
 
 ```bash
 dev node /home/dev/projects/myFiles/scripts/apple-setup.mjs inspect
