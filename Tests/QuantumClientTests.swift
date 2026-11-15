@@ -10,6 +10,8 @@ final class QuantumClientTests: XCTestCase {
         let components = try XCTUnwrap(URLComponents(url: XCTUnwrap(request.url), resolvingAgainstBaseURL: false))
         XCTAssertEqual(components.path, "/quantum/api/resources")
         XCTAssertEqual(components.queryItems?.first { $0.name == "path" }?.value, "/旅行/a+b?#.jpg")
+        XCTAssertTrue(components.percentEncodedQuery?.contains("%2B") == true)
+        XCTAssertFalse(components.percentEncodedQuery?.contains("+") == true)
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer fixture-token")
         XCTAssertFalse(request.url!.absoluteString.contains("fixture-token"))
     }

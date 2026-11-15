@@ -36,6 +36,8 @@ final class QuantumClient: NSObject, URLSessionTaskDelegate {
         let base = try Self.validateURL(connection.url.absoluteString)
         var c = URLComponents(url: base.appendingPathComponent("api/" + route), resolvingAgainstBaseURL: false)!
         c.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
+        // Quantum uses Go's form-style query decoder, where an unescaped '+' is a space.
+        c.percentEncodedQuery = c.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         var r = URLRequest(url: c.url!)
         r.httpMethod = method
         r.setValue("Bearer " + (try token ?? TokenStore.read(connection.id)), forHTTPHeaderField: "Authorization")
