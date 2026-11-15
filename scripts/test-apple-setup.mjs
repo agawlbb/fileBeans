@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
-import { requireMainOnlyEnvironment, selectBundle, validateProfile, validateReleaseConfig } from './apple-setup.mjs';
+import { selectBundle, validateProfile, validateReleaseConfig } from './apple-setup.mjs';
 
 const config = JSON.parse(fs.readFileSync(new URL('../Config/Release.json', import.meta.url)));
 const profile = () => ({ appID: `${config.teamID}.${config.bundleID}`, teams: [config.teamID],
@@ -27,16 +27,6 @@ test('extension profile must allow the shared main-app Keychain group', () => {
   assert.doesNotThrow(() => validateProfile(extension, config, `${config.bundleID}.FileProvider`, 'fixture-sha256'));
   extension.keychainGroups = [`${config.teamID}.${config.bundleID}.FileProvider`];
   assert.throws(() => validateProfile(extension, config, `${config.bundleID}.FileProvider`, 'fixture-sha256'));
-});
-test('signing secrets require an exact main-only environment', () => {
-  const environment = { deployment_branch_policy: { custom_branch_policies: true, protected_branches: false } };
-  const policies = { branch_policies: [{ name: 'main', type: 'branch' }] };
-  assert.doesNotThrow(() => requireMainOnlyEnvironment(environment, policies));
-  for (const rules of [[], [{ name: '*', type: 'branch' }], [{ name: 'main', type: 'tag' }],
-                       [...policies.branch_policies, { name: 'feature/*', type: 'branch' }]]) {
-    assert.throws(() => requireMainOnlyEnvironment(environment, { branch_policies: rules }));
-  }
-  assert.throws(() => requireMainOnlyEnvironment({}, policies));
 });
 test('release setup cannot write to another repository or App Group', () => {
   assert.doesNotThrow(() => validateReleaseConfig(config));

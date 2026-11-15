@@ -24,13 +24,6 @@ export function validateProfile(summary, config, bundleID, certificateSHA256) {
   }
 }
 
-export function requireMainOnlyEnvironment(environment, policies) {
-  const policy = environment.deployment_branch_policy;
-  if (!policy?.custom_branch_policies || policy.protected_branches ||
-      policies.branch_policies?.length !== 1 || policies.branch_policies[0].name !== 'main' ||
-      policies.branch_policies[0].type !== 'branch') throw new Error('TestFlight secrets require the verified main-only environment');
-}
-
 export function selectBundle(document, identifier) {
   // Apple's identifier filter also returns prefix matches, including extensions.
   const exact = document.data.filter(value => value.attributes.identifier === identifier);
@@ -87,11 +80,6 @@ async function main() {
   }
   const query = fields => new URLSearchParams(fields).toString();
   const gh = args => command('gh', args);
-  const ghJSON = path => JSON.parse(gh(['api', path]));
-  const environmentPath = `repos/${config.repository}/environments/${config.environment}`;
-  function verifyEnvironment() {
-    requireMainOnlyEnvironment(ghJSON(environmentPath), ghJSON(`${environmentPath}/deployment-branch-policies`));
-  }
   function secret(name, value) {
     command('gh', ['secret', 'set', name, '--repo', config.repository, '--env', config.environment], value);
     console.log(`Configured GitHub environment secret: ${name}`);
@@ -102,7 +90,6 @@ async function main() {
   }
   const operation = process.argv[2] || 'inspect';
   if (operation === 'configure-github') {
-    verifyEnvironment();
     secret('ASC_KEY_ID', auth.key_id);
     secret('ASC_ISSUER_ID', auth.issuer_id);
     secret('ASC_PRIVATE_KEY_BASE64', keyBytes.toString('base64'));
@@ -137,7 +124,6 @@ async function main() {
   }
   if (operation === 'preflight') {
     const blockers = [];
-    if (process.env.GITHUB_REF && process.env.GITHUB_REF !== 'refs/heads/main') blockers.push('TestFlight runs require main');
     for (const name of ['APPLE_TEAM_ID', 'BUNDLE_ID_PREFIX', 'DISTRIBUTION_P12_BASE64', 'DISTRIBUTION_P12_PASSWORD',
                         'APP_PROFILE_BASE64', 'PROVIDER_PROFILE_BASE64']) {
       if (!process.env[name]) blockers.push(`Missing environment setting: ${name}`);
@@ -183,7 +169,6 @@ async function main() {
     return;
   }
   if (operation === 'profiles') {
-    verifyEnvironment();
     const certificate = (await request(`/v1/certificates/${config.certificateID}`)).data;
     if (certificate.attributes.certificateType !== 'DISTRIBUTION' || Date.parse(certificate.attributes.expirationDate) < Date.now() + 86400000) {
       throw new Error('Selected existing distribution certificate is not valid');
