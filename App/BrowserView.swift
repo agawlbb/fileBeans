@@ -266,6 +266,7 @@ private struct MovieView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var player = AVPlayer()
     @State private var error = false
+    @State private var failureDetails = ""
     var body: some View {
         NavigationStack {
             VideoPlayer(player: player)
@@ -276,17 +277,26 @@ private struct MovieView: View {
                     player.replaceCurrentItem(with: AVPlayerItem(asset: asset)); player.play()
                 }
                 .onDisappear { player.pause(); player.replaceCurrentItem(with: nil) }
-                .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime)) { _ in error = true }
+                .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime)) { notification in
+                    guard let item = notification.object as? AVPlayerItem, item === player.currentItem else { return }
+                    showFailure(item, error: notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? NSError)
+                }
                 .task {
-                    // Native playback reports unsupported codecs through the item status.
+                    // Initial loading failures arrive through status, without an end-of-playback notification.
                     while !Task.isCancelled {
-                        if player.currentItem?.status == .failed { error = true; break }
+                        if let item = player.currentItem, item.status == .failed { showFailure(item); break }
                         try? await Task.sleep(for: .seconds(1))
                     }
                 }
                 .alert("Unable to Play", isPresented: $error) { Button("OK") { dismiss() } } message: {
-                    Text("The video format may not be supported, or the connection expired. Try opening it again.")
+                    Text("Playback failed.\n\n\(failureDetails)")
                 }
         }
+    }
+    private func showFailure(_ item: AVPlayerItem, error: NSError? = nil) {
+        failureDetails = PlaybackDiagnostics.summary(
+            error: error ?? item.error.map { $0 as NSError },
+            mediaStatusCodes: item.errorLog()?.events.map { $0.errorStatusCode } ?? [])
+        self.error = true
     }
 }
