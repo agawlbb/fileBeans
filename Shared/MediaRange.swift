@@ -26,6 +26,7 @@ enum MediaRange {
     // Stay below Quantum's 4 MiB response cap. Never buffer a complete movie.
     static let chunkSize = 1 << 20
 
+    @MainActor
     static func read(offset: Int64, length: Int64?,
                      fetch: (Int64, Int) async throws -> MediaChunk,
                      receive: (MediaChunk) throws -> Void) async throws {

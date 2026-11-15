@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 /// Translate AVPlayer's byte requests into bounded Quantum stream requests.
 /// The delegate and loading-request state are confined to the main queue.
 @MainActor
-final class MediaStream: NSObject, AVAssetResourceLoaderDelegate {
+final class MediaStream: NSObject, @preconcurrency AVAssetResourceLoaderDelegate {
     private let client: QuantumClient
     private let request: URLRequest
     private let name: String

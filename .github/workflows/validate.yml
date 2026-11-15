@@ -19,8 +19,10 @@ jobs:
           brew install xcodegen
           xcodegen generate
       - name: Simulator tests
+        timeout-minutes: 12
         run: |
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for k,v in d["devices"].items() if "iOS" in k for x in v if x["name"].startswith("iPhone")))')
+          xcrun simctl bootstatus "$DEVICE_ID" -b
           xcodebuild test -project myFiles.xcodeproj -scheme myFiles -destination "platform=iOS Simulator,id=$DEVICE_ID" -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO -resultBundlePath TestResults.xcresult
       - name: Build Release archive for iPhone and iPad
         run: |
