@@ -42,6 +42,21 @@ final class QuantumClientTests: XCTestCase {
         XCTAssertTrue(resource.children[1].isMedia)
         XCTAssertNotNil(resource.children[1].date)
     }
+    func testQuantumChildrenWithoutPaths() throws {
+        // Quantum uses ItemInfo/ExtendedItemInfo for children, neither has a path.
+        let listing = Data(#"{"name":"photos","path":"/photos/","type":"directory","folders":[{"name":"旅行","type":"directory"}],"files":[{"name":"a+b.mp4","type":"video/mp4","size":42,"viewToken":"view-fixture"}]}"#.utf8)
+        let resource = try JSONDecoder().decode(Resource.self, from: listing)
+        XCTAssertEqual(resource.children.map(\.path), ["/photos/旅行", "/photos/a+b.mp4"])
+        XCTAssertTrue(resource.children[0].isDirectory)
+        XCTAssertEqual(resource.children[1].size, 42)
+        XCTAssertEqual(resource.children[1].viewToken, "view-fixture")
+        let root = Data(#"{"name":"/","path":"/","type":"directory","folders":[{"name":"docs","type":"directory"}],"files":null}"#.utf8)
+        XCTAssertEqual(try JSONDecoder().decode(Resource.self, from: root).children[0].path, "/docs")
+        let invalid = Data(#"{"name":"/","path":"/","type":"directory","files":[{"name":"../escape","type":"text/plain"}]}"#.utf8)
+        XCTAssertThrowsError(try JSONDecoder().decode(Resource.self, from: invalid))
+        // Persisted catalog entries must still require their full path.
+        XCTAssertThrowsError(try JSONDecoder().decode(RemoteFile.self, from: Data(#"{"name":"doc","type":"text/plain"}"#.utf8)))
+    }
     func testNamesAndScopeContainment() throws {
         for name in ["", ".", "..", "a/b", "\0"] { XCTAssertThrowsError(try FilePath.child(name, in: "/")) }
         XCTAssertEqual(try FilePath.child("a & b", in: "/photos/"), "/photos/a & b")

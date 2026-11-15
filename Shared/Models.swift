@@ -68,6 +68,39 @@ struct Resource: Decodable {
     var viewToken: String?
     var folders: [RemoteFile]?
     var files: [RemoteFile]?
+    private enum CodingKeys: String, CodingKey {
+        case name, path, type, size, modified, hasPreview, viewToken, folders, files
+    }
+
+    // Quantum's child ItemInfo objects contain names, not paths. Keep this wire
+    // model separate from RemoteFile, whose persisted catalog path is required.
+    private struct Child: Decodable {
+        var name: String
+        var type: String
+        var size: Int64?
+        var modified: String?
+        var hasPreview: Bool?
+        var viewToken: String?
+
+        func file(in parent: String) throws -> RemoteFile {
+            RemoteFile(name: name, path: try FilePath.child(name, in: parent), type: type,
+                       size: size, modified: modified, hasPreview: hasPreview, viewToken: viewToken)
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        path = try c.decode(String.self, forKey: .path)
+        type = try c.decode(String.self, forKey: .type)
+        size = try c.decodeIfPresent(Int64.self, forKey: .size)
+        modified = try c.decodeIfPresent(String.self, forKey: .modified)
+        hasPreview = try c.decodeIfPresent(Bool.self, forKey: .hasPreview)
+        viewToken = try c.decodeIfPresent(String.self, forKey: .viewToken)
+        let parentPath = path
+        folders = try c.decodeIfPresent([Child].self, forKey: .folders)?.map { try $0.file(in: parentPath) }
+        files = try c.decodeIfPresent([Child].self, forKey: .files)?.map { try $0.file(in: parentPath) }
+    }
     var children: [RemoteFile] {
         ((folders ?? []) + (files ?? [])).map {
             var file = $0
