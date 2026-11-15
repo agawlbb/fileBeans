@@ -28,6 +28,11 @@ for path in list(root.glob('Config/*.plist')) + list(root.glob('Config/*.entitle
     plistlib.loads(path.read_bytes())
 for path in root.glob('**/Contents.json'):
     json.loads(path.read_text())
+release = json.loads((root / 'Config/Release.json').read_text())
+assert release['appGroup'] == 'group.' + release['bundleID']
+configuration = (root / 'Config/Project.xcconfig').read_text()
+assert f"BUNDLE_ID_PREFIX = {release['bundleID']}" in configuration
+assert f"APPLE_TEAM_ID = {release['teamID']}" in configuration
 project = yaml.safe_load((root / 'project.yml').read_text())
 for path in root.glob('.github/workflows/*.yml'):
     workflow = yaml.safe_load(path.read_text())

@@ -1,2 +1,5 @@
-// Override with Config/Local.xcconfig locally or xcodebuild settings in CI.
+// Public app identifiers; credentials belong in Keychain/GitHub environment secrets.
+APPLE_TEAM_ID = FKR675M7PM
+BUNDLE_ID_PREFIX = com.agawlbb.myfiles
+// Override locally or through explicit xcodebuild settings.
 #include? "Local.xcconfig"

@@ -1,18 +1,58 @@
 name: TestFlight
 on:
   workflow_dispatch:
+    inputs:
+      operation:
+        description: Preflight checks, signed build, or TestFlight upload
+        type: choice
+        options: [preflight, build, upload]
+        default: preflight
+        required: true
+      build_number:
+        description: Optional unique positive build number; defaults to the workflow run number
+        type: string
+        required: false
 permissions:
   contents: read
 concurrency:
   group: testflight
   cancel-in-progress: false
 jobs:
+  preflight:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: testflight
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test release validation
+        run: node --test scripts/test-apple-setup.mjs
+      - name: Verify signing and App Store Connect prerequisites without building
+        env:
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          BUNDLE_ID_PREFIX: ${{ vars.BUNDLE_ID_PREFIX }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_BASE64: ${{ secrets.ASC_PRIVATE_KEY_BASE64 }}
+          DISTRIBUTION_P12_BASE64: ${{ secrets.DISTRIBUTION_P12_BASE64 }}
+          DISTRIBUTION_P12_PASSWORD: ${{ secrets.DISTRIBUTION_P12_PASSWORD }}
+          APP_PROFILE_BASE64: ${{ secrets.APP_PROFILE_BASE64 }}
+          PROVIDER_PROFILE_BASE64: ${{ secrets.PROVIDER_PROFILE_BASE64 }}
+          RELEASE_OPERATION: ${{ inputs.operation }}
+          BUILD_NUMBER: ${{ inputs.build_number || github.run_number }}
+        run: node scripts/apple-setup.mjs preflight
   release:
+    needs: preflight
+    if: inputs.operation == 'build' || inputs.operation == 'upload'
     runs-on: macos-15
+    timeout-minutes: 60
     environment: testflight
     env:
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
       BUNDLE_ID_PREFIX: ${{ vars.BUNDLE_ID_PREFIX }}
+      BUILD_NUMBER: ${{ inputs.build_number || github.run_number }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,14 +73,23 @@ jobs:
         run: python3 scripts/prepare-signing.py
       - name: Archive and export
         run: |
-          xcodebuild archive -project myFiles.xcodeproj -scheme myFiles -configuration Release -archivePath "$RUNNER_TEMP/myFiles.xcarchive" DEVELOPMENT_TEAM="$APPLE_TEAM_ID" BUNDLE_ID_PREFIX="$BUNDLE_ID_PREFIX" CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Apple Distribution" APP_PROFILE_UUID="$APP_PROFILE_UUID" PROVIDER_PROFILE_UUID="$PROVIDER_PROFILE_UUID" OTHER_CODE_SIGN_FLAGS="--keychain $SIGNING_KEYCHAIN"
+          xcodebuild archive -project myFiles.xcodeproj -scheme myFiles -configuration Release -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/myFiles.xcarchive" DEVELOPMENT_TEAM="$APPLE_TEAM_ID" BUNDLE_ID_PREFIX="$BUNDLE_ID_PREFIX" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Apple Distribution" APP_PROFILE_UUID="$APP_PROFILE_UUID" PROVIDER_PROFILE_UUID="$PROVIDER_PROFILE_UUID" OTHER_CODE_SIGN_FLAGS="--keychain $SIGNING_KEYCHAIN"
           xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/myFiles.xcarchive" -exportPath "$RUNNER_TEMP/myFiles-export" -exportOptionsPlist "$RUNNER_TEMP/myfiles-signing/ExportOptions.plist"
       - name: Upload to TestFlight
+        if: inputs.operation == 'upload'
         working-directory: ${{ runner.temp }}/myfiles-signing
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: xcrun altool --upload-app --type ios --file "$RUNNER_TEMP/myFiles-export/myFiles.ipa" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
-      - name: Remove signing material
+      - name: Retain signed build when upload is disabled
+        if: inputs.operation == 'build'
+        uses: actions/upload-artifact@v4
+        with:
+          name: myFiles-signed-${{ env.BUILD_NUMBER }}
+          path: ${{ runner.temp }}/myFiles-export/*.ipa
+          retention-days: 7
+          if-no-files-found: error
+      - name: Remove temporary runner credentials
         if: always()
         run: python3 scripts/prepare-signing.py --cleanup

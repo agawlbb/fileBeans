@@ -10,7 +10,7 @@ Requires iOS/iPadOS 18+, a Quantum v2 HTTPS server, and an API token with API ac
 
 The source of truth for the Xcode project is `project.yml`. On a Mac, install [XcodeGen](https://github.com/yonaskolb/XcodeGen), run `xcodegen generate`, and open `myFiles.xcodeproj`. Use the shared `myFiles` scheme. The app and `QuantumFileProvider` extension share API, credentials, and catalog code.
 
-For signed device development, create a gitignored `Config/Local.xcconfig`:
+The registered release identifiers are in `Config/Project.xcconfig`. For a different signing team during device development, override them in a gitignored `Config/Local.xcconfig`:
 
 ```xcconfig
 APPLE_TEAM_ID = YOUR_TEAM_ID
@@ -27,7 +27,7 @@ For static checks, install `scripts/requirements-validation.txt` in an isolated 
 
 Connections go directly to your servers. API tokens are stored in the device Keychain and shared with the app's extension. Tokens are never added to API URLs. Native media playback uses Quantum's scoped view token plus an HTTPS session cookie supplied directly to that AVPlayer asset, rather than the shared cookie jar. HTTPS is required, API redirects are rejected, and there is no certificate-validation bypass, analytics SDK, or third-party backend.
 
-The shared App Group stores connection names, URLs, source permissions, and file metadata. Previews and uploads use local temporary files. The Files framework manages its own downloaded content and pending changes. Remove a connection to unregister its Files domain and delete its saved token and catalog. Temporary files expire through app cleanup and iOS storage management.
+The shared App Group stores connection names, URLs, source permissions, and file metadata. Previews and uploads use local cache files. The Files framework manages its own downloaded content and pending changes. Remove a connection to unregister its Files domain and delete its saved token and catalog. Temporary files expire through app cleanup and iOS storage management.
 
 Search currently filters the displayed folder. Sorting keeps folders first. Moves stay within a server source. Remote renames appear as removal/addition because Quantum's API exposes paths rather than stable object IDs; app-initiated renames and moves retain local identities. Metadata refresh occurs when browsing or when Files requests reconciliation; there is no continuous background polling.
 

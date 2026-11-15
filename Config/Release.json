@@ -1,0 +1,11 @@
+{
+  "name": "myFiles",
+  "bundleID": "com.agawlbb.myfiles",
+  "appGroup": "group.com.agawlbb.myfiles",
+  "teamID": "FKR675M7PM",
+  "certificateID": "7497F7YVX2",
+  "sku": "myfiles-ios",
+  "primaryLocale": "en-US",
+  "repository": "agawlbb/myFiles",
+  "environment": "testflight"
+}

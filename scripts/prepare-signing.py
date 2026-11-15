@@ -9,6 +9,8 @@ import shutil
 import subprocess
 import sys
 
+# This directory is disposable runner staging, never the VM's retained signing store.
+os.umask(0o077)
 root = Path(os.environ["RUNNER_TEMP"]) / "myfiles-signing"
 keychain = root / "signing.keychain-db"
 profiles = Path.home() / "Library/MobileDevice/Provisioning Profiles"

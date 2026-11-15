@@ -6,6 +6,12 @@ build/
 xcuserdata/
 *.ipa
 *.p12
+*.pfx
+*.key
+*.pem
+*.csr
+*.cer
+*.der
 *.mobileprovision
 *.p8
 .env*
