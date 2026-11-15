@@ -21,6 +21,11 @@ final class MediaStream: NSObject, @preconcurrency AVAssetResourceLoaderDelegate
         return asset
     }
 
+    func play(on player: AVPlayer) {
+        player.replaceCurrentItem(with: AVPlayerItem(asset: asset()))
+        player.play()
+    }
+
     func cancel() {
         for task in tasks.values { task.cancel() }
         tasks.removeAll()

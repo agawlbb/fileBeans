@@ -274,7 +274,7 @@ private struct MovieView: View {
                 .navigationTitle(movie.name).navigationBarTitleDisplayMode(.inline)
                 .toolbar { Button("Done") { dismiss() } }
                 .onAppear {
-                    player.replaceCurrentItem(with: AVPlayerItem(asset: movie.stream.asset())); player.play()
+                    movie.stream.play(on: player)
                 }
                 .onDisappear { player.pause(); player.replaceCurrentItem(with: nil); movie.stream.cancel() }
                 .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime)) { notification in
