@@ -15,6 +15,33 @@ conversion tests and 22 isolated backup policy tests passed. The deployed worker
 has no Samba mount; its backup inventory audit passed. Physical iPad quality
 comparison remains part of device acceptance.
 
+## Source home, thumbnail cache, and video full screen
+
+- Cold-launch with one connection: Drive, Samba, and VPS should be available
+  immediately without choosing a connection. Check list/grid, search, and the
+  persistent iPad source sidebar. On iPhone, open a source, browse nested folders,
+  then return to the source list.
+- In Settings, add a second connection with duplicate source names. Confirm one
+  flat source list with connection subtitles and correct credentials for each
+  source. Edit and remove connections while browsing; check navigation resets,
+  stale sources disappear, and removing the last connection shows setup guidance.
+  Disconnect one server and verify other sources remain usable with a retry for
+  the failed connection. Confirm Transfers remains accessible for each companion.
+- View thumbnails from Drive, Samba, and VPS, terminate and reopen the app, then
+  revisit the same files. Confirm cached thumbnails avoid thumbnail requests.
+  Modify a file and refresh; verify its new version gets a fresh thumbnail.
+  Check icon fallbacks, disk-write failure, corrupt entries, missing-version
+  expiry, and connection cache removal. Thumbnail eviction must preserve uploads.
+  SourcesTests and ThumbnailCacheTests cover aggregation, identity, persistence,
+  invalidation, request sharing, isolation, expiry, corruption, and disk limits.
+- Play a video from each source and use the native full screen control. Enter
+  and exit while playing and paused; confirm position and pause state remain.
+  Seek, rotate on iPhone/iPad, and use iPad multitasking. Close with Done and
+  confirm streaming stops. Check playback errors in both presentation modes.
+  These player transitions and responsive navigation require Apple/device checks.
+- These additions have local static validation only until the next explicitly
+  requested Apple build/test run; no new simulator or device result is implied.
+
 ## Existing browser and transfer checks
 
 - Background-lock regression: refresh a large directory, immediately lock the

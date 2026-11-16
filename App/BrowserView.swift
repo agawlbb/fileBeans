@@ -317,12 +317,15 @@ struct MovieView: View {
     @State private var player = AVPlayer()
     @State private var error = false
     @State private var failureDetails = ""
+    @State private var started = false
     var body: some View {
         NavigationStack {
-            VideoPlayer(player: player)
+            NativeVideoPlayer(player: player, stream: movie.stream)
                 .navigationTitle(movie.name).navigationBarTitleDisplayMode(.inline)
                 .toolbar { Button("Done") { dismiss() } }
                 .task {
+                    guard !started else { return }
+                    started = true
                     do { try await movie.stream.play(on: player) }
                     catch {
                         guard !Task.isCancelled else { return }
@@ -330,7 +333,6 @@ struct MovieView: View {
                         self.error = true
                     }
                 }
-                .onDisappear { player.pause(); player.replaceCurrentItem(with: nil); movie.stream.cancel() }
                 .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime)) { notification in
                     guard let item = notification.object as? AVPlayerItem, item === player.currentItem else { return }
                     showFailure(item, error: notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? NSError)
@@ -352,5 +354,33 @@ struct MovieView: View {
             error: error ?? item.error.map { $0 as NSError },
             mediaStatusCodes: item.errorLog()?.events.map { $0.errorStatusCode } ?? [])
         self.error = true
+    }
+}
+
+/// AVKit owns full screen transitions, keeping one player and resource loader alive.
+struct NativeVideoPlayer: UIViewControllerRepresentable {
+    let player: AVPlayer
+    let stream: MediaStream
+    @MainActor final class Coordinator {
+        let player: AVPlayer
+        let stream: MediaStream
+        init(player: AVPlayer, stream: MediaStream) { self.player = player; self.stream = stream }
+        func close() { player.pause(); player.replaceCurrentItem(with: nil); stream.cancel() }
+    }
+    func makeCoordinator() -> Coordinator { Coordinator(player: player, stream: stream) }
+    static func dismantleUIViewController(_ controller: AVPlayerViewController, coordinator: Coordinator) {
+        coordinator.close()
+        controller.player = nil
+    }
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let controller = AVPlayerViewController()
+        controller.player = player
+        controller.showsPlaybackControls = true
+        controller.entersFullScreenWhenPlaybackBegins = false
+        controller.exitsFullScreenWhenPlaybackEnds = false
+        return controller
+    }
+    func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
+        if controller.player !== player { controller.player = player }
     }
 }

@@ -343,7 +343,10 @@ struct DriveThumbnailView: View {
     let item: DriveFile
     let enabled: Bool
     @State private var image: UIImage?
-    private var key: String { "drive:\(connection.id):\(item.id):\(item.version ?? "")" }
+    private var key: ThumbnailKey {
+        ThumbnailKey(connection: connection.id, provider: "drive", source: item.driveId ?? "",
+                     file: item.id, revision: item.version ?? item.modifiedTime ?? "")
+    }
     var body: some View {
         Group {
             if !item.folder, let image { Image(uiImage: image).resizable().scaledToFit().clipShape(RoundedRectangle(cornerRadius: 6)) }
@@ -353,12 +356,13 @@ struct DriveThumbnailView: View {
         .task(id: key) {
             image = nil
             guard enabled, !item.folder, item.hasThumbnail == true else { return }
-            if let cached = ThumbnailCache.images.object(forKey: key as NSString) { image = cached; return }
-            let client = CompanionClient(connection: connection); defer { client.close() }
             do {
-                let data = try await client.request("drive/files/" + item.id + "/thumbnail")
+                let data = try await ThumbnailCache.shared.data(for: key) {
+                    let client = CompanionClient(connection: connection); defer { client.close() }
+                    return try await client.request("drive/files/" + item.id + "/thumbnail")
+                }
                 try Task.checkCancellation()
-                if let image = UIImage(data: data) { ThumbnailCache.images.setObject(image, forKey: key as NSString, cost: data.count); self.image = image }
+                image = UIImage(data: data)
             } catch { /* Keep the file-type icon. */ }
         }
     }
