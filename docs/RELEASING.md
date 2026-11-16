@@ -52,34 +52,49 @@ When refreshing credentials for this project, the shared VM helper installs the 
 
 ## Current release — November 16, 2026
 
-**0.1.0 (8)** is uploaded and Apple reports `VALID` / `IN_BETA_TESTING`.
+**0.1.0 (9)** is uploaded; Apple reports **VALID** / **IN_BETA_TESTING**.
 The existing internal group retains access to all builds; no tester/group changes
 or App Store submission were made.
 
-- App source: `ab60f7d`, immutable tag `testflight/0.1.0-8`.
-- [Validation](https://github.com/agawlbb/fileBeans/actions/runs/43853796671):
-  all 40 simulator tests passed and the unsigned iPhone/iPad Release archive passed.
-- [Signed TestFlight upload](https://github.com/agawlbb/fileBeans/actions/runs/43858523541):
+- Release source: `7772ca4`, immutable tag `testflight/0.1.0-9`.
+- [Validation](https://github.com/agawlbb/fileBeans/actions/runs/43877396959):
+  all 46 simulator tests passed, including Drive permission/empty-page/sort tests,
+  and the unsigned iPhone/iPad Release archive passed. Validated source `a95aa5a`
+  has identical App/Shared/Tests/FileProvider/project/workflow inputs to the release;
+  the subsequent change affects only server account-reconnection recovery/docs.
+- [Signed TestFlight upload](https://github.com/agawlbb/fileBeans/actions/runs/43880475777):
   signing preflight, archive/export, upload, and runner credential cleanup passed.
-- Apple build ID: `947e98db-3f9c-4436-a491-3e1fe6e45dd6`.
-- The VPS companion runs server source `7af0a8d`; its later server-only safety
-  commit does not change the validated/shipped iOS sources.
+- Apple build ID: `ac2ec1c2-7883-42a9-8634-378ecf5aa991`.
+- The VPS companion runs source `7772ca4`. Go race/MariaDB recovery tests and live
+  copy/trash/Drive-browsing smoke checks passed; live Drive writes require fresh
+  full-access consent and remain part of device acceptance.
 
-After updating, edit the existing connection and set companion URL
-`https://files.coffeybean.com/companion`. Its separate token is stored privately on
-the VPS in `/opt/services/filebeans/private/connection.txt`; never commit or log it.
-Then open **Google Drive → Connect Drive** for the independent Google sign-in.
-The existing OAuth client and newly registered callback are configured. Copy jobs
-and protected local deletions require the companion settings to be enabled.
-Drive remains excluded from Apple Files.
+After updating, open the connection's **Google Drive → Upgrade Drive Access** and
+approve full Drive permission. A disconnected account instead shows **Connect
+Drive**. MakeLORA's separate token is unchanged. Google Drive uses the same
+list/grid browser and supports native file management, server-side copies,
+Files/Photos uploads, thumbnails, media playback, and native trash. Google-native
+documents open in Google's browser; server export/conversion remains deferred.
+Drive stays outside Apple Files. Trash shortcuts are separate bottom bars only
+at each source's top level, with no combined Trash source.
 
-GitHub left the first branch-based release request
+For an unconfigured connection, set companion URL
+`https://files.coffeybean.com/companion` and its separate token from the private
+VPS connection file or the existing `vps_exchange` copy. Never commit or log it.
+The existing OAuth client and registered callback remain configured. Physical
+device acceptance, real Google write operations and codec compatibility remain
+manual checks after sign-in; simulator success does not claim those checks.
+
+### Previous release
+
+**0.1.0 (8)** was `VALID` / `IN_BETA_TESTING`, Apple build ID
+`947e98db-3f9c-4436-a491-3e1fe6e45dd6`, source `ab60f7d`, tag
+`testflight/0.1.0-8`. Its [validation](https://github.com/agawlbb/fileBeans/actions/runs/43853796671)
+passed 40 tests and device archiving; its [upload](https://github.com/agawlbb/fileBeans/actions/runs/43858523541)
+succeeded. One stale branch-based request
 [`43856976402`](https://github.com/agawlbb/fileBeans/actions/runs/43856976402)
-unstarted, with no jobs. Normal and force cancellation were rejected with HTTP
-409 (not yet queued), and deletion with HTTP 403. The successful release uses the
-fixed tag above. If GitHub later admits that stale request, the existing preflight
-rejects already-uploaded build number 8 before signing/upload. Do not rerun it or
-change its build number. This is a GitHub queue record, not a second release.
+eventually ran and failed preflight because build 8 already existed. Signing and
+upload were skipped; it did not produce a second release. Do not rerun it.
 
 ## Manual workflow
 

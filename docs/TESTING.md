@@ -62,3 +62,10 @@ The app and Files extension passed Apple SDK compilation, all 19 simulator unit 
   trash source. Quantum and Apple Files should retain their existing presentation.
   Trash a synthetic file using drive.google.com and restore it in fileBeans. Check
   shared-drive trash scope, permission restrictions, and permanent confirmations.
+
+The final Drive app source passed all **46** simulator tests and unsigned device
+archiving on [validation run 43877396959](https://github.com/agawlbb/fileBeans/actions/runs/43877396959).
+Source `a95aa5a` has identical iOS inputs to release tag `testflight/0.1.0-9`
+(`7772ca4`); the intervening change is server-only account recovery and docs.
+The companion's Go race/MariaDB suite and synthetic live local-storage smoke
+checks passed. Actual Google writes await fresh consent and device acceptance.
