@@ -86,13 +86,13 @@ final class QuantumClient: NSObject, URLSessionTaskDelegate {
         _ = try await data(r)
     }
     /// Sends only paths to Quantum; file contents remain on the server.
-    func copy(source: String, from: String, to: String) async throws {
+    func copy(source: String, from: String, toSource: String, to: String) async throws {
         var r = try request("resources", method: "PATCH")
         r.timeoutInterval = 3600
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
         r.httpBody = try JSONSerialization.data(withJSONObject: [
             "action": "copy", "overwrite": false, "rename": false,
-            "items": [["fromSource": source, "fromPath": from, "toSource": source, "toPath": to]]
+            "items": [["fromSource": source, "fromPath": from, "toSource": toSource, "toPath": to]]
         ])
         _ = try await data(r)
     }

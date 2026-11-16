@@ -31,8 +31,8 @@ struct FolderDestination: View {
             defer { loading = false }
             do {
                 folders = try await repository.children(folder).filter { child in
-                    child.source == source && child.file.isDirectory &&
-                    !excluded.contains { $0.file.isDirectory && FilePath.contains(child.file.path, in: $0.file.path) }
+                    (copying || child.source == source) && child.file.isDirectory &&
+                    !excluded.contains { $0.source == child.source && $0.file.isDirectory && FilePath.contains(child.file.path, in: $0.file.path) }
                 }
             } catch { self.error = error.localizedDescription }
         }
