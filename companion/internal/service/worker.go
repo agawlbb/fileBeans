@@ -286,37 +286,8 @@ func (s *Service) execute(ctx context.Context, j *Job) error {
 			}
 		}
 	}
-	claimed := map[stageIdentity]string{}
-	for i := range j.Manifest {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		f := &j.Manifest[i]
-		top := strings.Split(f.To, "/")[0]
-		if published(top) {
-			continue
-		}
-		target := filepath.Join(stage, f.To)
-		if f.Directory {
-			if e = mkdir(dst, target); e != nil {
-				return e
-			}
-			info, er := dst.Stat(target)
-			if er != nil {
-				return er
-			}
-			if er = claimStage(info, f.To, claimed); er != nil {
-				return er
-			}
-			continue
-		}
-		j.Current = f.To
-		if e = mkdir(dst, filepath.Dir(target)); e != nil {
-			return e
-		}
-		if e = s.copyFile(ctx, j, f, dst, target, claimed); e != nil {
-			return e
-		}
+	if e = s.copyManifest(ctx, j, dst, stage); e != nil {
+		return e
 	}
 	names := map[string]bool{}
 	for _, f := range j.Manifest {
@@ -328,9 +299,6 @@ func (s *Service) execute(ctx context.Context, j *Job) error {
 		}
 		j.Current = "publish:" + name
 		if e = s.checkpoint(j); e != nil {
-			return e
-		}
-		if e = accessible(dst, filepath.Join(stage, name)); e != nil {
 			return e
 		}
 		if e = renameExclusive(dst, filepath.Join(stage, name), filepath.Join(j.Request.Destination.Path, name)); e != nil {
@@ -347,36 +315,24 @@ func (s *Service) execute(ctx context.Context, j *Job) error {
 	_ = dst.RemoveAll(stage)
 	return nil
 }
-func (s *Service) copyFile(ctx context.Context, j *Job, f *File, dst *os.Root, target string, claimed map[stageIdentity]string) error {
-	if e := safe(dst, target); e != nil {
-		return e
-	}
-	out, e := dst.OpenFile(target, os.O_CREATE|os.O_RDWR, 0600)
-	if e != nil {
-		return e
-	}
-	defer out.Close()
-	st, e := out.Stat()
-	if e != nil {
-		return e
-	}
-	if e = claimStage(st, f.To, claimed); e != nil {
-		return e
-	}
+func (s *Service) copyFile(ctx context.Context, connection string, f *File, out *os.File, st fs.FileInfo, report func() error) error {
+	var e error
 	offset := min(st.Size(), f.Done)
+	f.Completed = false
+	h := sha256.New()
 	var in io.ReadCloser
 	if f.Source == "drive" {
 		// Verify the saved prefix hash locally and pin the remote version before ranges.
 		if offset > 0 {
-			h := sha256.New()
 			if _, e = io.CopyN(h, out, offset); e != nil {
 				return e
 			}
 			if hex.EncodeToString(h.Sum(nil)) != f.Hash {
 				offset = 0
+				h.Reset()
 			}
 		}
-		meta, er := s.driveMeta(ctx, f.From, j.Connection)
+		meta, er := s.driveMeta(ctx, f.From, connection)
 		if er != nil {
 			return er
 		}
@@ -386,7 +342,7 @@ func (s *Service) copyFile(ctx context.Context, j *Job, f *File, dst *os.Root, t
 		if offset == f.Size {
 			in = io.NopCloser(strings.NewReader(""))
 		} else {
-			in, e = s.driveContent(ctx, f.From, offset, j.Connection)
+			in, e = s.driveContent(ctx, f.From, offset, connection)
 		}
 	} else {
 		src, er := s.root(f.Source)
@@ -430,16 +386,13 @@ func (s *Service) copyFile(ctx context.Context, j *Job, f *File, dst *os.Root, t
 		return e
 	}
 	defer in.Close()
-	if e = out.Truncate(offset); e != nil {
-		return e
+	if st.Size() != offset {
+		if e = out.Truncate(offset); e != nil {
+			return e
+		}
 	}
-	if _, e = out.Seek(offset, 0); e != nil {
-		return e
-	}
-	j.Done += offset - f.Done
 	f.Done = offset
-	h := sha256.New()
-	if offset > 0 {
+	if offset > 0 && f.Source != "drive" {
 		if _, e = out.Seek(0, 0); e != nil {
 			return e
 		}
@@ -450,14 +403,16 @@ func (s *Service) copyFile(ctx context.Context, j *Job, f *File, dst *os.Root, t
 	if _, e = out.Seek(offset, 0); e != nil {
 		return e
 	}
-	buf := make([]byte, 1024*1024)
+	buf := make([]byte, max(1, min(int64(1024*1024), f.Size-offset)))
 	last := time.Now()
-	lastDone := f.Done
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		n, er := in.Read(buf)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if n > 0 {
 			if f.Done+int64(n) > f.Size {
 				return ErrConflict
@@ -471,18 +426,15 @@ func (s *Service) copyFile(ctx context.Context, j *Job, f *File, dst *os.Root, t
 			}
 			h.Write(buf[:n])
 			f.Done += int64(n)
-			j.Done += int64(n)
-			if time.Since(last) >= time.Second || f.Done == f.Size {
+			if time.Since(last) >= time.Second && f.Done < f.Size {
 				if e = out.Sync(); e != nil {
 					return e
 				}
 				f.Hash = hex.EncodeToString(h.Sum(nil))
-				j.Speed = float64(f.Done-lastDone) / time.Since(last).Seconds()
-				if e = s.checkpoint(j); e != nil {
+				if e = report(); e != nil {
 					return e
 				}
 				last = time.Now()
-				lastDone = f.Done
 				if f.Source != "drive" {
 					r, re := s.root(f.Source)
 					if re != nil {
@@ -503,7 +455,7 @@ func (s *Service) copyFile(ctx context.Context, j *Job, f *File, dst *os.Root, t
 		return io.ErrUnexpectedEOF
 	}
 	if f.Source == "drive" {
-		meta, er := s.driveMeta(ctx, f.From, j.Connection)
+		meta, er := s.driveMeta(ctx, f.From, connection)
 		if er != nil {
 			return er
 		}
@@ -524,11 +476,15 @@ func (s *Service) copyFile(ctx context.Context, j *Job, f *File, dst *os.Root, t
 			return ErrConflict
 		}
 	}
+	if e = out.Chmod(0660); e != nil {
+		return e
+	}
 	if e = out.Sync(); e != nil {
 		return e
 	}
 	f.Hash = hex.EncodeToString(h.Sum(nil))
-	return s.checkpoint(j)
+	f.Completed = true
+	return report()
 }
 func publicError(e error) string {
 	switch {

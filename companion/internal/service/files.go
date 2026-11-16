@@ -136,20 +136,3 @@ func renameExclusive(r *os.Root, from, to string) error {
 	}
 	return renameNoReplace(r, from, to)
 }
-
-// Published copy permissions allow the deployment's shared Quantum group to manage.
-func accessible(r *os.Root, path string) error {
-	return fs.WalkDir(r.FS(), path, func(p string, d fs.DirEntry, e error) error {
-		if e != nil {
-			return e
-		}
-		if e = safe(r, p); e != nil {
-			return e
-		}
-		mode := fs.FileMode(0660)
-		if d.IsDir() {
-			mode = 0770
-		}
-		return r.Chmod(p, mode)
-	})
-}

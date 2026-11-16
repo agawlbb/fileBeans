@@ -112,6 +112,31 @@ rediscovers. Fully copied selections are renamed with Linux `RENAME_NOREPLACE`.
 Cross-filesystem staging/publication is unsupported and must be corrected in
 configuration. Originals are never removed by a copy.
 
+For VPS/Samba destinations, up to four files are copied concurrently; files over
+4 MiB share one large-file slot. Drive folder discovery also overlaps up to four
+list requests and preserves deterministic parent-first manifest order. Drive
+uploads and Drive-to-Drive publication retain their existing serial behavior.
+
+Staging uses no-follow directory handles with a 128-directory LRU, avoiding
+repeated ancestor checks and parent creation for every file. Published permissions
+are applied through those handles while copying. Before publication, one
+validation checks staged types, sizes and identities against the manifest;
+symlinks, aliases, replaced directories and unexpected files prevent publication.
+No destination mount options or storage credentials are changed.
+
+Each completed file is flushed once after source-version verification. Long files
+still flush resumable prefixes roughly once per second. Recovery updates batch
+up to 32 completions or one second of reported progress, plus a final flush before
+publication; SQL patches only changed file records and progress fields, without
+sending the whole manifest for each tiny file. A crash before a batch checkpoint
+can repeat that batch, but never trusts uncheckpointed bytes. Cancellation
+interrupts all in-flight Drive requests and joins workers before staging cleanup.
+Transfer speed is measured across the copy phase, including per-file overhead.
+
+The development latency fixture (128 tiny files, 8 ms per Drive request) took
+about 4.01 seconds with one worker and 1.05 seconds with four (3.8x). This isolates
+concurrency using the same pipeline; it is not a real Samba bandwidth benchmark.
+
 Temporary network failures retry with capped exponential backoff and Google's
 Retry-After where supplied. Authorization problems wait for reconnection. Missing
 files, permission errors, unsupported items, collisions and disk exhaustion fail

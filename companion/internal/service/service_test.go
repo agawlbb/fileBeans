@@ -259,6 +259,7 @@ func TestDatabaseWorkflow(t *testing.T) {
 			t.Fatal("cancelled download published", err)
 		}
 	})
+	t.Run("small-file-performance", func(t *testing.T) { testCopyPerformance(t, s) })
 	t.Run("copy-and-idempotency", func(t *testing.T) {
 		req := CopyRequest{Items: []Item{{Source: "samba", Path: "/folder"}}, Destination: Item{Source: "vps", Path: "/"}}
 		j := submit(req, "copy-test-key-0001")

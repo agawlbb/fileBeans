@@ -274,64 +274,12 @@ func (s *Service) driveManifest(ctx context.Context, id, connection string) ([]F
 	return s.driveTree(ctx, id, connection, false)
 }
 func (s *Service) driveTree(ctx context.Context, id, connection string, withinDrive bool) ([]File, string, error) {
-	var files []File
-	seen := map[string]bool{}
-	top, e := s.driveMeta(ctx, id, connection)
-	if e != nil {
-		return nil, "", e
+	top, err := s.driveMeta(ctx, id, connection)
+	if err != nil {
+		return nil, "", err
 	}
-	var walk func(DriveItem, string) error
-	walk = func(d DriveItem, path string) error {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if !validName(d.Name) {
-			return ErrConflict
-		}
-		if seen[d.ID] {
-			return ErrUnsafe
-		}
-		seen[d.ID] = true
-		dir := d.Mime == "application/vnd.google-apps.folder"
-		if !dir && ((!withinDrive && (strings.HasPrefix(d.Mime, "application/vnd.google-apps.") || !d.Capabilities.Download)) || (withinDrive && !d.Capabilities.Copy)) {
-			return ErrUnsupported
-		}
-		size := int64(0)
-		if !dir && d.Size != "" {
-			var e error
-			size, e = strconv.ParseInt(d.Size, 10, 64)
-			if e != nil || size < 0 {
-				return ErrUnsafe
-			}
-		}
-		files = append(files, File{Source: "drive", From: d.ID, To: path, Size: size, Version: d.Version, Directory: dir, Mime: d.Mime})
-		if dir {
-			names := map[string]bool{}
-			page := ""
-			for {
-				list, e := s.driveList(ctx, d.ID, page, connection)
-				if e != nil {
-					return e
-				}
-				for _, child := range list.Files {
-					if names[child.Name] {
-						return ErrConflict
-					}
-					names[child.Name] = true
-					if e = walk(child, filepath.Join(path, child.Name)); e != nil {
-						return e
-					}
-				}
-				page = list.Next
-				if page == "" {
-					break
-				}
-			}
-		}
-		return nil
-	}
-	e = walk(top, top.Name)
-	return files, top.Name, e
+	files, err := s.discoverDriveTree(ctx, top, connection, withinDrive)
+	return files, top.Name, err
 }
 
 // A streaming request has an idle deadline rather than a total duration limit.
