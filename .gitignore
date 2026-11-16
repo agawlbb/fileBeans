@@ -21,3 +21,5 @@ secrets/
 
 .venv/
 companion/filebeans
+
+__pycache__/
