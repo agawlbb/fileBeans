@@ -176,3 +176,15 @@ check source switching with the sidebar visible and compact multitasking widths.
 - `FolderBreadcrumbTests` covers ancestor truncation, invalid indices, and opaque
   Drive IDs with duplicate names. Static source validation passed locally; the
   new tests and layout/lifecycle acceptance require Apple validation and devices.
+
+## TestFlight 13 validation
+
+Source `f5120ad` passed simulator tests and unsigned iPhone/iPad Release archiving
+on [validation run 43946193403](https://github.com/agawlbb/fileBeans/actions/runs/43946193403).
+Both `SourceNavigationTests` passed (same-source reopening and different-source
+switching), as did all three `FolderBreadcrumbTests`. Both retained artifact
+checksums matched GitHub's SHA-256 digests, and packaged identities and supported
+devices were verified. Build **0.1.0 (13)** is VALID / IN_BETA_TESTING following
+[release run 43949614169](https://github.com/agawlbb/fileBeans/actions/runs/43949614169).
+These synthetic navigation tests do not replace live-source device checks or
+narrow-width breadcrumb/iPad sidebar layout acceptance above.

@@ -52,6 +52,28 @@ When refreshing credentials for this project, the shared VM helper installs the 
 
 ## Current release — November 16, 2026
 
+**0.1.0 (13)** is uploaded; Apple reports **VALID** / **IN_BETA_TESTING**.
+The existing internal group retains access to all builds.
+
+- Source: `f5120ad25c36026f692a5b264d2fe1f16fa132c8`, immutable tag
+  `testflight/0.1.0-13`.
+- [Validation](https://github.com/agawlbb/fileBeans/actions/runs/43946193403):
+  simulator tests and unsigned iPhone/iPad Release archiving passed. Both source
+  navigation lifecycle tests and all three breadcrumb tests passed.
+- Downloaded test-result and unsigned-archive checksums matched GitHub's SHA-256
+  digests. Packaged app/extension identifiers, version 0.1.0, iOS 18 minimum,
+  and iPhone/iPad support were verified.
+- [Signed release](https://github.com/agawlbb/fileBeans/actions/runs/43949614169):
+  signing preflight, archive/export, TestFlight upload and credential cleanup passed.
+- Apple build ID: `f200a7a6-7d86-4e41-88d6-4175fbca43d9`.
+- Compact source navigation uses a stable stack. Folder titles show tappable
+  ancestor breadcrumbs, abbreviating to a source and hierarchy menu when space
+  is limited. The iPad sidebar also displays the current folder hierarchy.
+- Physical-device layout, live-source switching, and iPad sidebar acceptance
+  remain manual. No VPS deployment is needed for this app-only release.
+
+## Previous release — 0.1.0 (12)
+
 **0.1.0 (12)** is uploaded; Apple reports **VALID** / **IN_BETA_TESTING**.
 The existing internal group retains access to all builds.
 
