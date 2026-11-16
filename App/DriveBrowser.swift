@@ -193,7 +193,7 @@ struct DriveBrowser: View {
             }
         }
     }
-    private var browserWithActions: some View {
+    private var browserWithAlerts: some View {
         browser
             .sheet(isPresented: $configuring) { ConnectionEditor(connection: connection) {} }
             .alert("Google Drive", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
@@ -212,6 +212,9 @@ struct DriveBrowser: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Create") { if let current = model.current { mutate(DriveMutationRequest(action: "folder", parent: current.id, name: proposedName)) } }
             }
+    }
+    private var browserWithConfirmations: some View {
+        browserWithAlerts
             .confirmationDialog("Move \(chosen.count) item(s) to Google Drive Trash? Google retains trash for 30 days.", isPresented: $deleting, titleVisibility: .visible) {
                 Button("Move to Trash", role: .destructive) {
                     let items = chosen
@@ -230,6 +233,9 @@ struct DriveBrowser: View {
                     }
                 }
             }
+    }
+    private var browserWithActions: some View {
+        browserWithConfirmations
             .sheet(isPresented: $choosingDestination) {
                 NavigationStack {
                     SourceDestinationPicker(connection: connection, mode: copying ? .copy : .driveMove,
