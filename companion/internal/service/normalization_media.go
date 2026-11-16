@@ -291,7 +291,7 @@ func (s *Service) validateMedia(ctx context.Context, path string, p mediaPlan) e
 				return ErrConflict
 			}
 		}
-		return nil
+		return s.decodeNormalizedMedia(ctx, path)
 	}
 	if output.Video.Codec != "hevc" || output.Video.Width <= 0 || output.Video.Height <= 0 {
 		return ErrUnsupported
@@ -316,13 +316,19 @@ func (s *Service) validateMedia(ctx context.Context, path string, p mediaPlan) e
 	if p.HDR && output.Video.Transfer != "bt709" {
 		return ErrUnsupported
 	}
+	return s.decodeNormalizedMedia(ctx, path)
+}
+
+func (s *Service) decodeNormalizedMedia(ctx context.Context, path string) error {
 	// Decode the entire output to catch truncation/corruption before publication.
 	c := s.config.Normalization.defaults()
-	args := []string{"-v", "error", "-nostdin", "-xerror", "-threads", "1", "-i", path, "-map", "0:v:0", "-map", "0:a:0?", "-f", "null", "-"}
+	args := []string{"-v", "error", "-nostdin", "-xerror", "-threads", "1"}
+	args = append(args, mediaInputArgs()...)
+	args = append(args, "-i", path, "-map", "0:v:0", "-map", "0:a:0?", "-f", "null", "-")
 	command := exec.CommandContext(ctx, c.FFmpeg, args...)
 	command.Stdout = io.Discard
 	command.Stderr = io.Discard
-	if e = command.Run(); e != nil {
+	if e := command.Run(); e != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}

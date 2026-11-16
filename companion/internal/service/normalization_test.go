@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"golang.org/x/sys/unix"
 	"image"
 	"image/color"
 	"image/gif"
@@ -231,6 +232,44 @@ func testNormalizationWorkflow(t *testing.T, s *Service) {
 			t.Fatal("user deletion was undone")
 		}
 	})
+	t.Run("backup-lock-excludes-publication-gap", func(t *testing.T) {
+		jpeg, _ := os.ReadFile(filepath.Join(base, "pics/photo.jpg"))
+		j := writeNormSource(t, s, "pics/backup-lock.png", pngBytes)
+		j.Phase = "publishing"
+		j.SourceHash = normHash(pngBytes)
+		j.OutputHash = normHash(jpeg)
+		j.OutputPath = "pics/backup-lock.jpg"
+		s.normSave(&j)
+		root, _, _ := s.normalizationRoot()
+		defer root.Close()
+		s.normPrepare(root, &j)
+		root.WriteFile(filepath.Join(normWorkspace, "output.jpg"), jpeg, 0600)
+		unlock, e := lockPrivateFile(ctx, filepath.Join(s.config.State, ".normalization-publish.lock"), unix.LOCK_EX)
+		if e != nil {
+			t.Fatal(e)
+		}
+		done := make(chan error, 1)
+		go func() { done <- s.runNormalizationJob(ctx, &j) }()
+		select {
+		case e := <-done:
+			unlock()
+			t.Fatal("publication bypassed backup lock", e)
+		case <-time.After(100 * time.Millisecond):
+		}
+		if _, e := os.Stat(filepath.Join(base, j.Request.Path)); e != nil {
+			unlock()
+			t.Fatal("backup lost visible original", e)
+		}
+		unlock()
+		if e := <-done; e != nil {
+			t.Fatal(e)
+		}
+		if e := s.normCleanup(root, &j); e != nil {
+			t.Fatal(e)
+		}
+		j.State = "completed"
+		s.normSave(&j)
+	})
 	t.Run("failed-publication-restores-original", func(t *testing.T) {
 		j := writeNormSource(t, s, "pics/restore.png", pngBytes)
 		root, _, _ := s.normalizationRoot()
@@ -394,10 +433,12 @@ func testNormalizationWorkflow(t *testing.T, s *Service) {
 			}
 			ids = append(ids, j.ID)
 		}
+		oldStable := s.config.Normalization.StableSeconds
+		s.config.Normalization.StableSeconds = 3600
 		workerCtx, cancel := context.WithCancel(ctx)
 		done := make(chan struct{})
 		go func() { defer close(done); s.RunNormalization(workerCtx) }()
-		defer func() { cancel(); <-done }()
+		defer func() { cancel(); <-done; s.config.Normalization.StableSeconds = oldStable }()
 		deadline := time.Now().Add(30 * time.Second)
 		for time.Now().Before(deadline) {
 			complete := 0

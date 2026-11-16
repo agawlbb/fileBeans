@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"golang.org/x/sys/unix"
 	"io"
 	"log"
 	"os"
@@ -362,7 +363,10 @@ func (s *Service) downloadNorm(ctx context.Context, root *os.Root, j *Normalizat
 	}
 	return f, nil
 }
-func (s *Service) normPublish(root *os.Root, j *NormalizationJob, output string) error {
+func (s *Service) normPublish(ctx context.Context, root *os.Root, j *NormalizationJob, output string) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if _, e := root.Stat(filepath.Join(normWorkspace, "original")); e == nil {
 		j.RawMoved = true
 	} else if !errors.Is(e, os.ErrNotExist) {
@@ -396,7 +400,7 @@ func (s *Service) normPublish(root *os.Root, j *NormalizationJob, output string)
 	if j.Request.Source != "drive" {
 		raw := filepath.Join(normWorkspace, "original")
 		if _, e := root.Stat(raw); errors.Is(e, os.ErrNotExist) {
-			if e = s.normSourceCurrent(context.Background(), j); e != nil {
+			if e = s.normSourceCurrent(ctx, j); e != nil {
 				return e
 			}
 			if e = renameExclusive(root, j.Request.Path, raw); e != nil {
@@ -418,6 +422,9 @@ func (s *Service) normPublish(root *os.Root, j *NormalizationJob, output string)
 			return e
 		}
 	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if e := renameExclusive(root, output, j.OutputPath); e != nil {
 		return e
 	}
@@ -432,7 +439,7 @@ func (s *Service) normPublish(root *os.Root, j *NormalizationJob, output string)
 	j.OutputVersion = version(st)
 	return s.normSave(j)
 }
-func (s *Service) executeNormalization(ctx context.Context, j *NormalizationJob) error {
+func (s *Service) executeNormalization(ctx context.Context, j *NormalizationJob, publicationGuard func() error) error {
 	root, c, e := s.normalizationRoot()
 	if e != nil {
 		return e
@@ -450,7 +457,22 @@ func (s *Service) executeNormalization(ctx context.Context, j *NormalizationJob)
 	// Once publication has begun, reconcile it before honouring cancellation.
 	if j.Phase == "publishing" && j.OutputHash != "" {
 		output := filepath.Join(normWorkspace, "output"+filepath.Ext(j.OutputPath))
-		if e = s.normPublish(root, j, output); e != nil {
+		_, outputError := root.Stat(output)
+		_, rawError := root.Stat(filepath.Join(normWorkspace, "original"))
+		existing, existingError := hashNormFile(root, j.OutputPath)
+		if errors.Is(outputError, os.ErrNotExist) && errors.Is(rawError, os.ErrNotExist) && (existingError != nil || existing != j.OutputHash) {
+			j.Phase = "queued"
+			j.OutputHash = ""
+			j.RawMoved = false
+			if e = s.normSave(j); e != nil {
+				return e
+			}
+			return s.executeNormalization(ctx, j, publicationGuard)
+		}
+		if e = publicationGuard(); e != nil {
+			return e
+		}
+		if e = s.normPublish(ctx, root, j, output); e != nil {
 			return e
 		}
 		return nil
@@ -628,7 +650,10 @@ func (s *Service) executeNormalization(ctx context.Context, j *NormalizationJob)
 	if e = s.normSave(j); e != nil {
 		return e
 	}
-	return s.normPublish(root, j, outputRel)
+	if e = publicationGuard(); e != nil {
+		return e
+	}
+	return s.normPublish(ctx, root, j, outputRel)
 }
 func normPublicDirs(root *os.Root, path string) error {
 	current := ""
@@ -653,7 +678,21 @@ func normalizationError(e error) string {
 	}
 }
 func (s *Service) runNormalizationJob(ctx context.Context, j *NormalizationJob) error {
-	e := s.executeNormalization(ctx, j)
+	var unlockPublication func()
+	guard := func() error {
+		if unlockPublication != nil {
+			return nil
+		}
+		var e error
+		unlockPublication, e = lockPrivateFile(ctx, filepath.Join(s.config.State, ".normalization-publish.lock"), unix.LOCK_SH)
+		return e
+	}
+	defer func() {
+		if unlockPublication != nil {
+			unlockPublication()
+		}
+	}()
+	e := s.executeNormalization(ctx, j, guard)
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -691,6 +730,13 @@ func (s *Service) runNormalizationJob(ctx context.Context, j *NormalizationJob) 
 	return s.normSave(j)
 }
 func (s *Service) RunNormalization(ctx context.Context) {
+	// Filesystem fencing remains held while a lost database lease is unwinding.
+	// All replicas share state; a successor cannot race an old process cleanup.
+	unlock, e := lockPrivateFile(ctx, filepath.Join(s.config.State, ".normalization-worker.lock"), unix.LOCK_EX)
+	if e != nil {
+		return
+	}
+	defer unlock()
 	for ctx.Err() == nil {
 		conn, e := s.db.Conn(ctx)
 		if e != nil {
