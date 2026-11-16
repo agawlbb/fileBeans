@@ -69,3 +69,8 @@ The workflows use Xcode 26.3 on `macos-15`, meeting Apple's [Xcode 26 / iOS 26 S
 Both workflows accept a macOS runner choice. The default remains `macos-15`
 (Apple Silicon). If that hosted pool stays queued, `macos-15-intel` uses the same
 macOS/Xcode 26.3 toolchain on Intel; simulator tests still precede release.
+
+Validation selects an available iPhone runtime matching the selected Xcode SDK
+(or its newest compatible installed runtime). Simulator boot has a separate
+ten-minute limit; compilation/tests have twenty minutes. This keeps fresh Intel
+runner setup from consuming the entire test execution budget.
