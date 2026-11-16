@@ -13,7 +13,8 @@ performed by these files.
    built from `./cmd/filebeans` when a build/deployment is requested.
 2. Provision a dedicated MySQL/MariaDB database using InnoDB. Use a separate
    migration account for the explicit `filebeans -config PATH -migrate` command;
-   normal startup does not create or migrate tables. The runtime account needs
+   normal startup does not create or migrate tables. `filebeans -schema` prints
+   the exact embedded migration SQL without reading configuration or connecting. The runtime account needs
    SELECT, INSERT, UPDATE, DELETE only on that database. Keep the DSN private and
    set connection/read/write timeouts as in the example. The API never sends SQL
    credentials to the app.
@@ -160,3 +161,13 @@ service/Quantum permissions, actual Google consent/downloads, token expiry,
 server restart recovery, and deletion/restore through the installed Apple Files
 extension. Linux static Swift parsing is not an Apple SDK compilation or device
 test. An iOS build/release requires its separate existing workflow authorization.
+
+## Deployed container packaging
+
+The VPS uses the infrastructure repository's `infrastructure/apps/filebeans/compose.yaml`
+instead of the standalone systemd example, so it can reach the existing private
+MariaDB network without publishing a database port. Compile a static binary in
+the VM development container, package it with the CA bundle using
+`deploy/Dockerfile` (or import the equivalent root filesystem), and transfer the
+prebuilt image to production. The VPS retains the runtime binary, CA, schema SQL,
+Dockerfile and source revision for recovery. Do not build on the VPS.

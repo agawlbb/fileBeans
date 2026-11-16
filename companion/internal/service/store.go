@@ -3,21 +3,15 @@ package service
 import (
 	"context"
 	"database/sql"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	_ "github.com/go-sql-driver/mysql"
 	"time"
 )
 
-const schema = `CREATE TABLE IF NOT EXISTS fb_operations (
- id VARCHAR(64) PRIMARY KEY,
- kind VARCHAR(24) NOT NULL,
- state VARCHAR(24) NOT NULL,
- request_key VARCHAR(64) UNIQUE,
- body LONGTEXT NOT NULL,
- updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
- INDEX operations_kind_state(kind,state)
-) ENGINE=InnoDB`
+//go:embed schema.sql
+var Schema string
 
 type Item struct {
 	Source string `json:"source"`

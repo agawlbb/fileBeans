@@ -37,7 +37,7 @@ func New(c Config) (*Service, error) {
 	return &Service{config: c, db: d}, nil
 }
 func (s *Service) Close()         { s.db.Close() }
-func (s *Service) Migrate() error { _, e := s.db.Exec(schema); return e }
+func (s *Service) Migrate() error { _, e := s.db.Exec(Schema); return e }
 func (s *Service) Run(ctx context.Context) {
 	// A database advisory lock prevents two workers publishing the same job.
 	for ctx.Err() == nil {

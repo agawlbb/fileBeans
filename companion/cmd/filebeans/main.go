@@ -4,6 +4,7 @@ import (
 	"context"
 	"filebeans/companion/internal/service"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -15,7 +16,12 @@ import (
 func main() {
 	path := flag.String("config", "/etc/filebeans/config.json", "private configuration path")
 	migrate := flag.Bool("migrate", false, "apply schema and exit")
+	printSchema := flag.Bool("schema", false, "print migration SQL and exit without connecting")
 	flag.Parse()
+	if *printSchema {
+		fmt.Print(service.Schema)
+		return
+	}
 	c, e := service.Load(*path)
 	if e != nil {
 		log.Fatal("Invalid or unreadable configuration")

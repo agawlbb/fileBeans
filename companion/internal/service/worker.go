@@ -161,7 +161,7 @@ func (s *Service) runJob(ctx context.Context, j *Job) {
 	} else if e != nil {
 		j.Error = publicError(e)
 		j.Speed = 0
-		if errors.Is(e, ErrUnsafe) || errors.Is(e, ErrConflict) || errors.Is(e, ErrUnsupported) || errors.Is(e, syscall.EEXIST) || errors.Is(e, syscall.ENOSPC) || errors.Is(e, fs.ErrPermission) || errors.Is(e, fs.ErrNotExist) {
+		if errors.Is(e, ErrUnsafe) || errors.Is(e, ErrConflict) || errors.Is(e, ErrUnsupported) || errors.Is(e, syscall.EEXIST) || errors.Is(e, syscall.ENOSPC) || errors.Is(e, syscall.EXDEV) || errors.Is(e, syscall.EBUSY) || errors.Is(e, fs.ErrPermission) || errors.Is(e, fs.ErrNotExist) {
 			j.State = "failed"
 		} else {
 			j.State = "waiting"
@@ -471,6 +471,8 @@ func publicError(e error) string {
 	switch {
 	case errors.Is(e, ErrUnsupported):
 		return "Unsupported Drive item or download not permitted"
+	case errors.Is(e, syscall.EXDEV), errors.Is(e, syscall.EBUSY):
+		return "Cannot move across a nested mount boundary; choose a folder on the configured storage filesystem"
 	case errors.Is(e, ErrUnsafe):
 		return "Unsafe or unsupported path"
 	case errors.Is(e, ErrConflict), errors.Is(e, syscall.EEXIST):
