@@ -188,3 +188,14 @@ devices were verified. Build **0.1.0 (13)** is VALID / IN_BETA_TESTING following
 [release run 43949614169](https://github.com/agawlbb/fileBeans/actions/runs/43949614169).
 These synthetic navigation tests do not replace live-source device checks or
 narrow-width breadcrumb/iPad sidebar layout acceptance above.
+
+## Spacious folder heading follow-up
+
+The browser and Drive restore the native large folder title. Breadcrumbs occupy
+an independent full-width inset below the navigation bar, with body-size text
+and at least 44-point-high ancestor/menu controls, rather than competing with
+toolbar actions for title space. The inset remains visible while scrolling.
+Check initial large titles, collapsed titles after scrolling, deep/long paths,
+Dynamic Type, iPhone landscape, iPad sidebar, and ancestor navigation. The source
+and overflow menu must remain available at narrow widths. Static checks do not
+replace Apple layout/device acceptance; this change is not yet released.

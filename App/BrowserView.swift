@@ -101,8 +101,8 @@ struct BrowserView: View {
     private var browserContent: some View {
         fileContent
         .navigationTitle(parent?.file.name ?? connection.name)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .principal) { FolderBreadcrumbBar() } }
+        .navigationBarTitleDisplayMode(.large)
+        .safeAreaInset(edge: .top, spacing: 0) { FolderBreadcrumbBar() }
         .searchable(text: $search, prompt: "Search this folder")
         .overlay { emptyState }
                 .safeAreaInset(edge: .bottom) {

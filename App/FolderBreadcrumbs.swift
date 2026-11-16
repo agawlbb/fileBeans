@@ -45,7 +45,12 @@ struct FolderBreadcrumbBar: View {
                 // the menu provides every ancestor, including Sources.
                 hierarchyMenu { Text(root.name).lineLimit(1).minimumScaleFactor(0.6) }
             }
-            .font(.subheadline)
+            .font(.body)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 4)
+            .background(.regularMaterial)
+            .overlay(alignment: .bottom) { Divider() }
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Folder path")
         }
@@ -58,6 +63,7 @@ struct FolderBreadcrumbBar: View {
         Button { trail.navigate(index) } label: {
             Text(trail.locations[index].name).lineLimit(1).truncationMode(.middle)
                 .fontWeight(index == trail.locations.count - 1 ? .semibold : .regular)
+                .frame(minHeight: 44)
         }
         .buttonStyle(.plain)
         .foregroundStyle(index == trail.locations.count - 1 ? Color.primary : Color.accentColor)
@@ -71,7 +77,7 @@ struct FolderBreadcrumbBar: View {
                     trail.navigate(index)
                 }
             }
-        } label: { label() }
+        } label: { label().frame(minHeight: 44) }
         .accessibilityLabel("Full folder path")
     }
 }

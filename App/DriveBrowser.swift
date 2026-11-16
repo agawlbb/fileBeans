@@ -122,8 +122,8 @@ struct DriveBrowser: View {
         BrowserFileCollection(items: visible, grid: grid, header: header, row: { item, large in entry(item, large: large) },
                               loadMore: model.next.isEmpty ? nil : { Task { await reload(page: model.next) } })
             .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .principal) { FolderBreadcrumbBar() } }
+            .navigationBarTitleDisplayMode(.large)
+            .safeAreaInset(edge: .top, spacing: 0) { FolderBreadcrumbBar() }
             .searchable(text: $search, prompt: "Search this folder")
             .toolbar { toolbar }
             .overlay { if model.busy && model.files.isEmpty { ProgressView() } }
