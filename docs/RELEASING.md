@@ -52,6 +52,31 @@ When refreshing credentials for this project, the shared VM helper installs the 
 
 ## Current release — November 16, 2026
 
+**0.1.0 (11)** is uploaded; Apple reports **VALID** / **IN_BETA_TESTING**.
+The existing internal group retains access to all builds. No tester/group changes
+or App Store submission were made.
+
+- Source: `f8957caf4189cf920f3744e8c7d6732071132487`, immutable tag
+  `testflight/0.1.0-11`.
+- [Validation](https://github.com/agawlbb/fileBeans/actions/runs/43929950557):
+  all **62** simulator tests passed, including source aggregation and persistent
+  thumbnail caching; the unsigned iPhone/iPad Release archive passed.
+- The downloaded test-result and unsigned-archive artifact checksums matched
+  GitHub's SHA-256 digests. Packaged app/extension identifiers, version 0.1.0,
+  iOS 18 minimum, and iPhone/iPad support were verified.
+- [Signed release](https://github.com/agawlbb/fileBeans/actions/runs/43932404308):
+  preflight, archive/export, TestFlight upload and temporary credential cleanup
+  passed on the supported Intel macOS runner.
+- Apple build ID: `cf1fb6c3-67e7-49e1-9afc-0e000507656c`.
+- The home page now lists all connections' sources, with connection management
+  in Settings and connection subtitles when multiple connections exist.
+  Thumbnails persist locally with a 200 MB disk limit. Videos use native AVKit
+  controls for full screen playback while preserving the player and stream.
+- Physical iPhone/iPad navigation and full screen transition checks remain manual
+  acceptance. This release changes only the app; no VPS deployment was needed.
+
+## Previous release — 0.1.0 (10)
+
 **0.1.0 (10)** is uploaded; Apple reports **VALID** / **IN_BETA_TESTING**.
 The existing internal group retains access. No tester/group changes or App Store
 submission were made.

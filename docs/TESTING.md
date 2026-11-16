@@ -39,8 +39,13 @@ comparison remains part of device acceptance.
   Seek, rotate on iPhone/iPad, and use iPad multitasking. Close with Done and
   confirm streaming stops. Check playback errors in both presentation modes.
   These player transitions and responsive navigation require Apple/device checks.
-- These additions have local static validation only until the next explicitly
-  requested Apple build/test run; no new simulator or device result is implied.
+- Source `f8957ca` passed all **62** simulator tests and the unsigned iPhone/iPad
+  Release archive on [validation run 43929950557](https://github.com/agawlbb/fileBeans/actions/runs/43929950557).
+  The downloaded result bundle confirms the successful test total; its checksum
+  and the unsigned archive's checksum match GitHub's artifact digests. Signed
+  build **0.1.0 (11)** is VALID / IN_BETA_TESTING after
+  [release run 43932404308](https://github.com/agawlbb/fileBeans/actions/runs/43932404308).
+  Responsive navigation and full screen transitions still need device acceptance.
 
 ## Existing browser and transfer checks
 
