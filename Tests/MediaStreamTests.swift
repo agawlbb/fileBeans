@@ -68,6 +68,21 @@ final class MediaStreamTests: XCTestCase {
         let state = "time=\(player.currentTime().seconds), rate=\(player.rate), control=\(player.timeControlStatus.rawValue), waiting=\(player.reasonForWaitingToPlay?.rawValue ?? "none"), item=\(player.currentItem?.status.rawValue ?? -1)"
         XCTAssertGreaterThanOrEqual(player.currentTime().seconds, 1.5, state)
         XCTAssertGreaterThanOrEqual(decodedFrames, 3, "Only \(decodedFrames) video frames decoded; \(state)")
+        guard player.currentTime().seconds >= 1.5, decodedFrames >= 3 else { return }
+
+        let sought = expectation(description: "Seek completes")
+        player.pause()
+        player.seek(to: CMTime(seconds: 5, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { finished in
+            XCTAssertTrue(finished)
+            sought.fulfill()
+        }
+        await fulfillment(of: [sought], timeout: 10)
+        player.play()
+        let resumeDeadline = Date().addingTimeInterval(10)
+        while player.currentTime().seconds < 6, Date() < resumeDeadline {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertGreaterThanOrEqual(player.currentTime().seconds, 6, "Playback must advance after seeking and resuming")
     }
 
     @MainActor

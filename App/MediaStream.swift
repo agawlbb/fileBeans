@@ -22,6 +22,10 @@ final class MediaStream: NSObject, @preconcurrency AVAssetResourceLoaderDelegate
     }
 
     func play(on player: AVPlayer) {
+        // AVPlayer cannot estimate HTTP throughput behind our custom URL scheme.
+        // Its automatic buffer-rate evaluation can wait forever at the first frame.
+        // Let playback consume the byte ranges we deliver as they become available.
+        player.automaticallyWaitsToMinimizeStalling = false
         player.replaceCurrentItem(with: AVPlayerItem(asset: asset()))
         player.play()
     }
