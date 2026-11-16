@@ -36,6 +36,9 @@ func jsonResponse(status int, value any) *http.Response {
 func TestDriveConsentUpgrade(t *testing.T) {
 	s := &Service{config: Config{State: t.TempDir(), GoogleClientID: "fixture", GoogleClientSecret: "fixture", GoogleRedirect: "https://example.test/oauth/callback"}}
 	fixtureGrant(t, s, false)
+	legacy, _ := s.google()
+	legacy.Account = ""
+	privateJSON(filepath.Join(s.config.State, "google.json"), legacy)
 	previous := googleHTTP
 	defer func() { googleHTTP = previous }()
 	account := "opaque-account"
@@ -87,6 +90,18 @@ func TestDriveConsentUpgrade(t *testing.T) {
 	if grant.Connection == "fixture-account" {
 		t.Fatal("account switch not isolated")
 	}
+	account = "opaque-account"
+	if e := consent(); e != nil {
+		t.Fatal(e)
+	}
+	grant, _ = s.google()
+	if grant.Connection != "fixture-account" {
+		t.Fatal("returning account lost its job identity")
+	}
+	if e := s.requireDriveWrite("fixture-account"); e != nil {
+		t.Fatal(e)
+	}
+
 }
 
 func TestDriveEmptyPages(t *testing.T) {

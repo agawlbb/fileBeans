@@ -63,6 +63,8 @@ access/refresh tokens are stored in mode-0600 server state, never returned to iO
 The service requests the full `drive` scope. Existing read-only grants keep browsing
 and Drive-to-server copying until **Upgrade Drive Access** completes fresh consent.
 The companion saves granted scopes and Google's opaque account identifier. A
+private identity ledger retains account nonces without tokens, so explicitly
+reconnecting an earlier account can resume or cancel its unfinished jobs. A
 same-account upgrade preserves job identity; switching accounts gives a new
 identity, so old jobs cannot silently operate on another account. MakeLORA's token
 file and authorization are independent and are never edited. Disconnect removes

@@ -431,6 +431,17 @@ func (s *Service) callback(ctx context.Context, state, code string) error {
 		return e
 	}
 	grant.Account = account
+	// Retain opaque identity nonces, never tokens, so explicitly reconnecting
+	// an earlier account can resume/cancel its jobs after an account switch.
+	identitiesPath := filepath.Join(s.config.State, "google-accounts.json")
+	identities := map[string]string{}
+	if data, er := os.ReadFile(identitiesPath); er == nil {
+		if json.Unmarshal(data, &identities) != nil || identities == nil {
+			return ErrAuthorization
+		}
+	} else if !errors.Is(er, os.ErrNotExist) {
+		return er
+	}
 	if old, er := s.google(); er == nil {
 		oldAccount := old.Account
 		if oldAccount == "" {
@@ -442,10 +453,18 @@ func (s *Service) callback(ctx context.Context, state, code string) error {
 			}
 			oldAccount, _ = googleAccount(ctx, access)
 		}
-		if oldAccount != "" && oldAccount == account {
-			grant.Connection = old.Connection
+		if oldAccount != "" && old.Connection != "" {
+			identities[oldAccount] = old.Connection
 		}
 	}
+	if known := identities[account]; known != "" {
+		grant.Connection = known
+	}
+	identities[account] = grant.Connection
+	if e = privateJSON(identitiesPath, identities); e != nil {
+		return e
+	}
+
 	return privateJSON(filepath.Join(s.config.State, "google.json"), grant)
 }
 
