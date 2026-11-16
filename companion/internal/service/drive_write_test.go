@@ -89,6 +89,25 @@ func TestDriveConsentUpgrade(t *testing.T) {
 	}
 }
 
+func TestDriveEmptyPages(t *testing.T) {
+	s := &Service{config: Config{State: t.TempDir(), Token: strings.Repeat("t", 32)}}
+	fixtureGrant(t, s, false)
+	previous := googleHTTP
+	defer func() { googleHTTP = previous }()
+	googleHTTP = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) { return jsonResponse(200, map[string]any{}), nil })}
+	for route, field := range map[string]string{"/v1/drive/files?folder=root": "files", "/v1/drive/trash": "files", "/v1/drive/drives": "drives"} {
+		r := httptest.NewRequest("GET", route, nil)
+		r.Header.Set("Authorization", "Bearer "+s.config.Token)
+		w := httptest.NewRecorder()
+		s.Handler().ServeHTTP(w, r)
+		var body map[string]json.RawMessage
+		json.Unmarshal(w.Body.Bytes(), &body)
+		if w.Code != 200 || string(body[field]) != "[]" {
+			t.Fatal("invalid empty page", route, w.Code, w.Body.String())
+		}
+	}
+}
+
 type cloudFixture struct {
 	t            *testing.T
 	items        map[string]DriveItem

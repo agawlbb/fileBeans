@@ -10,6 +10,13 @@ final class DriveTests: XCTestCase {
             XCTAssertFalse(BrowserOrdering.precedes(file, folder, order: order))
         }
     }
+    func testEmptyDriveCollectionsDecodeWhenGoogleOmitsArrays() throws {
+        for json in ["{}", #"{"files":null,"drives":null}"#] {
+            let data = Data(json.utf8)
+            XCTAssertTrue(try JSONDecoder().decode(DrivePage.self, from: data).files.isEmpty)
+            XCTAssertTrue(try JSONDecoder().decode(SharedDrivePage.self, from: data).drives.isEmpty)
+        }
+    }
     func testDrivePermissionsAndNativeDocuments() throws {
         let native = try JSONDecoder().decode(DriveFile.self, from: Data(#"{"id":"doc","name":"Document","mimeType":"application/vnd.google-apps.document","capabilities":{"canCopy":true,"canRename":false,"canDownload":true,"canTrash":true}}"#.utf8))
         XCTAssertTrue(native.nativeDocument)

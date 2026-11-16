@@ -53,9 +53,27 @@ struct DriveFile: Decodable, Identifiable {
                          } ?? .distantPast)
     }
 }
-struct DrivePage: Decodable { let files: [DriveFile]; let nextPageToken: String? }
+struct DrivePage: Decodable {
+    let files: [DriveFile]
+    let nextPageToken: String?
+    private enum CodingKeys: String, CodingKey { case files, nextPageToken }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        files = try values.decodeIfPresent([DriveFile].self, forKey: .files) ?? []
+        nextPageToken = try values.decodeIfPresent(String.self, forKey: .nextPageToken)
+    }
+}
 struct SharedDrive: Decodable, Identifiable { let id: String; let name: String }
-struct SharedDrivePage: Decodable { let drives: [SharedDrive]; let nextPageToken: String? }
+struct SharedDrivePage: Decodable {
+    let drives: [SharedDrive]
+    let nextPageToken: String?
+    private enum CodingKeys: String, CodingKey { case drives, nextPageToken }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        drives = try values.decodeIfPresent([SharedDrive].self, forKey: .drives) ?? []
+        nextPageToken = try values.decodeIfPresent(String.self, forKey: .nextPageToken)
+    }
+}
 struct DriveMutationRequest: Encodable {
     let action: String
     var fileId: String? = nil

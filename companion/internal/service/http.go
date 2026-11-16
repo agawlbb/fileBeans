@@ -410,10 +410,16 @@ func (s *Service) Handler() http.Handler {
 			return
 		}
 		defer response.Body.Close()
-		var result any
+		var result map[string]any
 		if e = json.NewDecoder(io.LimitReader(response.Body, 4*1024*1024)).Decode(&result); e != nil {
 			fail(w, e)
 			return
+		}
+		if result == nil {
+			result = map[string]any{}
+		}
+		if result["drives"] == nil {
+			result["drives"] = []any{}
 		}
 		reply(w, 200, result)
 	})

@@ -85,6 +85,15 @@ type DriveList struct {
 	Next  string      `json:"nextPageToken"`
 }
 
+// Google omits empty arrays; keep the app API stable for empty folders/trash.
+func (d DriveList) MarshalJSON() ([]byte, error) {
+	type value DriveList
+	if d.Files == nil {
+		d.Files = []DriveItem{}
+	}
+	return json.Marshal(value(d))
+}
+
 var googleHTTP = &http.Client{Timeout: 2 * time.Minute, CheckRedirect: func(r *http.Request, via []*http.Request) error { return http.ErrUseLastResponse }}
 
 func privateJSON(path string, v any) error {
