@@ -69,6 +69,16 @@ final class CompanionTransportTests: XCTestCase {
             XCTFail("Service failure was ignored")
         } catch { XCTAssertEqual(error.localizedDescription, "Samba unavailable") }
     }
+    func testDrivePageTokenEscapesLiteralPlus() async throws {
+        CompanionStub.inspect = { request in
+            let parts = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!
+            XCTAssertTrue(parts.percentEncodedQuery!.contains("a%2Bb"))
+            XCTAssertEqual(parts.queryItems?.first(where: { $0.name == "page" })?.value, "a+b")
+            return (200, Data("{}".utf8))
+        }
+        let client = client(); defer { client.close() }
+        _ = try await client.request("drive/files", query: ["folder": "root", "page": "a+b"])
+    }
     func testPermanentRemovalRequiresExplicitHeader() async throws {
         CompanionStub.inspect = { request in
             XCTAssertEqual(request.value(forHTTPHeaderField: "X-Confirm-Permanent"), "yes")

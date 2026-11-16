@@ -61,6 +61,7 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
         let base = try QuantumClient.validateURL(configured.absoluteString)
         var parts = URLComponents(url: base.appendingPathComponent("v1/" + route), resolvingAgainstBaseURL: false)!
         parts.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
+        parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         var r = URLRequest(url: parts.url!)
         r.httpMethod = method; r.httpBody = body
         r.setValue("Bearer " + (try credential ?? TokenStore.read(tokenID)), forHTTPHeaderField: "Authorization")
@@ -86,7 +87,10 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
     }
     func submit(_ copy: BackgroundCopy, key: String? = nil) async throws -> CopyJob {
         let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
-        let body = try encoder.encode(copy)
+        let canonical = BackgroundCopy(items: copy.items.sorted {
+            $0.source == $1.source ? $0.path < $1.path : $0.source < $1.source
+        }, destination: copy.destination)
+        let body = try encoder.encode(canonical)
         let identity = Data((connection.id.uuidString + (connection.companionURL?.absoluteString ?? "")).utf8) + body
         let hash = SHA256.hash(data: identity).map { String(format: "%02x", $0) }.joined()
         let directory = try AppConfiguration.directory.appendingPathComponent("copy-submissions", isDirectory: true)
