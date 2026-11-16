@@ -142,3 +142,18 @@ identities, iOS 18 minimum, and iPhone/iPad support were verified. Signed build
 [release run 43939202252](https://github.com/agawlbb/fileBeans/actions/runs/43939202252).
 The source-list back/reopen regression still requires the physical-device checks
 above; the model suite does not exercise SwiftUI compact navigation transitions.
+
+## Compact source navigation follow-up
+
+The compact layout uses a stable `NavigationStack` with value-based source links
+instead of programmatic split-column changes and replacement of the detail stack.
+The regular layout retains its source sidebar. `SourceNavigationTests` hosts the
+same navigation container with synthetic asynchronous listings, checks that
+popping cancels the old destination task, and requires a new listing to complete
+when reopening either the same source or different sources.
+
+These new lifecycle tests require the next authorized Apple simulator validation;
+local syntax validation alone does not establish that they pass. Device acceptance
+must include Samba → back → VPS → back → Drive and repeated reopening, rapid back
+while loading, nested folders, list/grid, Transfers, and connection edits. On iPad,
+check source switching with the sidebar visible and compact multitasking widths.

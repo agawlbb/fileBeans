@@ -72,10 +72,10 @@ struct SourcesView: View {
     @StateObject private var connections = ConnectionsModel()
     @StateObject private var model = SourcesModel()
     @State private var selected: SourceDestination?
-    @State private var presentationID = UUID()
+    @State private var sourcePath: [SourceDestination] = []
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var settings = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var compactColumn: NavigationSplitViewColumn = .sidebar
     @State private var search = ""
     @AppStorage("gridView") private var grid = false
     private var entries: [SourceDestination] {
@@ -85,53 +85,13 @@ struct SourcesView: View {
         }
     }
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility, preferredCompactColumn: $compactColumn) {
-            BrowserFileCollection(items: entries, grid: grid, header: status, row: { source, large in
-                Button { select(source) } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        BrowserItemCell(name: source.name, size: nil, folder: true, large: large, selecting: false, selected: false,
-                                        thumbnail: Image(systemName: "folder.fill").resizable().scaledToFit().padding(8).foregroundStyle(Color.accentColor))
-                        if connections.connections.count > 1 {
-                            Text(source.connection.name).font(.caption).foregroundStyle(.secondary)
-                        }
-                    }.accessibilityElement(children: .combine)
-                }.buttonStyle(.plain)
-            })
-            .navigationTitle("fileBeans")
-            .searchable(text: $search, prompt: "Search sources")
-            .toolbar {
-                Button("Settings", systemImage: "gearshape") { settings = true }
-                Button(grid ? "List" : "Grid", systemImage: grid ? "list.bullet" : "square.grid.2x2") { grid.toggle() }
-            }
-            .refreshable { await model.reload(connections.connections) }
-            .overlay {
-                if connections.connections.isEmpty {
-                    ContentUnavailableView {
-                        Label("Your files, connected", systemImage: "folder")
-                    } description: { Text("Add a connection in Settings to see your sources.") } actions: {
-                        Button("Settings") { settings = true }.buttonStyle(.borderedProminent)
-                    }
-                } else if entries.isEmpty && !model.loading && model.errors.isEmpty {
-                    ContentUnavailableView.search(text: search)
-                }
-            }
-        } detail: {
-            NavigationStack {
-                if let selected { selected.destination }
-                else { ContentUnavailableView("Choose a source", systemImage: "folder") }
-            }.id(presentationID)
-        }
-        .onChange(of: compactColumn) { _, column in
-            // The compact back button returns to the sidebar without changing
-            // selected. Discard that destination's cancelled task and view state.
-            if column == .sidebar { selected = nil }
-        }
+        navigation
         .sheet(isPresented: $settings) { NavigationStack { ConnectionsSettingsView(model: connections) } }
         .task { connections.reload() }
         .task(id: connections.connections) {
             // A configuration change invalidates browsing state and cached source metadata.
             selected = nil
-            compactColumn = .sidebar
+            sourcePath = []
             model.roots = [:]
             await model.reload(connections.connections)
         }
@@ -140,11 +100,47 @@ struct SourcesView: View {
             Button("OK") { connections.error = nil }
         } message: { Text(connections.error ?? "") }
     }
-    private func select(_ source: SourceDestination) {
-        // A source can be reopened with the same value after its task was
-        // cancelled by navigation. Each opening needs a fresh detail lifetime.
-        presentationID = UUID()
-        selected = source; compactColumn = .detail
+    private var navigation: some View {
+        SourceNavigation(compact: sizeClass == .compact, path: $sourcePath, selected: $selected,
+                         columnVisibility: $columnVisibility, sidebar: sourceList) { $0.destination }
+    }
+    private var sourceList: some View {
+        BrowserFileCollection(items: entries, grid: grid, header: status, row: { source, large in
+            sourceLink(source) {
+                VStack(alignment: .leading, spacing: 4) {
+                    BrowserItemCell(name: source.name, size: nil, folder: true, large: large, selecting: false, selected: false,
+                                    thumbnail: Image(systemName: "folder.fill").resizable().scaledToFit().padding(8).foregroundStyle(Color.accentColor))
+                    if connections.connections.count > 1 {
+                        Text(source.connection.name).font(.caption).foregroundStyle(.secondary)
+                    }
+                }.accessibilityElement(children: .combine)
+            }.buttonStyle(.plain)
+        })
+        .navigationTitle("fileBeans")
+        .searchable(text: $search, prompt: "Search sources")
+        .toolbar {
+            Button("Settings", systemImage: "gearshape") { settings = true }
+            Button(grid ? "List" : "Grid", systemImage: grid ? "list.bullet" : "square.grid.2x2") { grid.toggle() }
+        }
+        .refreshable { await model.reload(connections.connections) }
+        .overlay {
+            if connections.connections.isEmpty {
+                ContentUnavailableView {
+                    Label("Your files, connected", systemImage: "folder")
+                } description: { Text("Add a connection in Settings to see your sources.") } actions: {
+                    Button("Settings") { settings = true }.buttonStyle(.borderedProminent)
+                }
+            } else if entries.isEmpty && !model.loading && model.errors.isEmpty {
+                ContentUnavailableView.search(text: search)
+            }
+        }
+    }
+    @ViewBuilder private func sourceLink<Label: View>(_ source: SourceDestination, @ViewBuilder label: () -> Label) -> some View {
+        if sizeClass == .compact {
+            NavigationLink(value: source, label: label)
+        } else {
+            Button { selected = source } label: { label() }
+        }
     }
     @ViewBuilder private var status: some View {
         if model.loading { ProgressView("Loading sources…") }
@@ -157,9 +153,37 @@ struct SourcesView: View {
                 }
             }
             if connection.companionURL != nil {
-                Button { select(SourceDestination(connection: connection, kind: .transfers)) } label: {
+                sourceLink(SourceDestination(connection: connection, kind: .transfers)) {
                     Label(connections.connections.count > 1 ? "Transfers — " + connection.name : "Transfers", systemImage: "arrow.left.arrow.right")
                 }
+            }
+        }
+    }
+}
+
+/// Keeps the compact stack stable across source selections. Separating the host
+/// also lets lifecycle tests use synthetic destinations without server access.
+struct SourceNavigation<Sidebar: View, Detail: View>: View {
+    let compact: Bool
+    @Binding var path: [SourceDestination]
+    @Binding var selected: SourceDestination?
+    @Binding var columnVisibility: NavigationSplitViewVisibility
+    let sidebar: Sidebar
+    @ViewBuilder let detail: (SourceDestination) -> Detail
+
+    var body: some View {
+        if compact {
+            NavigationStack(path: $path) {
+                sidebar.navigationDestination(for: SourceDestination.self) { detail($0) }
+            }
+        } else {
+            NavigationSplitView(columnVisibility: $columnVisibility) {
+                sidebar
+            } detail: {
+                NavigationStack {
+                    if let selected { detail(selected) }
+                    else { ContentUnavailableView("Choose a source", systemImage: "folder") }
+                }.id(selected)
             }
         }
     }
