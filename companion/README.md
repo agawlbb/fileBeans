@@ -240,6 +240,32 @@ the VM development container, package it with the CA bundle using
 prebuilt image to production. The VPS retains the runtime binary, CA, schema SQL,
 Dockerfile and source revision for recovery. Do not build on the VPS.
 
+## Companion deployment — November 16, 2026
+
+Companion source `84ecad127bcb62d2cc1ab18d27076a3f105c329d` is deployed as
+`filebeans-companion:84ecad1`. It was compiled and packaged in VM development,
+verified by SHA-256 on the VPS, and activated with Compose targeting only
+`companion` (`--no-deps --no-build --pull never`). No database migration ran.
+Runtime artifacts and rollback copies are retained under
+`/opt/services/filebeans/deploy/companion-84ecad1`.
+
+The deployed Compose configuration uses `FILEBEANS_COMPANION_REVISION` for the
+companion, falling back to the existing `FILEBEANS_REVISION`. The latter remains
+`7ebd703` for the unchanged normalizer. Its container ID and start time
+(`2026-11-16T17:10:17.690121031Z`) were verified unchanged after deployment, and
+its current conversion continued making progress. Do not recreate the normalizer
+when updating only the companion.
+
+An isolated live VPS-to-Samba probe copied 32 files of 512 bytes each through a
+deep directory hierarchy. The previous server took 30.757 seconds; the new server
+took 8.729 seconds (3.52x). All hashes matched and the probe files were removed.
+This is one small-file Samba comparison, including discovery/publication and
+polling overhead; it does not measure Google download bandwidth or isolate each
+optimization. The existing authenticated HTTPS, anonymous-access rejection,
+Samba-to-VPS copy, both storages' trash/restore/conflict/purge, and Drive-browsing
+smoke checks also passed. Synthetic smoke-test files and their isolated history
+were removed; the two performance-probe completion records remain as audit data.
+
 ## Sequential VPS media normalization
 
 An optional dedicated worker normalizes one file completely before the next

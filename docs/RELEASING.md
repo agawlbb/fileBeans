@@ -70,6 +70,39 @@ breadcrumb heading in place of the folder title.
 
 ## Current release — November 16, 2026
 
+**0.1.0 (16)** is uploaded; Apple reports **VALID** / **IN_BETA_TESTING**.
+The existing internal beta group retains access to all builds.
+
+- Source: `84ecad127bcb62d2cc1ab18d27076a3f105c329d`, immutable tag
+  `testflight/0.1.0-16`. All outstanding implementation work was merged to `main`
+  before deployment and release.
+- [Validation](https://github.com/agawlbb/fileBeans/actions/runs/43976688057):
+  all **68** simulator tests and unsigned iPhone/iPad Release archiving passed,
+  including queued-transfer filename/destination decoding.
+- Both downloaded validation artifacts matched GitHub SHA-256 digests. Packaged
+  app/extension identifiers, version 0.1.0, iOS 18 minimum, and iPhone/iPad support
+  were verified. The signed workflow overrides the validation archive's default
+  build number with build 16.
+- [Publication](https://github.com/agawlbb/fileBeans/actions/runs/43978748344):
+  signing preflight, signed archive/export, TestFlight upload, and temporary runner
+  credential cleanup passed.
+- Apple build ID: `e0be188e-e5cc-4be6-af00-3b63598cbca3`.
+- Transfer controls show cancellation progress immediately, display submitted
+  source/destination and filenames for new Drive jobs, and hide completed copies.
+  Existing earlier submissions retain their available path/ID fallback.
+- The companion was deployed first as `filebeans-companion:84ecad1`. It adds
+  bounded parallel copying/discovery, directory-handle reuse, batched recovery
+  updates, and fewer redundant flushes and filesystem operations. Go race/MariaDB
+  tests, Go vet, and live storage/Drive smoke checks passed. A live 32-file Samba
+  probe improved from 30.757 to 8.729 seconds (3.52x); this does not measure Drive
+  bandwidth or isolate individual optimizations.
+- Only the companion was recreated. The video normalizer's container and
+  `2026-11-16T17:10:17.690121031Z` start time remained unchanged; its conversion
+  continued progressing. No schema migration was required.
+- Physical-device transfer controls and layout acceptance remain manual.
+
+## Previous release — 0.1.0 (15)
+
 **0.1.0 (15)** is uploaded; Apple reports **VALID** / **IN_BETA_TESTING**.
 The existing internal group retains access to all builds.
 

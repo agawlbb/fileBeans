@@ -250,3 +250,42 @@ extension identities and supported devices were verified. Signed build
 Apple reports VALID / IN_BETA_TESTING, with the existing internal group retaining
 access. Smaller path text, direct Sources navigation, and the hierarchy-only iPad
 sidebar still require physical-device layout acceptance.
+
+## Transfer cancellation, details, and small-file performance
+
+Source `84ecad1` passed all **68** simulator tests and unsigned iPhone/iPad Release
+archiving on [validation run 43976688057](https://github.com/agawlbb/fileBeans/actions/runs/43976688057).
+The new queued-job filename/destination decoding regression passed. Both downloaded
+artifacts matched GitHub SHA-256 digests; app and extension identifiers, version
+0.1.0, iOS 18 minimum, and iPhone/iPad support were verified. The unsigned validation
+archive uses its default build number 1; the separate signed release overrides both
+targets to build 16.
+
+Transfer controls show cancellation immediately, retain server-acknowledged
+cancellation status, display submitted source/destination and Drive names for new
+submissions, and filter completed jobs from the list. On device, check cancelling
+queued and active copies, app relaunch while cancelling, long filenames, errors,
+and completed-job disappearance. These SwiftUI/device checks remain manual.
+
+The companion Go race/MariaDB suite, Go vet, and source/config checks passed.
+Tests cover four overlapping copies and Drive listings, deterministic discovery,
+pagination/duplicate/incomplete-listing rejection, large-file serialization,
+all-worker cancellation, corrupted-prefix and uncheckpointed-write recovery,
+source changes, bounded directory descriptors, permissions, symlinks, aliases,
+and replaced/unexpected staging objects. The 128-file synthetic latency fixture
+was about 3.8x faster with four workers than one using the same optimized pipeline.
+
+The companion-only VPS deployment preserved the running normalizer's container ID
+and start time. An isolated 32-file VPS-to-Samba probe improved from 30.757 seconds
+to 8.729 seconds, with matching hashes and probe-file cleanup. This does not
+measure Drive download bandwidth or attribute a separate speedup to each change.
+Authenticated HTTPS, access denial, copy, trash/restore/conflict/purge, and Drive
+browsing smoke checks also passed. See the deployment record in the
+[companion README](../companion/README.md).
+
+Signed build **0.1.0 (16)** was published through
+[run 43978748344](https://github.com/agawlbb/fileBeans/actions/runs/43978748344),
+including successful temporary credential cleanup. Apple build
+`e0be188e-e5cc-4be6-af00-3b63598cbca3` reports **VALID** / **IN_BETA_TESTING**.
+The companion-only deployment and final service inspection confirmed the video
+normalizer was not restarted. Device acceptance above remains manual.
