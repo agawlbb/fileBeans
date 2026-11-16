@@ -73,13 +73,30 @@ struct Tombstone: Codable, Equatable {
     var revision: Int64
 }
 
-/// A process-wide file lock protects read/modify/write transactions across the app and extension.
+/// File coordination protects transactions from suspension; the POSIX lock also
+/// serializes access with an older app/extension during an update.
 final class SharedStore {
     let directory: URL
     init(directory: URL) { self.directory = directory }
     convenience init() throws { self.init(directory: try AppConfiguration.directory) }
     func transaction<T>(_ body: (inout Catalog) throws -> T) throws -> T {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        // Coordinate a stable sidecar, since catalog.json is atomically replaced.
+        // iOS grants background execution time before the accessor runs, and
+        // cancels requests still waiting when the process is suspended. Keep
+        // acquisition, all catalog I/O, and lock release inside that accessor.
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        var coordinationError: NSError?
+        var outcome: Result<T, Error>?
+        coordinator.coordinate(writingItemAt: directory.appendingPathComponent("catalog.lock"),
+                               options: [], error: &coordinationError) { _ in
+            outcome = Result { try lockedTransaction(body) }
+        }
+        if let outcome { return try outcome.get() }
+        if let coordinationError { throw coordinationError }
+        throw CocoaError(.fileLocking)
+    }
+    private func lockedTransaction<T>(_ body: (inout Catalog) throws -> T) throws -> T {
         let fd = open(directory.appendingPathComponent("catalog.lock").path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
         guard fd >= 0 else { throw CocoaError(.fileWriteUnknown) }
         defer { close(fd) }

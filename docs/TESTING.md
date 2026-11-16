@@ -17,6 +17,14 @@ comparison remains part of device acceptance.
 
 ## Existing browser and transfer checks
 
+- Background-lock regression: refresh a large directory, immediately lock the
+  iPad or switch apps, and concurrently browse the same connection in Apple Files.
+  Repeat while refreshing source roots and after leaving the app backgrounded
+  for several minutes. Confirm both processes remain responsive, catalog changes
+  persist, and no RUNNINGBOARD `0xdead10cc` termination occurs. CatalogTests covers
+  concurrent store updates and lock release/rollback after a thrown transaction;
+  suspension behavior requires device acceptance.
+
 Use a disposable Quantum v2 instance or test account and synthetic files. Do not test mutations against production files. Run XCTest using the shared `myFiles` scheme on a GitHub macOS runner when a build is authorized.
 
 - Connect to two servers, including one mounted under a URL base path. Restart the app and confirm names and credentials persist. Replace an expired token; remove a connection and confirm its Files location disappears.

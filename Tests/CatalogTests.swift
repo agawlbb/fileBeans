@@ -14,6 +14,35 @@ final class CatalogTests: XCTestCase {
     private func folder(_ name: String, _ path: String) -> RemoteFile {
         RemoteFile(name: name, path: path, type: "directory")
     }
+    func testConcurrentStoreInstancesDoNotLoseUpdates() throws {
+        let directory = try XCTUnwrap(directory)
+        let errorLock = NSLock()
+        var errors: [Error] = []
+        DispatchQueue.concurrentPerform(iterations: 24) { index in
+            do {
+                try SharedStore(directory: directory).save(Connection(
+                    name: "Server \(index)", url: URL(string: "https://example.com")!))
+            } catch {
+                errorLock.lock()
+                errors.append(error)
+                errorLock.unlock()
+            }
+        }
+        XCTAssertTrue(errors.isEmpty, "\(errors)")
+        XCTAssertEqual(try store.connections().count, 24)
+    }
+    func testThrowingTransactionReleasesCoordinationAndDoesNotPersistChanges() throws {
+        enum Failure: Error { case expected }
+        try store.save(Connection(name: "Original", url: URL(string: "https://example.com")!))
+        XCTAssertThrowsError(try store.transaction { state in
+            state.connections.removeAll()
+            throw Failure.expected
+        })
+        let reopened = SharedStore(directory: directory)
+        XCTAssertEqual(try reopened.connections().map(\.name), ["Original"])
+        try reopened.save(Connection(name: "Next", url: URL(string: "https://example.com")!))
+        XCTAssertEqual(try store.connections().count, 2)
+    }
     func testIdentitySurvivesRenameIncludingDescendantsAndRelaunch() throws {
         let roots = try store.reconcile(connection: connection, parent: "root", source: "disk",
             files: [folder("disk", "/")], permissions: permissions, sourceRoots: true)
