@@ -201,7 +201,12 @@ func (s *Service) ensureDriveCopyItem(ctx context.Context, j *Job, f *File, pare
 		if f.Attempted {
 			item, e := s.findDriveOperation(ctx, parent, operation, j.Connection)
 			if e == nil {
+				if e = s.verifyCopySource(ctx, j, f); e != nil {
+					return e
+				}
 				f.TargetID = item.ID
+				j.Done += f.Size - f.Done
+				f.Done = f.Size
 				return s.checkpoint(j)
 			}
 			if errors.Is(e, os.ErrNotExist) {
@@ -509,6 +514,32 @@ func (s *Service) cleanupDriveStage(ctx context.Context, j *Job) error {
 	if stage.Properties["filebeansStage"] != "true" || stage.Properties["filebeansOperation"] != j.ID {
 		return ErrConflict
 	}
+	// An unacknowledged native copy can still exist in staging. Resolve its
+	// operation marker before cancellation; never discard an uncertain request.
+	parents := map[string]string{".": j.RemoteStage}
+	for _, f := range j.Manifest {
+		if f.Directory && f.TargetID != "" {
+			parents[f.To] = f.TargetID
+		}
+	}
+	for i := range j.Manifest {
+		f := &j.Manifest[i]
+		if !f.Attempted || f.TargetID != "" {
+			continue
+		}
+		parent := parents[filepath.Dir(f.To)]
+		if parent == "" {
+			return ErrUnsafe
+		}
+		item, e := s.findDriveOperation(ctx, parent, operationProperty(j.ID, f.To), j.Connection)
+		if errors.Is(e, os.ErrNotExist) {
+			return ErrUncertain
+		}
+		if e != nil {
+			return e
+		}
+		f.TargetID = item.ID
+	}
 	owned := map[string]bool{}
 	for _, f := range j.Manifest {
 		if f.TargetID != "" {
@@ -519,7 +550,12 @@ func (s *Service) cleanupDriveStage(ctx context.Context, j *Job) error {
 	inspect = func(parent string) error {
 		page := ""
 		for {
-			list, e := s.driveList(ctx, parent, page, j.Connection)
+			var list DriveList
+			query := url.Values{"q": {"'" + parent + "' in parents"}, "pageSize": {"100"}, "fields": {"nextPageToken,files(" + driveFields + ")"}, "supportsAllDrives": {"true"}, "includeItemsFromAllDrives": {"true"}}
+			if page != "" {
+				query.Set("pageToken", page)
+			}
+			e := s.driveJSON(ctx, "GET", "files", query, nil, j.Connection, &list)
 			if e != nil {
 				return e
 			}

@@ -73,6 +73,10 @@ func (s *Service) uploadRoutes(mux *http.ServeMux) {
 			fail(w, e)
 			return
 		}
+		if e := s.requireDriveWrite(upload.Connection); e != nil {
+			fail(w, e)
+			return
+		}
 		if upload.Size == 0 && upload.State == "receiving" {
 			if e := s.uploadFile(&upload); e != nil {
 				fail(w, e)

@@ -117,7 +117,7 @@ func (s *Service) Handler() http.Handler {
 				return
 			}
 			old.Manifest = nil
-			reply(w, 200, old)
+			reply(w, 200, publicJob(old))
 			return
 		} else if !errors.Is(e, sql.ErrNoRows) {
 			fail(w, e)
@@ -185,7 +185,7 @@ func (s *Service) Handler() http.Handler {
 				return
 			}
 			j.Manifest = nil
-			out = append(out, j)
+			out = append(out, publicJob(j))
 		}
 		reply(w, 200, out)
 	})

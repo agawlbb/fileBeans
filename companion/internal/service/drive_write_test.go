@@ -401,6 +401,44 @@ func testDriveWriteWorkflow(t *testing.T, s *Service) {
 			t.Fatal("external trash missing", e)
 		}
 	})
+	t.Run("folders-moves-and-shared-trash-scope", func(t *testing.T) {
+		folder, e := s.driveMutation(ctx, DriveMutation{Action: "folder", Parent: "root", Name: "Move target"}, ID())
+		if e != nil {
+			t.Fatal(e)
+		}
+		f.add("moving", "moving.jpg", "image/jpeg", false)
+		if _, e = s.driveMutation(ctx, DriveMutation{Action: "move", FileID: "moving", Parent: folder.ID}, ID()); e != nil || !contains(f.items["moving"].Parents, folder.ID) {
+			t.Fatal("move failed", e)
+		}
+		child, e := s.driveMutation(ctx, DriveMutation{Action: "folder", Parent: folder.ID, Name: "Child"}, ID())
+		if e != nil {
+			t.Fatal(e)
+		}
+		if _, e = s.driveMutation(ctx, DriveMutation{Action: "move", FileID: folder.ID, Parent: child.ID}, ID()); !errors.Is(e, ErrUnsafe) {
+			t.Fatal("folder cycle accepted", e)
+		}
+		f.add("denied", "denied.jpg", "image/jpeg", false)
+		item := f.items["denied"]
+		item.Capabilities = DriveCapabilities{}
+		f.items["denied"] = item
+		if _, e = s.driveMutation(ctx, DriveMutation{Action: "trash", FileID: "denied"}, ID()); !errors.Is(e, ErrDrivePermission) {
+			t.Fatal("permission ignored", e)
+		}
+		f.add("shared-trash", "shared.jpg", "image/jpeg", true)
+		item = f.items["shared-trash"]
+		item.DriveID = "team-drive"
+		f.items[item.ID] = item
+		list, e := s.driveTrash(ctx, "team-drive", "", "fixture-account")
+		if e != nil || len(list.Files) != 1 || list.Files[0].ID != "shared-trash" {
+			t.Fatal("shared trash scope broadened", e)
+		}
+		if _, e = s.driveMutation(ctx, DriveMutation{Action: "empty", Scope: "team-drive"}, ID()); e != nil {
+			t.Fatal(e)
+		}
+		if _, ok := f.items["later-trash"]; !ok {
+			t.Fatal("My Drive trash deleted by shared-drive empty")
+		}
+	})
 	t.Run("local-drive-resume-after-lost-chunk", func(t *testing.T) {
 		data := bytes.Repeat([]byte("upload"), 900000)
 		os.WriteFile(filepath.Join(s.config.Roots[0].Path, "cloud-video.mp4"), data, 0600)
@@ -427,6 +465,34 @@ func testDriveWriteWorkflow(t *testing.T, s *Service) {
 			t.Fatal("post-cleanup restart", resumed.Error)
 		}
 	})
+	t.Run("cancellation-preserves-external-staging-contents", func(t *testing.T) {
+		os.WriteFile(filepath.Join(s.config.Roots[0].Path, "cleanup-check.dat"), []byte("fixture"), 0600)
+		j := submit(CopyRequest{Items: []Item{{Source: "vps", Path: "cleanup-check.dat"}}, Destination: Item{Source: "drive", Path: "root"}})
+		f.lostChunk = true
+		s.runJob(ctx, &j)
+		if j.State != "waiting" {
+			t.Fatal(j.State, j.Error)
+		}
+		f.add("external-in-stage", "external.dat", "application/octet-stream", true)
+		item := f.items["external-in-stage"]
+		item.Parents = []string{j.RemoteStage}
+		f.items[item.ID] = item
+		j.Cancel = true
+		s.save(j.ID, "copy", j.State, j)
+		s.runJob(ctx, &j)
+		if j.State != "waiting" {
+			t.Fatal("cleanup ignored external trashed child", j.State)
+		}
+		if _, ok := f.items[item.ID]; !ok {
+			t.Fatal("external data deleted")
+		}
+		item.Parents = []string{"root"}
+		f.items[item.ID] = item
+		s.runJob(ctx, &j)
+		if j.State != "cancelled" {
+			t.Fatal(j.State, j.Error)
+		}
+	})
 	t.Run("native-copy-lost-response-and-export-deferred", func(t *testing.T) {
 		f.add("native", "Document", "application/vnd.google-apps.document", false)
 		f.add("copies", "Copies", "application/vnd.google-apps.folder", false)
@@ -447,6 +513,27 @@ func testDriveWriteWorkflow(t *testing.T, s *Service) {
 		s.runJob(ctx, &local)
 		if local.State != "failed" {
 			t.Fatal("native export unexpectedly accepted")
+		}
+	})
+	t.Run("cancel-native-copy-after-lost-response", func(t *testing.T) {
+		f.add("cancel-native", "Cancel document", "application/vnd.google-apps.document", false)
+		j := submit(CopyRequest{Items: []Item{{Source: "drive", Path: "cancel-native"}}, Destination: Item{Source: "drive", Path: "copies"}})
+		f.loseNative = true
+		s.runJob(ctx, &j)
+		if j.State != "waiting" {
+			t.Fatal(j.State, j.Error)
+		}
+		j.Cancel = true
+		s.save(j.ID, "copy", j.State, j)
+		s.runJob(ctx, &j)
+		if j.State != "cancelled" {
+			t.Fatal("uncertain staged copy not reconciled for cancellation", j.State, j.Error)
+		}
+		if _, ok := f.items[j.RemoteStage]; ok {
+			t.Fatal("cancelled stage retained")
+		}
+		if _, ok := f.items["cancel-native"]; !ok {
+			t.Fatal("source was removed")
 		}
 	})
 	t.Run("phone-upload-idempotent-and-recovered", func(t *testing.T) {
