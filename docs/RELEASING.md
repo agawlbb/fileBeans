@@ -65,3 +65,7 @@ Select the source branch in the workflow’s **Run workflow** menu for any opera
 A custom positive build number is optional; otherwise the workflow run number is used. An already-uploaded number is rejected. Run Validate iOS and the [device acceptance checks](TESTING.md) before an authorized release. The workflow does not configure testers, submit an App Store release, or change tester groups.
 
 The workflows use Xcode 26.3 on `macos-15`, meeting Apple's [Xcode 26 / iOS 26 SDK upload requirement](https://developer.apple.com/news/upcoming-requirements/?id=04282026a), while targeting iOS 18+. Signed-device checks and TestFlight upload remain pending. Verify privacy answers, the privacy manifest and encryption declaration against the final shipped behavior before release.
+
+Both workflows accept a macOS runner choice. The default remains `macos-15`
+(Apple Silicon). If that hosted pool stays queued, `macos-15-intel` uses the same
+macOS/Xcode 26.3 toolchain on Intel; simulator tests still precede release.
