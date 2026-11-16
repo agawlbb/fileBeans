@@ -157,3 +157,22 @@ local syntax validation alone does not establish that they pass. Device acceptan
 must include Samba → back → VPS → back → Drive and repeated reopening, rapid back
 while loading, nested folders, list/grid, Transfers, and connection edits. On iPad,
 check source switching with the sidebar visible and compact multitasking widths.
+
+## Folder breadcrumb navigation
+
+- Browse several folders deep in Samba and VPS. The inline title shows the source
+  and every visited folder; tap an ancestor and confirm the stack returns to that
+  existing folder with working refresh, back navigation, and file actions.
+- Repeat in Google Drive, Shared with me, and shared drives. Include duplicate
+  folder names and non-path-like Drive IDs; ancestor links must retain the correct
+  Drive folder identity and account.
+- Use long folder names, deep nesting, portrait, landscape, and larger text. The
+  title falls back to the source and an overflow hierarchy menu, with the current
+  name abbreviated where space allows. The source must remain available; every
+  ancestor and Sources must remain reachable through the menu.
+- On iPad, confirm the sidebar's Current folder hierarchy follows nested browsing,
+  native back navigation, source changes, and ancestor taps. Tapping the source
+  returns to its root. Check both list and grid layouts and multiple connections.
+- `FolderBreadcrumbTests` covers ancestor truncation, invalid indices, and opaque
+  Drive IDs with duplicate names. Static source validation passed locally; the
+  new tests and layout/lifecycle acceptance require Apple validation and devices.

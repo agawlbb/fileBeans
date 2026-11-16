@@ -84,7 +84,7 @@ struct BrowserView: View {
         switch source {
         case .local(let item): entry(item, large: large)
         case .drive:
-            NavigationLink { DriveBrowser(connection: connection) } label: {
+            NavigationLink(value: SourceDestination(connection: connection, kind: .drive)) {
                 BrowserItemCell(name: source.name, size: nil, folder: true, large: large, selecting: false, selected: false,
                                 thumbnail: Image(systemName: "folder.fill").resizable().scaledToFit().padding(8).foregroundStyle(Color.accentColor))
             }.disabled(selecting)
@@ -101,6 +101,8 @@ struct BrowserView: View {
     private var browserContent: some View {
         fileContent
         .navigationTitle(parent?.file.name ?? connection.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .principal) { FolderBreadcrumbBar() } }
         .searchable(text: $search, prompt: "Search this folder")
         .overlay { emptyState }
                 .safeAreaInset(edge: .bottom) {
@@ -242,7 +244,7 @@ struct BrowserView: View {
     @ViewBuilder private func entry(_ item: StoredItem, large: Bool) -> some View {
         Group {
             if item.file.isDirectory && !selecting {
-                NavigationLink { BrowserView(connection: connection, parent: item) } label: { cell(item, large: large) }
+                NavigationLink(value: SourceDestination(connection: connection, kind: .local(item))) { cell(item, large: large) }
             } else {
                 Button {
                     if selecting {

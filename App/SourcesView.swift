@@ -1,13 +1,14 @@
 import SwiftUI
 
 struct SourceDestination: Identifiable, Hashable {
-    enum Kind: Hashable { case local(StoredItem), drive, transfers }
+    enum Kind: Hashable { case local(StoredItem), drive, driveFolder(String, String), transfers }
     let connection: Connection
     let kind: Kind
     var id: String {
         switch kind {
         case .local(let item): return connection.id.uuidString + ":local:" + item.id
         case .drive: return connection.id.uuidString + ":drive"
+        case .driveFolder(let id, _): return connection.id.uuidString + ":drive:" + id
         case .transfers: return connection.id.uuidString + ":transfers"
         }
     }
@@ -15,6 +16,7 @@ struct SourceDestination: Identifiable, Hashable {
         switch kind {
         case .local(let item): return item.file.name
         case .drive: return "Google Drive"
+        case .driveFolder(_, let name): return name
         case .transfers: return "Transfers"
         }
     }
@@ -22,6 +24,7 @@ struct SourceDestination: Identifiable, Hashable {
         switch kind {
         case .local(let item): BrowserView(connection: connection, parent: item)
         case .drive: DriveBrowser(connection: connection)
+        case .driveFolder(let id, let name): DriveBrowser(connection: connection, folder: id, title: name)
         case .transfers: TransferList(connection: connection)
         }
     }
@@ -143,6 +146,7 @@ struct SourcesView: View {
         }
     }
     @ViewBuilder private var status: some View {
+        if sizeClass != .compact { FolderBreadcrumbSidebar() }
         if model.loading { ProgressView("Loading sources…") }
         ForEach(connections.connections) { connection in
             if let error = model.errors[connection.id] {
@@ -169,6 +173,7 @@ struct SourceNavigation<Sidebar: View, Detail: View>: View {
     @Binding var selected: SourceDestination?
     @Binding var columnVisibility: NavigationSplitViewVisibility
     let sidebar: Sidebar
+    @State private var detailPath: [SourceDestination] = []
     @ViewBuilder let detail: (SourceDestination) -> Detail
 
     var body: some View {
@@ -176,15 +181,29 @@ struct SourceNavigation<Sidebar: View, Detail: View>: View {
             NavigationStack(path: $path) {
                 sidebar.navigationDestination(for: SourceDestination.self) { detail($0) }
             }
+            .environment(\.folderBreadcrumbs, FolderBreadcrumbContext(locations: path,
+                navigate: { path = FolderBreadcrumbContext.prefix(path, through: $0) },
+                showSources: { path = [] }))
         } else {
             NavigationSplitView(columnVisibility: $columnVisibility) {
                 sidebar
             } detail: {
-                NavigationStack {
-                    if let selected { detail(selected) }
-                    else { ContentUnavailableView("Choose a source", systemImage: "folder") }
+                NavigationStack(path: $detailPath) {
+                    Group {
+                        if let selected { detail(selected) }
+                        else { ContentUnavailableView("Choose a source", systemImage: "folder") }
+                    }
+                    .navigationDestination(for: SourceDestination.self) { detail($0) }
                 }.id(selected)
             }
+            .environment(\.folderBreadcrumbs, FolderBreadcrumbContext(
+                locations: selected.map { [$0] + detailPath } ?? [],
+                navigate: { index in
+                    guard index >= 0, index <= detailPath.count else { return }
+                    detailPath = Array(detailPath.prefix(index))
+                },
+                showSources: { detailPath = []; selected = nil }))
+            .onChange(of: selected) { _, _ in detailPath = [] }
         }
     }
 }

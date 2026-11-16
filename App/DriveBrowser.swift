@@ -122,6 +122,8 @@ struct DriveBrowser: View {
         BrowserFileCollection(items: visible, grid: grid, header: header, row: { item, large in entry(item, large: large) },
                               loadMore: model.next.isEmpty ? nil : { Task { await reload(page: model.next) } })
             .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .principal) { FolderBreadcrumbBar() } }
             .searchable(text: $search, prompt: "Search this folder")
             .toolbar { toolbar }
             .overlay { if model.busy && model.files.isEmpty { ProgressView() } }
@@ -174,8 +176,8 @@ struct DriveBrowser: View {
                 }.font(.callout)
             }
             if folder == "root" {
-                NavigationLink("Shared with me") { DriveBrowser(connection: connection, folder: "shared", title: "Shared with me") }
-                NavigationLink("Shared drives") { DriveBrowser(connection: connection, folder: "__drives", title: "Shared drives") }
+                NavigationLink("Shared with me", value: SourceDestination(connection: connection, kind: .driveFolder("shared", "Shared with me")))
+                NavigationLink("Shared drives", value: SourceDestination(connection: connection, kind: .driveFolder("__drives", "Shared drives")))
             }
             if model.files.isEmpty && !model.busy { Text("No files").foregroundStyle(.secondary) }
         }
@@ -292,7 +294,7 @@ struct DriveBrowser: View {
     @ViewBuilder private func entry(_ item: DriveFile, large: Bool) -> some View {
         Group {
             if item.folder && !selecting {
-                NavigationLink { DriveBrowser(connection: connection, folder: item.id, title: item.name) } label: { cell(item, large: large) }
+                NavigationLink(value: SourceDestination(connection: connection, kind: .driveFolder(item.id, item.name))) { cell(item, large: large) }
             } else {
                 Button {
                     if selecting { if selected.contains(item.id) { selected.remove(item.id) } else { selected.insert(item.id) } }
