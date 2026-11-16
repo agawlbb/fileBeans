@@ -66,6 +66,7 @@ final class BrowserModel: ObservableObject {
                     try Task.checkCancellation()
                     guard parent.permissions.create else { throw APIError.forbidden }
                     let path = try FilePath.child(url.lastPathComponent, in: parent.file.path)
+                    if repository.companion != nil && CompanionClient.protected(path) { throw APIError.forbidden }
                     try await repository.client.upload(source: parent.source, path: path, file: url) { value in
                         Task { @MainActor in if self.transfer != nil { self.uploadProgress = value } }
                     }

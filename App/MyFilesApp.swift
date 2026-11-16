@@ -19,6 +19,7 @@ final class ConnectionsModel: ObservableObject {
             let domain = NSFileProviderDomain(identifier: .init(connection.id.uuidString), displayName: connection.name)
             try await NSFileProviderManager.remove(domain)
             try TokenStore.remove(connection.id)
+            if let id = connection.companionTokenID { try TokenStore.remove(id) }
             try SharedStore().remove(connection.id)
             reload()
         } catch { self.error = error.localizedDescription }
@@ -84,6 +85,8 @@ struct ConnectionEditor: View {
     @State private var name = ""
     @State private var address = ""
     @State private var token = ""
+    @State private var companionAddress = ""
+    @State private var companionToken = ""
     @State private var busy = false
     @State private var error: String?
     var body: some View {
@@ -95,6 +98,14 @@ struct ConnectionEditor: View {
                     .accessibilityLabel("Server URL")
                 SecureField(connection == nil ? "API token" : "New API token (optional)", text: $token)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
+                Section("Optional companion") {
+                    TextField("Companion HTTPS URL", text: $companionAddress)
+                        .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    SecureField("Companion token (leave blank to keep)", text: $companionToken)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    Text("Enables background copies, 10-day trash, and Drive inside fileBeans. Drive never appears in Apple Files.")
+                        .font(.caption)
+                }
                 if let error { Text(error).foregroundStyle(.red) }
                 if busy { ProgressView("Connecting…") }
             }
@@ -106,14 +117,14 @@ struct ConnectionEditor: View {
                         .disabled(busy || name.trimmingCharacters(in: .whitespaces).isEmpty || address.isEmpty || (connection == nil && token.isEmpty))
                 }
             }
-            .onAppear { name = connection?.name ?? ""; address = connection?.url.absoluteString ?? "" }
+            .onAppear { name = connection?.name ?? ""; address = connection?.url.absoluteString ?? ""; companionAddress = connection?.companionURL?.absoluteString ?? "" }
         }.interactiveDismissDisabled(busy)
     }
     private func save() async {
         busy = true; defer { busy = false }
         do {
             let url = try QuantumClient.validateURL(address)
-            let c = Connection(id: connection?.id ?? UUID(), name: name.trimmingCharacters(in: .whitespaces), url: url)
+            var c = Connection(id: connection?.id ?? UUID(), name: name.trimmingCharacters(in: .whitespaces), url: url)
             // Reusing a token with a different host is deliberately prohibited.
             if let connection, connection.url != url {
                 error = "Add a new connection for a different server URL."; return
@@ -122,14 +133,34 @@ struct ConnectionEditor: View {
             let store = try SharedStore()
             let repo = try Repository(connection: c, store: store, token: credential)
             _ = try await repo.client.scopes()
+            let previousCompanionToken = connection?.companionTokenID.flatMap { try? TokenStore.read($0) }
+            var newCompanionToken: String?
+            if !companionAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let companionURL = try QuantumClient.validateURL(companionAddress)
+                if let oldURL = connection?.companionURL, oldURL != companionURL, companionToken.isEmpty {
+                    throw NSError(domain: "fileBeans", code: 1, userInfo: [NSLocalizedDescriptionKey: "Enter a token when changing the companion URL."])
+                }
+                c.companionURL = companionURL
+                c.companionTokenID = connection?.companionTokenID ?? UUID()
+                let value = try companionToken.isEmpty ? TokenStore.read(c.companionTokenID!) : companionToken.trimmingCharacters(in: .whitespacesAndNewlines)
+                let companion = CompanionClient(connection: c, credential: value)
+                defer { companion.close() }
+                _ = try await companion.capabilities()
+                newCompanionToken = value
+            }
             let previousToken: String? = connection == nil ? nil : (try? TokenStore.read(c.id))
             try TokenStore.save(credential, for: c.id)
             let domain = NSFileProviderDomain(identifier: .init(c.id.uuidString), displayName: c.name)
             do {
+                if let value = newCompanionToken, let id = c.companionTokenID { try TokenStore.save(value, for: id) }
                 try store.save(c)
                 // Adding an existing domain updates its configuration.
                 try await NSFileProviderManager.add(domain)
             } catch {
+                if let id = c.companionTokenID {
+                    if let previousCompanionToken { try? TokenStore.save(previousCompanionToken, for: id) }
+                    else { try? TokenStore.remove(id) }
+                }
                 if let connection {
                     try? store.save(connection)
                     if let previousToken { try? TokenStore.save(previousToken, for: c.id) }
@@ -140,6 +171,7 @@ struct ConnectionEditor: View {
                 }
                 throw error
             }
+            if c.companionURL == nil, let id = connection?.companionTokenID { try? TokenStore.remove(id) }
             repo.notify()
             saved(); dismiss()
         } catch { self.error = error.localizedDescription }

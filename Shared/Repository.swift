@@ -4,12 +4,14 @@ import FileProvider
 final class Repository {
     let connection: Connection
     let client: QuantumClient
+    let companion: CompanionClient?
     let store: SharedStore
     init(connection: Connection, store: SharedStore, token: String? = nil) throws {
         self.connection = connection; self.store = store
         client = QuantumClient(connection: connection, token: token)
+        companion = connection.companionURL == nil ? nil : CompanionClient(connection: connection)
     }
-    deinit { client.close() }
+    deinit { client.close(); companion?.close() }
     func roots() async throws -> [StoredItem] {
         let scopes = try await client.scopes().filter { $0.permissions.view }
         var result: [StoredItem] = []
@@ -39,12 +41,25 @@ final class Repository {
         guard let parent else { return try await roots() }
         _ = try item(parent.id)
         let resource = try await client.resource(source: parent.source, path: parent.file.path)
-        return try store.reconcile(connection: connection.id, parent: parent.id, source: parent.source,
-                                   files: resource.children, permissions: parent.permissions)
+        let files = resource.children.filter { companion == nil || $0.path != "/.filebeans-stage" }
+        var permissions = parent.permissions
+        if companion != nil && CompanionClient.protected(parent.file.path) {
+            permissions.create = false; permissions.modify = false; permissions.delete = false
+        }
+        let children = try store.reconcile(connection: connection.id, parent: parent.id, source: parent.source,
+                                           files: files, permissions: permissions)
+        return children.map(protectedItem)
+    }
+    func protectedItem(_ value: StoredItem) -> StoredItem {
+        var item = value
+        if companion != nil && CompanionClient.protected(item.file.path) {
+            item.permissions.create = false; item.permissions.modify = false; item.permissions.delete = false
+        }
+        return item
     }
     func item(_ id: String) throws -> StoredItem {
         guard let item = try store.items(connection.id)[id] else { throw APIError.missing }
-        return item
+        return protectedItem(item)
     }
     func refreshKnownFolders() async throws {
         _ = try await roots()
@@ -63,6 +78,7 @@ final class Repository {
         guard !item.isSource, item.source == parent.source, item.permissions.modify,
               (item.parent == parent.id || parent.permissions.create) else { throw APIError.forbidden }
         let path = try FilePath.child(name, in: parent.file.path)
+        if companion != nil && (CompanionClient.protected(item.file.path) || CompanionClient.protected(path)) { throw APIError.forbidden }
         guard !item.file.isDirectory || !FilePath.contains(parent.file.path, in: item.file.path) else { throw APIError.invalidName }
         if path == item.file.path { return }
         try await client.move(source: item.source, from: item.file.path, to: path)
@@ -71,27 +87,45 @@ final class Repository {
         notify(item.parent); notify(parent.id)
     }
     func copy(_ item: StoredItem, to parent: StoredItem) async throws {
-        guard !item.isSource, item.permissions.download,
-              parent.file.isDirectory, parent.permissions.create else { throw APIError.forbidden }
-        let path = try FilePath.child(item.file.name, in: parent.file.path)
-        guard item.source != parent.source || path != item.file.path else { throw APIError.conflict }
-        guard item.source != parent.source || !item.file.isDirectory || !FilePath.contains(parent.file.path, in: item.file.path) else {
-            throw APIError.invalidName
+        try await copy([item], to: parent)
+    }
+    func copy(_ items: [StoredItem], to parent: StoredItem) async throws {
+        guard !items.isEmpty, parent.file.isDirectory, parent.permissions.create else { throw APIError.forbidden }
+        for item in items {
+            guard !item.isSource, item.permissions.download else { throw APIError.forbidden }
+            let path = try FilePath.child(item.file.name, in: parent.file.path)
+            guard item.source != parent.source || path != item.file.path else { throw APIError.conflict }
+            guard item.source != parent.source || !item.file.isDirectory || !FilePath.contains(parent.file.path, in: item.file.path) else { throw APIError.invalidName }
+            if companion != nil && (CompanionClient.protected(item.file.path) || CompanionClient.protected(path)) { throw APIError.forbidden }
         }
-        try await client.copy(source: item.source, from: item.file.path, toSource: parent.source, to: path)
-        // Reconciliation creates new identities; the originals and their descendants stay intact.
+        if let companion {
+            _ = try await companion.submit(BackgroundCopy(items: items.map { CopyLocation(source: $0.source, path: $0.file.path) },
+                                                         destination: CopyLocation(source: parent.source, path: parent.file.path)))
+            return
+        }
+        for item in items {
+            try await client.copy(source: item.source, from: item.file.path, toSource: parent.source,
+                                  to: FilePath.child(item.file.name, in: parent.file.path))
+        }
         _ = try await children(parent)
         notify(parent.id)
     }
     func delete(_ item: StoredItem) async throws {
         guard !item.isSource, item.permissions.delete else { throw APIError.forbidden }
-        try await client.delete(source: item.source, path: item.file.path)
+        if let companion {
+            guard !CompanionClient.protected(item.file.path) else { throw APIError.forbidden }
+            try await companion.trash(item)
+        } else {
+            try await client.delete(source: item.source, path: item.file.path)
+        }
         _ = try await children(try self.item(item.parent))
         notify(item.parent)
     }
     func createFolder(name: String, parent: StoredItem) async throws {
         guard parent.permissions.create else { throw APIError.forbidden }
-        try await client.createFolder(source: parent.source, path: FilePath.child(name, in: parent.file.path))
+        let path = try FilePath.child(name, in: parent.file.path)
+        if companion != nil && CompanionClient.protected(path) { throw APIError.forbidden }
+        try await client.createFolder(source: parent.source, path: path)
         _ = try await children(parent); notify(parent.id)
     }
 }

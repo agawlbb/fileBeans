@@ -65,6 +65,7 @@ final class ProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFi
                 let parent = try repo.item(itemTemplate.parentItemIdentifier.rawValue)
                 guard parent.permissions.create else { throw APIError.forbidden }
                 let path = try FilePath.child(itemTemplate.filename, in: parent.file.path)
+                if repo.companion != nil && CompanionClient.protected(path) { throw APIError.forbidden }
                 if itemTemplate.contentType == .folder {
                     try await repo.client.createFolder(source: parent.source, path: path)
                 } else {

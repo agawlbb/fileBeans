@@ -1,0 +1,25 @@
+[Unit]
+Description=fileBeans copy and trash companion
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=filebeans
+Group=filebeans
+ExecStart=/usr/local/bin/filebeans -config /etc/filebeans/config.json
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=45
+StateDirectory=filebeans
+UMask=0027
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+# Replace with the exact configured roots before installation.
+ReadWritePaths=/var/lib/filebeans /srv/files /mnt/archive
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

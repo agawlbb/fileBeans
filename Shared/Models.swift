@@ -4,6 +4,8 @@ struct Connection: Codable, Identifiable, Hashable {
     var id: UUID = UUID()
     var name: String
     var url: URL
+    var companionURL: URL?
+    var companionTokenID: UUID?
 }
 
 struct Permissions: Codable, Hashable {

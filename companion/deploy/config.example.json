@@ -1,0 +1,13 @@
+{
+  "listen": "127.0.0.1:8095",
+  "dsn": "filebeans:REPLACE@tcp(127.0.0.1:3306)/filebeans?timeout=5s&readTimeout=10s&writeTimeout=10s",
+  "token": "REPLACE_WITH_A_RANDOM_TOKEN_OF_AT_LEAST_32_CHARACTERS",
+  "state": "/var/lib/filebeans",
+  "roots": [
+    {"name": "vps", "path": "/srv/files"},
+    {"name": "samba", "path": "/mnt/archive", "mount": "/mnt/archive", "mountSource": "//storage.example/archive"}
+  ],
+  "googleClientID": "",
+  "googleClientSecret": "",
+  "googleRedirect": "https://files.example/companion/oauth/callback"
+}

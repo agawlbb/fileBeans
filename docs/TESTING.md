@@ -16,3 +16,31 @@ Use a disposable Quantum v2 instance or test account and synthetic files. Do not
 - Inspect logs, Git changes, and packaged resources for secrets and private user data before sharing. Verify signed-device behavior for both extension entitlements before a TestFlight upload.
 
 The app and Files extension passed Apple SDK compilation, all 19 simulator unit tests, and device Release archiving on [GitHub macOS/Xcode 26.3](https://github.com/agawlbb/fileBeans/actions/runs/43734190564), source `e335203`. The downloaded archive's checksum and packaged identifiers, version, iOS 18 minimum, iPhone/iPad support, and embedded Files extension were verified. Signed-device checks, Files lifecycle behavior, live-server interoperability, and playback codecs still require the acceptance checks above.
+
+## Companion acceptance
+
+- Configure a companion and verify multi-selection copies submit promptly, keep
+  progressing after app termination, and remain visible/cancellable in Transfers.
+  Test Samba-to-VPS and a large Drive-to-VPS copy; monitor server traffic to
+  confirm the phone receives metadata/progress only.
+- Interrupt the service and Samba connection mid-file, reconnect, and compare
+  final hashes. Test missing mounts, disk-full, destination collisions, changed
+  sources, cancellation, and retries. Confirm unpublished files stay in staging.
+- Delete files and folders through fileBeans and its Apple Files location. Check
+  each source's Trash icon, retained original name, ten-day expiry, restore with
+  missing parents, and restore collisions. Confirm permanent deletion/emptying
+  requires confirmation, and an unavailable companion never causes hard deletion.
+- Exercise expiry with synthetic entries on test storage. Verify unknown files
+  placed in Trash through Quantum survive cleanup. Verify crash reconciliation
+  around trash moves, restore, and purge.
+- Connect Drive using the existing OAuth client with a separate consent grant;
+  browse My Drive, Shared with me, shared drives, and multiple pages. Test an
+  unsupported Google-native document/shortcut and duplicate folder names. Revoke
+  or replace authorization mid-copy and verify old jobs do not switch accounts.
+- Inspect Apple Files Browse, search, working set, and document pickers: there
+  must be no Google Drive source or item. A completed copy into VPS/Samba should
+  appear normally there. Trash roots and descendants must advertise no write,
+  rename, reparent, or delete capability in every enumerator path.
+- Recheck an existing connection without a companion for unchanged operations.
+  Source syntax validation is local; CompanionTests and iOS acceptance still
+  require the normal authorized macOS build/test workflow.

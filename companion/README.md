@@ -1,0 +1,162 @@
+# fileBeans companion
+
+Single Linux service for durable server-side copies, local trash, and a read-only
+Google Drive source. Quantum remains responsible for existing file browsing.
+Drive exists only in the main iOS app, never in its Apple File Provider catalog.
+No live deployment, Google consent, database provisioning, or Apple build is
+performed by these files.
+
+## Configuration and installation
+
+1. Install Go 1.26 or newer in the development container. Run `go mod download`
+   and `go test ./...` from this directory through `dev`. A release binary can be
+   built from `./cmd/filebeans` when a build/deployment is requested.
+2. Provision a dedicated MySQL/MariaDB database using InnoDB. Use a separate
+   migration account for the explicit `filebeans -config PATH -migrate` command;
+   normal startup does not create or migrate tables. The runtime account needs
+   SELECT, INSERT, UPDATE, DELETE only on that database. Keep the DSN private and
+   set connection/read/write timeouts as in the example. The API never sends SQL
+   credentials to the app.
+3. Copy `deploy/config.example.json` to a private path outside Git, e.g.
+   `/etc/filebeans/config.json`, mode 0640 with access restricted to the service
+   user. Generate a random API token (at least 32 characters). The state directory
+   must be private, outside served folders and source roots.
+4. Root names must match Quantum source names exactly. Root paths must represent
+   the same user-visible scope as Quantum's `/` for that source. Do not expose
+   overlapping roots or map multiple Quantum scopes to the same root. The single
+   companion token authorizes all configured roots; this is a trusted single-user
+   service, not an implementation of Quantum's per-user authorization.
+5. Use the existing Samba mount. Configure its exact mountpoint and source from
+   `/proc/self/mountinfo`; the service verifies them before accessing it. Do not
+   give the service mount privileges or Samba credentials. Avoid nested mounts
+   inside a root: trash and staging require same-filesystem rename support.
+6. Run with a Unix identity/group compatible with Quantum. Published copies are
+   0660 files / 0770 folders; configure shared group ownership/inheritance (and
+   Samba ownership options) so both services can read/write the intended data.
+   Trash retains the original object's permissions. Verify this on real storage.
+7. Adapt the supplied systemd unit to the actual roots and user/group. Install
+   only after approving deployment. The service creates `Trash` in each available
+   root; unavailable shares are retried. `.filebeans-stage` is private staging and
+   is filtered out of fileBeans browsing. Quantum can see these as normal paths;
+   configure its exclusions for staging if desired. Never edit staging contents.
+8. Proxy HTTPS `/companion/` to the loopback listener, stripping `/companion`:
+   `/companion/v1/jobs` reaches `/v1/jobs`. Expose `/companion/oauth/callback` too.
+   Do not log Authorization headers, OAuth query strings, or request bodies.
+   Keep the listener private and do not add browser CORS access.
+9. Enter the HTTPS companion base URL and API token in the fileBeans connection
+   editor. Existing connections without a companion retain their old behavior.
+   Configured connections fail protected deletion safely when the companion is
+   unavailable; there is no destructive fallback.
+
+## Google Drive
+
+Reuse the existing MakeLORA Google Cloud project/Web OAuth client by privately
+configuring its client ID/secret here and adding the exact new HTTPS redirect URI
+in Google Cloud. Do not share or copy MakeLORA's token file. Google settings are
+administrator-supplied configuration; account selection happens at consent time,
+not in code. Google's project publishing/test-user policies still apply.
+
+Inside fileBeans, open **Google Drive → Connect Drive**. The companion returns a
+Google consent URL with state and PKCE. The browser callback exchanges the code;
+access/refresh tokens are stored in mode-0600 server state, never returned to iOS.
+The grant is `drive.readonly`; no Drive upload/delete operation is implemented.
+Reconnect creates a new connection identity. Unfinished old jobs will not silently
+switch accounts; cancel and resubmit those jobs. Disconnect removes this service's
+saved tokens and pending OAuth state, without changing MakeLORA's authorization.
+It does not revoke the shared Google client's grant globally.
+
+My Drive, Shared with me, and Shared drives support paginated browsing. Regular
+files and folders can be copied to configured local roots. Google-native
+Docs/Sheets/Slides and shortcuts are deliberately unsupported in this version;
+a folder containing them fails explicitly. Duplicate names, unsafe local names,
+and destination collisions fail without overwriting or silently dropping files.
+Only listings/progress reach the phone. Google file bytes go straight to the VPS
+worker, including when writing into the mounted Samba share.
+
+Google scope reference: https://developers.google.com/workspace/drive/api/guides/api-specific-auth
+Download/range reference: https://developers.google.com/workspace/drive/api/guides/manage-downloads
+
+## Copy behavior and recovery
+
+One worker handles queued jobs serially; a database advisory lock prevents a
+second worker from processing the same queue. Losing its lease cancels its work.
+Jobs persist discovery manifests and file checkpoints in `fb_operations`.
+Partial files live in a job-specific directory under destination staging.
+After interruptions, checkpoints are verified before resuming: local source and
+staged prefixes are compared; Drive uses its version and a saved prefix hash.
+Files whose source changed fail safely; Retry discards unpublished staging and
+rediscovers. Fully copied selections are renamed with Linux `RENAME_NOREPLACE`.
+Cross-filesystem staging/publication is unsupported and must be corrected in
+configuration. Originals are never removed by a copy.
+
+Temporary network failures retry with capped exponential backoff and Google's
+Retry-After where supplied. Authorization problems wait for reconnection. Missing
+files, permission errors, unsupported items, collisions and disk exhaustion fail
+for user intervention. Cancellation removes unpublished job staging; already
+published selections remain. Failed jobs retain staging until retry/cancellation.
+For a partially published multi-selection job, cancel it and submit the remaining
+items separately rather than replaying published selections.
+
+The app persists uncertain submissions' idempotency keys outside the item catalog;
+retrying the same selection/destination after a lost response reuses the key.
+Transfers can be inspected/cancelled after app relaunch. Folder listings refresh
+while visible. Apple Files continues using its own copy transfer implementation.
+
+## Trash behavior and external changes
+
+App and File Provider deletes move local selections to
+`Trash/<entry-id>/<original-name>` on the same root. The database records the
+original path and a fixed ten-day expiry measured from deletion. Folder trees
+are one retained entry. Restore recreates parent folders but never overwrites.
+The app confirms permanent deletion and Empty Trash; expiry cleanup runs hourly
+and at startup. Missing shares retry without touching the mountpoint directory.
+
+File Provider does not offer permanent trash deletion. Its protected trash items
+cannot be renamed, deleted again, or used for writeback. Restore and permanent
+removal are available in fileBeans. Direct Quantum deletions bypass this policy.
+
+Database intent is recorded before moves/purges. Startup and trash-list reads
+reconcile interrupted operations. Untracked trash files are never automatically
+purged; externally removed entries become missing. A completed restore is retained
+as history. Protect the database and trash together in any future backup policy;
+no backup job is installed here. Retention uses UTC Unix timestamps and requires
+an accurate server clock.
+
+## API
+
+All `/v1` endpoints require `Authorization: Bearer TOKEN`. JSON responses are
+no-store. Callback state is one-use and expires after ten minutes.
+
+| Endpoint | Purpose |
+|---|---|
+| GET `/v1/capabilities` | Root mappings, trash paths, Drive connection state |
+| POST `/v1/jobs` | Submit `{items:[{source,path}],destination:{source,path}}` with Idempotency-Key |
+| GET `/v1/jobs`, GET `/v1/jobs/{id}` | Progress/history; manifests stay server-side |
+| POST `/v1/jobs/{id}/cancel` | Cancel work and clean unpublished staging |
+| POST `/v1/jobs/{id}/retry` | Retry a failed, unpublished job |
+| POST `/v1/trash` | Trash `{source,path}` with Idempotency-Key |
+| GET `/v1/trash` | Retained/problem entries with original paths and expiry |
+| POST `/v1/trash/{id}/restore` | Restore without overwrite |
+| POST `/v1/trash/{id}/purge`, POST `/v1/trash/empty` | Require X-Confirm-Permanent: yes |
+| GET `/v1/drive/files?folder=root&page=...` | Paginated files; folder may be `shared` or a Google ID |
+| GET `/v1/drive/drives?page=...` | Paginated shared-drive roots |
+| POST `/v1/drive/connect`, POST `/v1/drive/disconnect` | Separate server-side Google connection |
+| GET `/oauth/callback` | Public OAuth callback, protected by state and PKCE |
+
+## Verification
+
+Use `dev` for every command. Unit tests use only synthetic files and HTTP fixtures.
+For MariaDB recovery tests, explicitly set `FILEBEANS_TEST_CONFIG` to a JSON file
+under `/home/dev/projects/.test-config/` with host/port/user/password/database.
+The test refuses an existing `fb_operations` table, creates its own, and removes
+only that table afterwards. Never point tests at production.
+
+```
+dev bash -lc 'cd /home/dev/projects/fileBeans/companion && go test -race ./...'
+```
+
+Before production use, verify real Samba reconnect and rename/fsync support,
+service/Quantum permissions, actual Google consent/downloads, token expiry,
+server restart recovery, and deletion/restore through the installed Apple Files
+extension. Linux static Swift parsing is not an Apple SDK compilation or device
+test. An iOS build/release requires its separate existing workflow authorization.

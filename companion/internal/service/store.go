@@ -1,0 +1,141 @@
+package service
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	_ "github.com/go-sql-driver/mysql"
+	"time"
+)
+
+const schema = `CREATE TABLE IF NOT EXISTS fb_operations (
+ id VARCHAR(64) PRIMARY KEY,
+ kind VARCHAR(24) NOT NULL,
+ state VARCHAR(24) NOT NULL,
+ request_key VARCHAR(64) UNIQUE,
+ body LONGTEXT NOT NULL,
+ updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+ INDEX operations_kind_state(kind,state)
+) ENGINE=InnoDB`
+
+type Item struct {
+	Source string `json:"source"`
+	Path   string `json:"path"`
+	Name   string `json:"name,omitempty"`
+}
+type CopyRequest struct {
+	Items       []Item `json:"items"`
+	Destination Item   `json:"destination"`
+}
+type File struct {
+	From      string `json:"from"`
+	To        string `json:"to"`
+	Size      int64  `json:"size"`
+	Version   string `json:"version"`
+	Done      int64  `json:"done"`
+	Directory bool   `json:"directory"`
+	Source    string `json:"source"`
+	Hash      string `json:"hash,omitempty"`
+}
+type Job struct {
+	ID         string      `json:"id"`
+	State      string      `json:"state"`
+	Request    CopyRequest `json:"request"`
+	Manifest   []File      `json:"manifest,omitempty"`
+	Connection string      `json:"connection,omitempty"`
+	Total      int64       `json:"total"`
+	Done       int64       `json:"done"`
+	Speed      float64     `json:"speed"`
+	Current    string      `json:"current"`
+	Error      string      `json:"error,omitempty"`
+	Attempts   int         `json:"attempts"`
+	Next       int64       `json:"next"`
+	Cancel     bool        `json:"cancel"`
+	Published  []string    `json:"published,omitempty"`
+}
+type Trash struct {
+	ID       string `json:"id"`
+	Source   string `json:"source"`
+	Original string `json:"original"`
+	Name     string `json:"name"`
+	Deleted  int64  `json:"deleted"`
+	Expires  int64  `json:"expires"`
+	State    string `json:"state"`
+	Error    string `json:"error,omitempty"`
+}
+
+func openDB(dsn string) (*sql.DB, error) {
+	d, e := sql.Open("mysql", dsn)
+	if e != nil {
+		return nil, e
+	}
+	d.SetMaxOpenConns(5)
+	d.SetConnMaxLifetime(time.Minute * 3)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	e = d.PingContext(ctx)
+	if e != nil {
+		d.Close()
+		return nil, e
+	}
+	return d, nil
+}
+func (s *Service) save(id, kind, state string, v any) error {
+	b, e := json.Marshal(v)
+	if e != nil {
+		return e
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, e = s.db.ExecContext(ctx, "UPDATE fb_operations SET state=?,body=? WHERE id=? AND kind=?", state, b, id, kind)
+	return e
+}
+func (s *Service) insert(id, kind, state, key string, v any) error {
+	b, e := json.Marshal(v)
+	if e != nil {
+		return e
+	}
+	var k any
+	if key != "" {
+		k = key
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, e = s.db.ExecContext(ctx, "INSERT INTO fb_operations(id,kind,state,request_key,body) VALUES(?,?,?,?,?)", id, kind, state, k, b)
+	return e
+}
+func (s *Service) read(id, kind string, v any) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var b []byte
+	e := s.db.QueryRowContext(ctx, "SELECT body FROM fb_operations WHERE id=? AND kind=?", id, kind).Scan(&b)
+	if e != nil {
+		return e
+	}
+	return json.Unmarshal(b, v)
+}
+func (s *Service) records(kind string) ([][]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	rows, e := s.db.QueryContext(ctx, "SELECT body FROM fb_operations WHERE kind=? ORDER BY updated_at DESC", kind)
+	if e != nil {
+		return nil, e
+	}
+	defer rows.Close()
+	var out [][]byte
+	for rows.Next() {
+		var b []byte
+		if e = rows.Scan(&b); e != nil {
+			return nil, e
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+var ErrConflict = errors.New("destination exists or source changed")
+var ErrUnsafe = errors.New("operation is outside allowed storage or uses an unsafe path")
+var ErrUnsupported = errors.New("unsupported Drive item or download forbidden")
+var ErrMount = errors.New("configured network mount is unavailable")
+var ErrAuthorization = errors.New("Google Drive authorization required")

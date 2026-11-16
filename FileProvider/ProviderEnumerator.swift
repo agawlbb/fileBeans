@@ -18,7 +18,7 @@ final class ProviderEnumerator: NSObject, NSFileProviderEnumerator {
         Task {
             do {
                 let items = try await snapshot()
-                observer.didEnumerate(items.map(ProviderItem.init))
+                observer.didEnumerate(items.map { ProviderItem(repository.protectedItem($0)) })
                 observer.finishEnumerating(upTo: nil)
             } catch { observer.finishEnumeratingWithError(providerError(error)) }
         }
@@ -43,7 +43,7 @@ final class ProviderEnumerator: NSObject, NSFileProviderEnumerator {
                     return (Array(items), Array(deleted), state.revisions[key] ?? 0)
                 }
                 observer.didDeleteItems(withIdentifiers: deleted)
-                observer.didUpdate(items.map(ProviderItem.init))
+                observer.didUpdate(items.map { ProviderItem(repository.protectedItem($0)) })
                 observer.finishEnumeratingChanges(upTo: NSFileProviderSyncAnchor(Data(String(revision).utf8)), moreComing: false)
             } catch { observer.finishEnumeratingWithError(providerError(error)) }
         }

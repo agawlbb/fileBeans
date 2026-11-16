@@ -1,0 +1,119 @@
+import Foundation
+import CryptoKit
+
+struct CompanionCapabilities: Decodable {
+    struct Root: Decodable { let source: String; let trash: String }
+    let version: Int
+    let roots: [Root]
+    let driveConnected: Bool
+}
+struct CopyLocation: Codable {
+    let source: String
+    let path: String
+}
+struct BackgroundCopy: Encodable {
+    let items: [CopyLocation]
+    let destination: CopyLocation
+}
+struct CopyJob: Decodable, Identifiable {
+    let id: String
+    let state: String
+    let total: Int64
+    let done: Int64
+    let speed: Double
+    let current: String
+    let error: String?
+    var active: Bool { !["completed", "cancelled", "failed"].contains(state) }
+}
+struct TrashEntry: Decodable, Identifiable {
+    let id: String
+    let source: String
+    let original: String
+    let name: String
+    let deleted: Int64
+    let expires: Int64
+    let state: String
+    let error: String?
+}
+
+/// Shared with File Provider for protected local deletion only. Drive models and
+/// enumeration live exclusively in App and never enter the shared item catalog.
+final class CompanionClient: NSObject, URLSessionTaskDelegate {
+    let connection: Connection
+    private let credential: String?
+    private let configuration: URLSessionConfiguration
+    private lazy var session: URLSession = {
+        let config = configuration.copy() as! URLSessionConfiguration
+        config.httpCookieStorage = nil
+        config.urlCache = nil
+        config.timeoutIntervalForRequest = 30
+        return URLSession(configuration: config, delegate: self, delegateQueue: nil)
+    }()
+    init(connection: Connection, credential: String? = nil, configuration: URLSessionConfiguration = .ephemeral) {
+        self.connection = connection; self.credential = credential; self.configuration = configuration
+    }
+    func close() { session.invalidateAndCancel() }
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
+    func request(_ route: String, method: String = "GET", body: Data? = nil,
+                 key: String? = nil, permanent: Bool = false, query: [String: String] = [:]) async throws -> Data {
+        guard let configured = connection.companionURL, let tokenID = connection.companionTokenID else { throw APIError.authentication }
+        let base = try QuantumClient.validateURL(configured.absoluteString)
+        var parts = URLComponents(url: base.appendingPathComponent("v1/" + route), resolvingAgainstBaseURL: false)!
+        parts.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
+        var r = URLRequest(url: parts.url!)
+        r.httpMethod = method; r.httpBody = body
+        r.setValue("Bearer " + (try credential ?? TokenStore.read(tokenID)), forHTTPHeaderField: "Authorization")
+        if body != nil { r.setValue("application/json", forHTTPHeaderField: "Content-Type") }
+        if let key { r.setValue(key, forHTTPHeaderField: "Idempotency-Key") }
+        if permanent { r.setValue("yes", forHTTPHeaderField: "X-Confirm-Permanent") }
+        let (data, response) = try await session.data(for: r)
+        guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        guard (200..<300).contains(http.statusCode) else {
+            if http.statusCode == 401 { throw APIError.authentication }
+            if let detail = try? JSONDecoder().decode(ServiceError.self, from: data) {
+                throw NSError(domain: "fileBeans.Companion", code: http.statusCode,
+                              userInfo: [NSLocalizedDescriptionKey: detail.error])
+            }
+            throw APIError.status(http.statusCode)
+        }
+        return data
+    }
+    private struct ServiceError: Decodable { let error: String }
+    func capabilities() async throws -> CompanionCapabilities {
+        let c = try JSONDecoder().decode(CompanionCapabilities.self, from: await request("capabilities"))
+        guard c.version == 1 else { throw APIError.incompatible }; return c
+    }
+    func submit(_ copy: BackgroundCopy, key: String? = nil) async throws -> CopyJob {
+        let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
+        let body = try encoder.encode(copy)
+        let identity = Data((connection.id.uuidString + (connection.companionURL?.absoluteString ?? "")).utf8) + body
+        let hash = SHA256.hash(data: identity).map { String(format: "%02x", $0) }.joined()
+        let directory = try AppConfiguration.directory.appendingPathComponent("copy-submissions", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let pending = directory.appendingPathComponent(hash + ".key")
+        // A retry after a lost response or app restart uses the same request key.
+        let saved = try? String(contentsOf: pending, encoding: .utf8)
+        let requestKey = saved ?? key ?? UUID().uuidString
+        if saved == nil { try Data(requestKey.utf8).write(to: pending, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]) }
+        do {
+            let job = try JSONDecoder().decode(CopyJob.self, from: await request("jobs", method: "POST", body: body, key: requestKey))
+            try? FileManager.default.removeItem(at: pending)
+            return job
+        } catch {
+            let failure = error as NSError
+            if failure.domain == "fileBeans.Companion", [400, 401, 403, 404, 409].contains(failure.code) {
+                try? FileManager.default.removeItem(at: pending)
+            }
+            throw error
+        }
+    }
+    func jobs() async throws -> [CopyJob] { try JSONDecoder().decode([CopyJob].self, from: await request("jobs")) }
+    func trash(_ item: StoredItem) async throws {
+        _ = try await request("trash", method: "POST", body: JSONEncoder().encode(CopyLocation(source: item.source, path: item.file.path)), key: UUID().uuidString)
+    }
+    func trashEntries() async throws -> [TrashEntry] { try JSONDecoder().decode([TrashEntry].self, from: await request("trash")) }
+    static func protected(_ path: String) -> Bool {
+        FilePath.contains(path, in: "/Trash") || FilePath.contains(path, in: "/.filebeans-stage")
+    }
+}

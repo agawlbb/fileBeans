@@ -29,9 +29,23 @@ Connections go directly to your servers. API tokens are stored in the device Key
 
 The shared App Group stores connection names, URLs, source permissions, and file metadata. Previews and uploads use local cache files. The Files framework manages its own downloaded content and pending changes. Remove a connection to unregister its Files domain and delete its saved token and catalog. Temporary files expire through app cleanup and iOS storage management.
 
-Search currently filters the displayed folder. Sorting keeps folders first. Copies can target any accessible source in the same Quantum connection, including a server-mounted Samba share. Moves stay within a server source. In fileBeans, use Copy from an item’s context menu or select multiple items and choose Copy, then choose a destination folder. Copies run on the server without downloading and uploading file contents; existing destination names are never overwritten. Keep the app open while it waits for completion. Apple’s Files app manages its own copy transfers. Remote renames appear as removal/addition because Quantum's API exposes paths rather than stable object IDs; app-initiated renames and moves retain local identities. Metadata refresh occurs when browsing or when Files requests reconciliation; there is no continuous background polling.
+Search currently filters the displayed folder. Sorting keeps folders first. Copies can target any accessible source in the same Quantum connection, including a server-mounted Samba share. Moves stay within a server source. In fileBeans, use Copy from an item’s context menu or select multiple items and choose Copy, then choose a destination folder. Copies run on the server without downloading and uploading file contents; existing destination names are never overwritten. Without the optional companion, keep the app open while it waits for completion. Apple’s Files app manages its own copy transfers. Remote renames appear as removal/addition because Quantum's API exposes paths rather than stable object IDs; app-initiated renames and moves retain local identities. Metadata refresh occurs when browsing or when Files requests reconciliation; there is no continuous background polling.
 
 Writeback checks server modification time and size before uploading. Quantum does not document an atomic conditional-write API, so a remote edit racing the subsequent write cannot be fully prevented. Conflict and upload failures are surfaced to Files; its pending local contents are not deleted. Explicit offline folder synchronization, photo backup, SSO, cross-source moves, server administration, and media transcoding are outside the initial release.
+
+## Optional VPS companion
+
+The [companion service](companion/README.md) adds persistent background copy jobs,
+automatic interrupted-copy recovery, ten-day trash on VPS/Samba storage, and a
+read-only Google Drive browser. Configure its HTTPS URL and separate API token in
+the connection editor. Drive-to-server copies run entirely on the VPS. Drive is
+visible only inside fileBeans and never registered with Apple Files.
+
+With a companion configured, app and Apple Files extension deletions move local
+items to trash; service failures never fall back to permanent deletion. Restore,
+Delete Permanently, and Empty Trash are available in fileBeans. Direct deletions
+through Quantum remain unchanged. Server installation, database migration, Google
+consent, and iOS release are separate steps; see the companion instructions.
 
 ## Public repository
 

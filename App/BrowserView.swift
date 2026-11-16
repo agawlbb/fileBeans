@@ -62,14 +62,26 @@ struct BrowserView: View {
         Group {
             if grid {
                 ScrollView {
+                    companionLinks.padding(.horizontal)
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 140))], spacing: 24) {
                         ForEach(visible) { item in entry(item, large: true) }
                     }.padding()
                 }
             } else {
-                List(visible) { item in entry(item, large: false) }
+                List {
+                    companionLinks
+                    ForEach(visible) { item in entry(item, large: false) }
+                }
                     .listStyle(.plain)
             }
+        }
+    }
+    @ViewBuilder private var companionLinks: some View {
+        if parent == nil && connection.companionURL != nil {
+            NavigationLink { DriveBrowser(connection: connection) } label: { Label("Google Drive", systemImage: "externaldrive") }
+            NavigationLink { TransferList(connection: connection) } label: { Label("Transfers", systemImage: "arrow.left.arrow.right") }
+            NavigationLink { TrashList(connection: connection) } label: { Label("Trash", systemImage: "trash") }
+            Text("Deletion protection: 10 days").font(.caption).foregroundStyle(.secondary)
         }
     }
     private var browserContent: some View {
@@ -80,7 +92,15 @@ struct BrowserView: View {
         .safeAreaInset(edge: .bottom) { transferStatus }
         .toolbar { browserToolbar }
         .refreshable { await reload() }
-        .task { await reload() }
+        .task {
+            await reload()
+            guard connection.companionURL != nil else { return }
+            // Reconcile completed background copies while this folder is visible.
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(5)) } catch { return }
+                await reload()
+            }
+        }
     }
     private var browserWithAlerts: some View {
         browserContent
@@ -108,7 +128,7 @@ struct BrowserView: View {
     }
     private var browserWithActions: some View {
         browserWithAlerts
-        .confirmationDialog("Delete \(chosen.count) item(s)?", isPresented: $deleting, titleVisibility: .visible) {
+        .confirmationDialog(connection.companionURL == nil ? "Delete \(chosen.count) item(s)?" : "Move \(chosen.count) item(s) to Trash for 10 days?", isPresented: $deleting, titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
                 let items = chosen
                 Task {
@@ -128,10 +148,8 @@ struct BrowserView: View {
                             copyInProgress = isCopy
                             defer { copyInProgress = false }
                             let succeeded = await model.perform {
-                                for item in items {
-                                    if isCopy { try await repository.copy(item, to: destination) }
-                                    else { try await repository.move(item, to: destination, name: item.file.name) }
-                                }
+                                if isCopy { try await repository.copy(items, to: destination) }
+                                else { for item in items { try await repository.move(item, to: destination, name: item.file.name) } }
                             }
                             if succeeded { selected.removeAll(); selecting = false; await reload() }
                         }
@@ -150,7 +168,7 @@ struct BrowserView: View {
     }
     @ViewBuilder private var transferStatus: some View {
             if copyInProgress {
-                HStack { ProgressView(); Text("Copying on server…") }
+                HStack { ProgressView(); Text(connection.companionURL == nil ? "Copying on server…" : "Queuing server copy…") }
                     .padding().background(.regularMaterial)
             } else if let progress = model.uploadProgress {
                 HStack {
@@ -165,10 +183,15 @@ struct BrowserView: View {
             }
     }
     @ToolbarContentBuilder private var browserToolbar: some ToolbarContent {
+            if connection.companionURL != nil && parent != nil {
+                ToolbarItem(placement: .topBarLeading) {
+                    NavigationLink { TransferList(connection: connection) } label: { Label("Transfers", systemImage: "arrow.left.arrow.right") }
+                }
+            }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 if selecting {
                     Button("Copy", systemImage: "doc.on.doc") { copying = true; moving = true }
-                        .disabled(model.busy || chosen.isEmpty || chosen.contains { $0.isSource || !$0.permissions.download })
+                        .disabled(model.busy || chosen.isEmpty || chosen.contains { $0.isSource || !$0.permissions.download || protected($0) })
                     Button("Move", systemImage: "folder") { copying = false; moving = true }
                         .disabled(chosen.isEmpty || chosen.contains { $0.isSource || !$0.permissions.modify })
                     Button("Delete", systemImage: "trash", role: .destructive) { deleting = true }
@@ -197,7 +220,9 @@ struct BrowserView: View {
     }
     @ViewBuilder private func entry(_ item: StoredItem, large: Bool) -> some View {
         Group {
-            if item.file.isDirectory && !selecting {
+            if item.file.isDirectory && !selecting && connection.companionURL != nil && item.file.path == "/Trash" {
+                NavigationLink { TrashList(connection: connection, source: item.source) } label: { cell(item, large: large) }
+            } else if item.file.isDirectory && !selecting {
                 NavigationLink { BrowserView(connection: connection, parent: item) } label: { cell(item, large: large) }
             } else {
                 Button {
@@ -208,18 +233,18 @@ struct BrowserView: View {
             }
         }
         .contextMenu {
-            if !item.isSource && item.permissions.download {
+            if !item.isSource && item.permissions.download && !protected(item) {
                 Button("Copy", systemImage: "doc.on.doc") { selected = [item.id]; copying = true; moving = true }
                     .disabled(model.busy)
             }
-            if !item.isSource && item.permissions.modify {
+            if !item.isSource && item.permissions.modify && !protected(item) {
                 Button("Rename", systemImage: "pencil") { proposedName = item.file.name; renameItem = item }
                 Button("Move", systemImage: "folder") { selected = [item.id]; copying = false; moving = true }
             }
             if !item.file.isDirectory && item.permissions.download {
                 Button("Open", systemImage: "arrow.up.right.square") { open(item) }
             }
-            if !item.isSource && item.permissions.delete {
+            if !item.isSource && item.permissions.delete && !protected(item) {
                 Button("Delete", systemImage: "trash", role: .destructive) { selected = [item.id]; deleting = true }
             }
         }
@@ -242,6 +267,7 @@ struct BrowserView: View {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected.contains(item.id) ? .isSelected : [])
     }
+    private func protected(_ item: StoredItem) -> Bool { connection.companionURL != nil && CompanionClient.protected(item.file.path) }
     private func reload() async { await model.load(connection: connection, parent: parent) }
     private func open(_ item: StoredItem) {
         guard let client = model.repository?.client else { return }

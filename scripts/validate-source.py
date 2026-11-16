@@ -50,3 +50,13 @@ if failures:
     print('\n'.join(failures))
     sys.exit(1)
 print(f'Passed Swift syntax parsing ({len(swift_files)} files), Python parsing, plist, asset JSON, and project/workflow structure checks.')
+
+# Drive is an app-only source, never a File Provider catalog entry or target input.
+provider_sources = project['targets']['QuantumFileProvider']['sources']
+assert 'App' not in provider_sources
+for directory in provider_sources:
+    for path in (root / directory).glob('**/*.swift'):
+        text = path.read_text()
+        assert 'struct DriveFile' not in text and 'struct DriveBrowser' not in text, f'Drive type leaked into provider: {path}'
+        assert 'source: "drive"' not in text, f'Drive source leaked into shared catalog code: {path}'
+print('Passed app-only Google Drive / File Provider source isolation checks.')
