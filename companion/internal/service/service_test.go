@@ -413,6 +413,31 @@ func TestDatabaseWorkflow(t *testing.T) {
 		}
 	})
 
+	t.Run("aliased-stage-names-never-publish", func(t *testing.T) {
+		os.WriteFile(filepath.Join(share, "case-one"), []byte("first file"), 0600)
+		os.WriteFile(filepath.Join(share, "case-two"), []byte("second file"), 0600)
+		j := submit(CopyRequest{Items: []Item{{Source: "samba", Path: "case-one"}, {Source: "samba", Path: "case-two"}}, Destination: Item{Source: "vps", Path: "/"}}, "copy-case-alias-test")
+		if e = s.discover(context.Background(), &j); e != nil {
+			t.Fatal(e)
+		}
+		stage := filepath.Join(vps, ".filebeans-stage", j.ID)
+		os.MkdirAll(stage, 0700)
+		os.WriteFile(filepath.Join(stage, "case-one"), nil, 0600)
+		// A shared inode emulates names aliasing on a case-insensitive share.
+		if e = os.Link(filepath.Join(stage, "case-one"), filepath.Join(stage, "case-two")); e != nil {
+			t.Fatal(e)
+		}
+		s.runJob(context.Background(), &j)
+		if j.State != "failed" {
+			t.Fatal("stage alias accepted", j.State)
+		}
+		for _, name := range []string{"case-one", "case-two"} {
+			if _, e = os.Stat(filepath.Join(vps, name)); !errors.Is(e, os.ErrNotExist) {
+				t.Fatal("aliased copy was published")
+			}
+		}
+	})
+
 	t.Run("maintenance-expires-without-copy-worker", func(t *testing.T) {
 		os.WriteFile(filepath.Join(vps, "maintenance-expiry"), []byte("fixture"), 0600)
 		entry, e := s.trash(Item{Source: "vps", Path: "maintenance-expiry"}, "maintenance-test-key")

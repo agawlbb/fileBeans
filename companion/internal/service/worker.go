@@ -234,6 +234,7 @@ func (s *Service) execute(ctx context.Context, j *Job) error {
 			}
 		}
 	}
+	claimed := map[stageIdentity]string{}
 	for i := range j.Manifest {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -248,13 +249,20 @@ func (s *Service) execute(ctx context.Context, j *Job) error {
 			if e = mkdir(dst, target); e != nil {
 				return e
 			}
+			info, er := dst.Stat(target)
+			if er != nil {
+				return er
+			}
+			if er = claimStage(info, f.To, claimed); er != nil {
+				return er
+			}
 			continue
 		}
 		j.Current = f.To
 		if e = mkdir(dst, filepath.Dir(target)); e != nil {
 			return e
 		}
-		if e = s.copyFile(ctx, j, f, dst, target); e != nil {
+		if e = s.copyFile(ctx, j, f, dst, target, claimed); e != nil {
 			return e
 		}
 	}
@@ -287,7 +295,7 @@ func (s *Service) execute(ctx context.Context, j *Job) error {
 	_ = dst.RemoveAll(stage)
 	return nil
 }
-func (s *Service) copyFile(ctx context.Context, j *Job, f *File, dst *os.Root, target string) error {
+func (s *Service) copyFile(ctx context.Context, j *Job, f *File, dst *os.Root, target string, claimed map[stageIdentity]string) error {
 	if e := safe(dst, target); e != nil {
 		return e
 	}
@@ -298,6 +306,9 @@ func (s *Service) copyFile(ctx context.Context, j *Job, f *File, dst *os.Root, t
 	defer out.Close()
 	st, e := out.Stat()
 	if e != nil {
+		return e
+	}
+	if e = claimStage(st, f.To, claimed); e != nil {
 		return e
 	}
 	offset := min(st.Size(), f.Done)
@@ -492,3 +503,23 @@ func publicError(e error) string {
 	}
 }
 func decodeJob(b []byte) (Job, error) { var j Job; e := json.Unmarshal(b, &j); return j, e }
+
+// Case-insensitive shares may resolve distinct names to the same staged object.
+// Detect aliases before truncation/publication, for both files and directories.
+type stageIdentity struct {
+	device uint64
+	inode  uint64
+}
+
+func claimStage(info fs.FileInfo, path string, claimed map[stageIdentity]string) error {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return ErrUnsafe
+	}
+	key := stageIdentity{device: uint64(stat.Dev), inode: uint64(stat.Ino)}
+	if previous, exists := claimed[key]; exists && previous != path {
+		return ErrConflict
+	}
+	claimed[key] = path
+	return nil
+}
