@@ -234,6 +234,18 @@ func (s *Service) recoverNormOwner(ctx context.Context, lease *sql.Conn) error {
 	if j.State == "completed" || j.State == "cancelled" || j.State == "failed" {
 		return s.normCleanup(root, &j)
 	}
+	j.Recoveries++
+	if j.Recoveries > 3 && j.Phase != "publishing" && !j.Published {
+		if e = s.normCleanup(root, &j); e != nil {
+			return e
+		}
+		j.State = "failed"
+		j.Error = "The worker restarted repeatedly during this file. The source is retained. Check worker memory/resources, then Retry."
+		return s.normSave(&j)
+	}
+	if e = s.normSave(&j); e != nil {
+		return e
+	}
 	return s.runNormalizationJob(ctx, &j)
 }
 
@@ -720,7 +732,7 @@ func (s *Service) runNormalizationJob(ctx context.Context, j *NormalizationJob) 
 	} else {
 		j.Error = normalizationError(e)
 		j.Attempts++
-		if errors.Is(e, errNormalizationSpace) || errors.Is(e, ErrAuthorization) || errors.Is(e, ErrMount) || (!errors.Is(e, ErrUnsafe) && !errors.Is(e, ErrConflict) && !errors.Is(e, ErrUnsupported) && !errors.Is(e, os.ErrNotExist) && !errors.Is(e, os.ErrPermission)) {
+		if errors.Is(e, errNormalizationSpace) || errors.Is(e, ErrAuthorization) || errors.Is(e, ErrMount) || (!errors.Is(e, ErrUnsafe) && !errors.Is(e, ErrConflict) && !errors.Is(e, ErrUnsupported) && !errors.Is(e, ErrDrivePermission) && !errors.Is(e, ErrDriveAccount) && !errors.Is(e, os.ErrNotExist) && !errors.Is(e, os.ErrPermission)) {
 			j.State = "waiting"
 			j.Next = time.Now().Add(time.Minute).Unix()
 		} else {

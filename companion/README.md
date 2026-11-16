@@ -264,3 +264,13 @@ The worker must be registered with the existing VPS backup writer/inventory
 policy; staging already lives under the excluded `.filebeans-stage` tree. Backup
 cadence/retention and Samba library/archive folders are not changed. Confirm
 backup coverage and perform a pilot playback check before starting a full import.
+
+The API and worker serialize Google grant changes with a shared private file lock.
+The worker also holds a filesystem fence while recovering a database lease loss.
+Publication takes a shared `.normalization-publish.lock` through original cleanup
+and the final checkpoint. The VPS backup coordinator takes that lock exclusively
+before pausing writers; unresolved held originals stop capture with an explicit
+error rather than producing a snapshot missing input data. After a restore that
+omits scratch, a publication intent with its visible input intact is re-encoded.
+Repeated interrupted pre-publication attempts stop after three recoveries with a
+resource diagnostic. Background scans do not recreate a user-deleted library.

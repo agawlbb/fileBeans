@@ -58,6 +58,7 @@ type NormalizationRequest struct {
 	RelativePath string `json:"relativePath,omitempty"`
 }
 type NormalizationJob struct {
+	Recoveries    int                  `json:"recoveries,omitempty"`
 	LibrarySource string               `json:"librarySource"`
 	LibraryPath   string               `json:"libraryPath"`
 	ID            string               `json:"id"`
@@ -421,6 +422,7 @@ func (s *Service) normalizationRoutes(mux *http.ServeMux) {
 			return
 		}
 		j.State = "queued"
+		j.Recoveries = 0
 		if !j.Published {
 			j.Phase = "queued"
 			j.OutputHash = ""
@@ -441,6 +443,12 @@ func (s *Service) discoverNormalization(ctx context.Context, b *NormalizationBat
 		return e
 	}
 	defer root.Close()
+	if e = mkdir(root, c.Path); e != nil {
+		return e
+	}
+	if e = normPublicDirs(root, c.Path); e != nil {
+		return e
+	}
 	// Inventory is metadata only. No content request occurs until one file is selected.
 	type entry struct {
 		meta DriveItem
@@ -539,11 +547,15 @@ func (s *Service) scanNormalization() error {
 		return e
 	}
 	defer root.Close()
-	if e = mkdir(root, c.Path); e != nil {
+	st, e := root.Stat(c.Path)
+	if errors.Is(e, os.ErrNotExist) {
+		return nil
+	}
+	if e != nil {
 		return e
 	}
-	if e = accessibleDirectory(root, c.Path); e != nil {
-		return e
+	if !st.IsDir() {
+		return ErrUnsafe
 	}
 	jobs, e := s.normalizationJobs()
 	if e != nil {
