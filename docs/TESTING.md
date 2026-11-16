@@ -131,3 +131,14 @@ Source `a95aa5a` has identical iOS inputs to release tag `testflight/0.1.0-9`
 (`7772ca4`); the intervening change is server-only account recovery and docs.
 The companion's Go race/MariaDB suite and synthetic live local-storage smoke
 checks passed. Actual Google writes await fresh consent and device acceptance.
+
+## Navigation reopening release validation
+
+Source `de85cab` passed the simulator suite and unsigned iPhone/iPad Release
+archive on [validation run 43935825811](https://github.com/agawlbb/fileBeans/actions/runs/43935825811).
+Both downloaded artifacts matched GitHub's SHA-256 digests; app and extension
+identities, iOS 18 minimum, and iPhone/iPad support were verified. Signed build
+**0.1.0 (12)** is VALID / IN_BETA_TESTING after
+[release run 43939202252](https://github.com/agawlbb/fileBeans/actions/runs/43939202252).
+The source-list back/reopen regression still requires the physical-device checks
+above; the model suite does not exercise SwiftUI compact navigation transitions.

@@ -52,6 +52,28 @@ When refreshing credentials for this project, the shared VM helper installs the 
 
 ## Current release — November 16, 2026
 
+**0.1.0 (12)** is uploaded; Apple reports **VALID** / **IN_BETA_TESTING**.
+The existing internal group retains access to all builds.
+
+- Source: `de85cab006f2a7c2a13a4b6dd962f6daaf5833b3`, immutable tag
+  `testflight/0.1.0-12`.
+- [Validation](https://github.com/agawlbb/fileBeans/actions/runs/43935825811):
+  simulator tests and the unsigned iPhone/iPad Release archive passed.
+- Downloaded test-result and unsigned-archive SHA-256 checksums matched GitHub's
+  artifact digests. Packaged app/extension identifiers, version 0.1.0,
+  iOS 18 minimum, and iPhone/iPad support were verified.
+- [Signed release](https://github.com/agawlbb/fileBeans/actions/runs/43939202252):
+  preflight, archive/export, TestFlight upload and temporary credential cleanup
+  passed on the Intel macOS runner.
+- Apple build ID: `30dec7f5-5834-4d86-a550-79fa6348edc2`.
+- Each source opening creates a fresh detail view/task lifetime. Returning to the
+  compact source list clears selection, cancelled listings do not present errors,
+  and Drive waits for a successful status check before offering sign-in.
+- Physical iPhone/iPad back/reopen and source-switching acceptance remains manual.
+  This release changes only the app; no VPS deployment is needed.
+
+## Previous release — 0.1.0 (11)
+
 **0.1.0 (11)** is uploaded; Apple reports **VALID** / **IN_BETA_TESTING**.
 The existing internal group retains access to all builds. No tester/group changes
 or App Store submission were made.
