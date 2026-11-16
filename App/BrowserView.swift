@@ -100,9 +100,12 @@ struct BrowserView: View {
     }
     private var browserContent: some View {
         fileContent
-        .navigationTitle(parent?.file.name ?? connection.name)
-        .navigationBarTitleDisplayMode(.large)
-        .safeAreaInset(edge: .top, spacing: 0) { FolderBreadcrumbBar() }
+        // The hierarchy replaces the large folder heading below the controls.
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            FolderBreadcrumbHeading(fallbackTitle: parent?.file.name ?? connection.name)
+        }
         .searchable(text: $search, prompt: "Search this folder")
         .overlay { emptyState }
                 .safeAreaInset(edge: .bottom) {

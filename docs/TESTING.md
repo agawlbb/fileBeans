@@ -189,13 +189,18 @@ devices were verified. Build **0.1.0 (13)** is VALID / IN_BETA_TESTING following
 These synthetic navigation tests do not replace live-source device checks or
 narrow-width breadcrumb/iPad sidebar layout acceptance above.
 
-## Spacious folder heading follow-up
+## Folder heading placement correction
 
-The browser and Drive restore the native large folder title. Breadcrumbs occupy
-an independent full-width inset below the navigation bar, with body-size text
-and at least 44-point-high ancestor/menu controls, rather than competing with
-toolbar actions for title space. The inset remains visible while scrolling.
-Check initial large titles, collapsed titles after scrolling, deep/long paths,
-Dynamic Type, iPhone landscape, iPad sidebar, and ancestor navigation. The source
-and overflow menu must remain available at narrow widths. Static checks do not
-replace Apple layout/device acceptance; this change is not yet released.
+The hierarchy replaces the original large folder-title heading beneath the
+navigation controls. The native text title is suppressed so there is one heading
+row, rather than a folder title plus an additional breadcrumb row. It uses
+large-title typography, full available width, and 44-point-minimum tap targets.
+When the full path does not fit, the source and full-hierarchy menu remain
+available; the current folder is abbreviated as space permits. The iPad sidebar
+continues to show the full active hierarchy.
+
+Check there is only one large heading row on iPhone and iPad, including at source
+roots, with deep paths, long names, larger text, and narrow landscape/split widths.
+Verify ancestor taps, overflow access, native back navigation, and scrolling.
+Static checks do not replace Apple layout/device acceptance; this correction has
+not yet been released.

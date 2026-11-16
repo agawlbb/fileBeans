@@ -21,7 +21,8 @@ extension EnvironmentValues {
     }
 }
 
-struct FolderBreadcrumbBar: View {
+struct FolderBreadcrumbHeading: View {
+    let fallbackTitle: String
     @Environment(\.folderBreadcrumbs) private var trail
     var body: some View {
         if let root = trail.locations.first {
@@ -33,7 +34,7 @@ struct FolderBreadcrumbBar: View {
                     }
                 }.fixedSize(horizontal: true, vertical: false)
                 HStack(spacing: 6) {
-                    crumb(0).frame(minWidth: 44, maxWidth: 110).layoutPriority(1)
+                    crumb(0).frame(minWidth: 44, maxWidth: 160).layoutPriority(1)
                     if trail.locations.count > 1 {
                         hierarchyMenu { Image(systemName: "ellipsis") }
                         separator
@@ -45,24 +46,31 @@ struct FolderBreadcrumbBar: View {
                 // the menu provides every ancestor, including Sources.
                 hierarchyMenu { Text(root.name).lineLimit(1).minimumScaleFactor(0.6) }
             }
-            .font(.body)
+            .font(.largeTitle.weight(.bold))
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 4)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 8)
             .background(.regularMaterial)
-            .overlay(alignment: .bottom) { Divider() }
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Folder path")
+            .accessibilityAddTraits(.isHeader)
+        } else {
+            Text(fallbackTitle)
+                .font(.largeTitle.bold())
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
+                .accessibilityAddTraits(.isHeader)
         }
     }
     private var separator: some View {
-        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.secondary)
+        Image(systemName: "chevron.right").font(.title3).foregroundStyle(.secondary)
             .accessibilityHidden(true)
     }
     private func crumb(_ index: Int) -> some View {
         Button { trail.navigate(index) } label: {
             Text(trail.locations[index].name).lineLimit(1).truncationMode(.middle)
-                .fontWeight(index == trail.locations.count - 1 ? .semibold : .regular)
+                .fontWeight(index == trail.locations.count - 1 ? .bold : .semibold)
                 .frame(minHeight: 44)
         }
         .buttonStyle(.plain)
