@@ -70,6 +70,26 @@ breadcrumb heading in place of the folder title.
 
 ## Current release — November 16, 2026
 
+**0.1.0 (15)** is uploaded; Apple reports **VALID** / **IN_BETA_TESTING**.
+The existing internal group retains access to all builds.
+
+- Source: `952950a8128d059821907bf65b97c93569a73e4f`, immutable tag
+  `testflight/0.1.0-15`.
+- [Validation](https://github.com/agawlbb/fileBeans/actions/runs/43960236333):
+  simulator tests and unsigned iPhone/iPad Release archiving passed.
+- Both downloaded validation artifacts matched GitHub SHA-256 digests. Packaged
+  app/extension identifiers, version 0.1.0, iOS 18 minimum, and iPhone/iPad support
+  were verified.
+- [Publication](https://github.com/agawlbb/fileBeans/actions/runs/43964841908):
+  preflight, signed archive/export, upload, and temporary credential cleanup passed.
+- Apple build ID: `2eda1c7b-19bb-4194-9541-e6cdd548f07f`.
+- The heading uses smaller path text and keeps Sources directly visible and
+  tappable at every width. While browsing on iPad, the sidebar shows only
+  Sources → selected source → folders; tapping Sources returns to the picker.
+- Physical-device layout acceptance remains manual. No VPS deployment is needed.
+
+## Previous release — 0.1.0 (14)
+
 **0.1.0 (14)** is uploaded; Apple reports **VALID** / **IN_BETA_TESTING**.
 The existing internal group retains access to all builds.
 

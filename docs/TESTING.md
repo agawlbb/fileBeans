@@ -237,4 +237,16 @@ repeated below the active hierarchy. Settings remains available while browsing.
 Verify Sources from both heading and sidebar, opening another source afterwards,
 long/deep paths and Dynamic Type, list/grid, and all three heading width fallbacks.
 Static checks do not substitute for Apple layout/device acceptance; this follow-up
-is not yet built or published.
+is validated and published as build 15; physical layout acceptance remains manual.
+
+## Build 15 release validation
+
+Source `952950a` passed simulator tests and unsigned iPhone/iPad archiving on
+[validation run 43960236333](https://github.com/agawlbb/fileBeans/actions/runs/43960236333).
+Downloaded validation artifacts matched GitHub SHA-256 digests; packaged app and
+extension identities and supported devices were verified. Signed build
+**0.1.0 (15)** was published by
+[run 43964841908](https://github.com/agawlbb/fileBeans/actions/runs/43964841908).
+Apple reports VALID / IN_BETA_TESTING, with the existing internal group retaining
+access. Smaller path text, direct Sources navigation, and the hierarchy-only iPad
+sidebar still require physical-device layout acceptance.
