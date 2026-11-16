@@ -204,3 +204,13 @@ roots, with deep paths, long names, larger text, and narrow landscape/split widt
 Verify ancestor taps, overflow access, native back navigation, and scrolling.
 Static checks do not replace Apple layout/device acceptance; this correction has
 not yet been released.
+
+## Heading correction build validation
+
+Source `b7ac1b9` passed simulator tests and unsigned iPhone/iPad archiving on
+[validation run 43952665641](https://github.com/agawlbb/fileBeans/actions/runs/43952665641).
+The signed **0.1.0 (14)** IPA was built and retained by
+[build run 43956876063](https://github.com/agawlbb/fileBeans/actions/runs/43956876063).
+Downloaded validation and signed artifacts matched GitHub SHA-256 digests;
+packaged app/extension versions and identities were verified. Upload was skipped.
+Heading layout and physical-device acceptance remain manual.

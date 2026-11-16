@@ -50,6 +50,24 @@ The second command reuses the existing distribution certificate, creates the two
 
 When refreshing credentials for this project, the shared VM helper installs the retained identity directly into the `testflight` environment. There is no workflow-based extraction from other repositories and no credential artifact transfer. Temporary copies on ephemeral GitHub runners are removed after use; the VM originals remain intact.
 
+## Latest build-only verification — 0.1.0 (14)
+
+Source `b7ac1b93c30dfac816fef19e65b33c0a0144f2f6` builds the corrected single large
+breadcrumb heading in place of the folder title.
+
+- [Validation](https://github.com/agawlbb/fileBeans/actions/runs/43952665641):
+  simulator tests and unsigned iPhone/iPad Release archive passed.
+- [Signed build](https://github.com/agawlbb/fileBeans/actions/runs/43956876063):
+  preflight, signing, archive/export, artifact retention, and credential cleanup
+  passed. The TestFlight upload step was skipped (`operation=build`).
+- Signed IPA artifact: `myFiles-signed-14`, retained for seven days at
+  [artifact 14271014162](https://github.com/agawlbb/fileBeans/actions/runs/43956876063/artifacts/14271014162).
+- Downloaded test-result, unsigned-archive, and signed-IPA artifact SHA-256 digests
+  matched GitHub metadata. Both packaged targets have version 0.1.0 (14), correct
+  bundle IDs, iOS 18 minimum, and iPhone/iPad support.
+- Build 14 has not been uploaded; TestFlight's current release remains build 13.
+  Publication remains pending. No VPS deployment is needed.
+
 ## Current release — November 16, 2026
 
 **0.1.0 (13)** is uploaded; Apple reports **VALID** / **IN_BETA_TESTING**.
