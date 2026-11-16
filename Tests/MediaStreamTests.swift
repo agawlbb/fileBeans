@@ -52,7 +52,15 @@ final class MediaStreamTests: XCTestCase {
         let stream = MediaStream(client: client, request: request, name: "probe.mp4")
         let player = AVPlayer()
         defer { player.pause(); player.replaceCurrentItem(with: nil); stream.cancel() }
-        try await stream.play(on: player)
+        let prepared = expectation(description: "Player asset preparation completes")
+        let preparation = Task { @MainActor in
+            defer { prepared.fulfill() }
+            do { try await stream.play(on: player) }
+            catch { if !Task.isCancelled { XCTFail("Player preparation failed: \(error)") } }
+        }
+        defer { preparation.cancel() }
+        await fulfillment(of: [prepared], timeout: 15)
+        guard player.currentItem != nil else { return }
         let output = AVPlayerItemVideoOutput(pixelBufferAttributes: nil)
         player.currentItem?.add(output)
         let deadline = Date().addingTimeInterval(15)
