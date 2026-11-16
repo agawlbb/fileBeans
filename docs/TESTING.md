@@ -44,3 +44,21 @@ The app and Files extension passed Apple SDK compilation, all 19 simulator unit 
 - Recheck an existing connection without a companion for unchanged operations.
   Source syntax validation is local; CompanionTests and iOS acceptance still
   require the normal authorized macOS build/test workflow.
+
+## Full-access Drive acceptance
+
+- Upgrade an existing read-only grant and confirm old same-account jobs continue.
+  Switch accounts and confirm old jobs fail clearly. Verify MakeLORA's grant is unchanged.
+- Exercise folder creation, rename, within-Drive moves, multi-selection copying in
+  both server directions and within Drive, permission-denied items, and collisions.
+  Copy Google documents within Drive; open them in Google's browser. Server export
+  of Google documents/shortcuts must fail explicitly, including inside folders.
+- Upload a large Files/Photos video. Interrupt both phone-to-companion and
+  companion-to-Google phases, restart, retry and compare final hashes. Cancel with
+  a disconnected server; cancellation must stay pending until acknowledged.
+- Verify ordinary Drive thumbnail failures keep icons; folders always use folder
+  icons. Play and seek supported Drive media without a local playback download.
+- Check root-only bottom Trash shortcuts for VPS, Samba and Drive, with no combined
+  trash source. Quantum and Apple Files should retain their existing presentation.
+  Trash a synthetic file using drive.google.com and restore it in fileBeans. Check
+  shared-drive trash scope, permission restrictions, and permanent confirmations.

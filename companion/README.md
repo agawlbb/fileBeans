@@ -1,6 +1,6 @@
 # fileBeans companion
 
-Single Linux service for durable server-side copies, local trash, and a read-only
+Single Linux service for durable server-side copies, local trash, and a full-access
 Google Drive source. Quantum remains responsible for existing file browsing.
 Drive exists only in the main iOS app, never in its Apple File Provider catalog.
 No live deployment, Google consent, database provisioning, or Apple build is
@@ -60,19 +60,39 @@ not in code. Google's project publishing/test-user policies still apply.
 Inside fileBeans, open **Google Drive → Connect Drive**. The companion returns a
 Google consent URL with state and PKCE. The browser callback exchanges the code;
 access/refresh tokens are stored in mode-0600 server state, never returned to iOS.
-The grant is `drive.readonly`; no Drive upload/delete operation is implemented.
-Reconnect creates a new connection identity. Unfinished old jobs will not silently
-switch accounts; cancel and resubmit those jobs. Disconnect removes this service's
-saved tokens and pending OAuth state, without changing MakeLORA's authorization.
-It does not revoke the shared Google client's grant globally.
+The service requests the full `drive` scope. Existing read-only grants keep browsing
+and Drive-to-server copying until **Upgrade Drive Access** completes fresh consent.
+The companion saves granted scopes and Google's opaque account identifier. A
+same-account upgrade preserves job identity; switching accounts gives a new
+identity, so old jobs cannot silently operate on another account. MakeLORA's token
+file and authorization are independent and are never edited. Disconnect removes
+only this service's saved grant and pending OAuth state.
 
-My Drive, Shared with me, and Shared drives support paginated browsing. Regular
-files and folders can be copied to configured local roots. Google-native
-Docs/Sheets/Slides and shortcuts are deliberately unsupported in this version;
-a folder containing them fails explicitly. Duplicate names, unsafe local names,
-and destination collisions fail without overwriting or silently dropping files.
-Only listings/progress reach the phone. Google file bytes go straight to the VPS
-worker, including when writing into the mounted Samba share.
+My Drive, Shared with me, and Shared drives support paginated browsing. The app
+uses the same folders-first list/grid, sort, search, selection, context menus and
+destination picker as VPS/Samba. Create folders, rename, move within Drive, upload
+from Files/Photos, copy Drive-to-server, server-to-Drive and Drive-to-Drive, and
+restore or permanently remove native Drive trash. Google-native documents and
+shortcuts open in Google's browser; supported Drive copies preserve their native
+format. Export/conversion to VPS/Samba remains deliberately unsupported, including
+native documents found inside a copied folder.
+
+Drive thumbnails and supported media ranges are authenticated through the
+companion. Google credentials and thumbnail URLs never reach the phone. Media
+uses native playback without transcoding. Server/Drive copies never relay file
+bytes through the phone. Files/Photos uploads first resume into private companion
+spool storage, then become durable jobs using Google's resumable upload protocol.
+The app distinguishes these two phases and retains its retry payload until the
+job completes or cancellation is acknowledged. Keep free disk space for pending
+uploads in the private state directory.
+
+Drive destinations use a private marked staging folder, persisted generated IDs,
+resumable session URLs, and publication checkpoints. Native Google document copies
+use operation markers to recover a lost response without blindly issuing a second
+copy. Such copies report item progress because Google supplies no byte progress.
+Destination-name checks happen before copying and again before publication.
+Google Drive has no atomic unique-name operation: an external writer racing the
+final check can still create a duplicate name. Existing files are never replaced.
 
 Google scope reference: https://developers.google.com/workspace/drive/api/guides/api-specific-auth
 Download/range reference: https://developers.google.com/workspace/drive/api/guides/manage-downloads
@@ -123,6 +143,14 @@ as history. Protect the database and trash together in any future backup policy;
 no backup job is installed here. Retention uses UTC Unix timestamps and requires
 an accurate server clock.
 
+The main app shows a separate bottom Trash shortcut only at each source's top
+level. It hides the managed local `Trash` folder from ordinary app listings and
+has no combined Trash source. Quantum and Apple Files presentation is unchanged.
+Drive's Trash is Google's native trash, including items deleted outside fileBeans,
+with Google's normal 30-day retention. My Drive and each shared drive have separate
+scopes. Emptying requires explicit permanent confirmation and persists a snapshot
+so retries never broaden the original deletion set.
+
 ## API
 
 All `/v1` endpoints require `Authorization: Bearer TOKEN`. JSON responses are
@@ -130,7 +158,7 @@ no-store. Callback state is one-use and expires after ten minutes.
 
 | Endpoint | Purpose |
 |---|---|
-| GET `/v1/capabilities` | Root mappings, trash paths, Drive connection state |
+| GET `/v1/capabilities` | Root mappings, trash paths, Drive connection/write state and additive feature flags |
 | POST `/v1/jobs` | Submit `{items:[{source,path}],destination:{source,path}}` with Idempotency-Key |
 | GET `/v1/jobs`, GET `/v1/jobs/{id}` | Progress/history; manifests stay server-side |
 | POST `/v1/jobs/{id}/cancel` | Cancel work and clean unpublished staging |
@@ -140,6 +168,12 @@ no-store. Callback state is one-use and expires after ten minutes.
 | POST `/v1/trash/{id}/restore` | Restore without overwrite |
 | POST `/v1/trash/{id}/purge`, POST `/v1/trash/empty` | Require X-Confirm-Permanent: yes |
 | GET `/v1/drive/files?folder=root&page=...` | Paginated files; folder may be `shared` or a Google ID |
+| GET `/v1/drive/files/{id}` | Metadata and Google capabilities; no thumbnail URL |
+| GET `/v1/drive/files/{id}/thumbnail`, GET/HEAD `/v1/drive/files/{id}/content` | Brokered thumbnail and byte-range media/download |
+| POST `/v1/drive/mutations` | Idempotent folder/rename/move/trash/restore/purge/empty; purge/empty require permanent confirmation |
+| GET `/v1/drive/trash?scope=root&page=...` | Native account trash, or selected shared-drive ID |
+| POST `/v1/drive/uploads`, GET/PUT `/v1/drive/uploads/{id}` | Idempotent upload creation, offset recovery, bounded Content-Range chunks |
+| POST `/v1/drive/uploads/{id}/cancel` | Cancel spool or its queued/running copy job |
 | GET `/v1/drive/drives?page=...` | Paginated shared-drive roots |
 | POST `/v1/drive/connect`, POST `/v1/drive/disconnect` | Separate server-side Google connection |
 | GET `/oauth/callback` | Public OAuth callback, protected by state and PKCE |

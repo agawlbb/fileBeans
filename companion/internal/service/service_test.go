@@ -120,7 +120,7 @@ func TestDriveReadOnlyAndRanges(t *testing.T) {
 	if string(b) != "def" {
 		t.Fatal("bad range")
 	}
-	if _, e = s.token(context.Background(), "different"); !errors.Is(e, ErrAuthorization) {
+	if _, e = s.token(context.Background(), "different"); !errors.Is(e, ErrDriveAccount) {
 		t.Fatal("account switch accepted")
 	}
 }
@@ -475,4 +475,6 @@ func TestDatabaseWorkflow(t *testing.T) {
 			t.Fatal("purge without confirmation", w.Code)
 		}
 	})
+	t.Run("drive-write-workflows", func(t *testing.T) { testDriveWriteWorkflow(t, s) })
+
 }

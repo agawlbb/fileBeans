@@ -43,7 +43,7 @@ func Load(path string) (Config, error) {
 	}
 	names := map[string]bool{}
 	for _, r := range c.Roots {
-		if r.Name == "" || r.Name == "drive" || names[r.Name] || !filepath.IsAbs(r.Path) || filepath.Clean(r.Path) == "/" {
+		if r.Name == "" || r.Name == "drive" || r.Name == "upload" || names[r.Name] || !filepath.IsAbs(r.Path) || filepath.Clean(r.Path) == "/" {
 			return c, errors.New("invalid or duplicate root")
 		}
 		if (r.Mount == "") != (r.MountSource == "") {

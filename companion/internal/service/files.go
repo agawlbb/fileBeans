@@ -30,6 +30,9 @@ func validName(name string) bool {
 	return name != "" && name != "." && name != ".." && !strings.ContainsAny(name, "/\\\x00")
 }
 func (s *Service) root(name string) (*os.Root, error) {
+	if name == "upload" {
+		return os.OpenRoot(filepath.Join(s.config.State, "uploads"))
+	}
 	var config *Root
 	for i := range s.config.Roots {
 		if s.config.Roots[i].Name == name {

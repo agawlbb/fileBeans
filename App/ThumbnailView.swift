@@ -1,7 +1,7 @@
 import SwiftUI
 
 @MainActor
-private enum ThumbnailCache {
+enum ThumbnailCache {
     static let images: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
         cache.countLimit = 200

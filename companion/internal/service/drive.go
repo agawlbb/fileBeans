@@ -18,22 +18,68 @@ import (
 )
 
 type Google struct {
-	Access     string `json:"access_token"`
-	Refresh    string `json:"refresh_token"`
-	Expires    int64  `json:"expires"`
-	Connection string `json:"connection"`
+	Access     string   `json:"access_token"`
+	Refresh    string   `json:"refresh_token"`
+	Expires    int64    `json:"expires"`
+	Connection string   `json:"connection"`
+	Scopes     []string `json:"scopes,omitempty"`
+	Account    string   `json:"account,omitempty"`
+}
+type DriveCapabilities struct {
+	Download       bool `json:"canDownload"`
+	Copy           bool `json:"canCopy"`
+	Rename         bool `json:"canRename"`
+	Edit           bool `json:"canEdit"`
+	MoveWithin     bool `json:"canMoveItemWithinDrive"`
+	MoveOut        bool `json:"canMoveItemOutOfDrive"`
+	AddChildren    bool `json:"canAddChildren"`
+	Trash          bool `json:"canTrash"`
+	Untrash        bool `json:"canUntrash"`
+	Delete         bool `json:"canDelete"`
+	DeleteChildren bool `json:"canDeleteChildren"`
 }
 type DriveItem struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Mime         string `json:"mimeType"`
-	Size         string `json:"size"`
-	Version      string `json:"version"`
-	Modified     string `json:"modifiedTime"`
-	Capabilities struct {
-		Download bool `json:"canDownload"`
-	} `json:"capabilities"`
+	ID                string            `json:"id"`
+	Name              string            `json:"name"`
+	Mime              string            `json:"mimeType"`
+	Size              string            `json:"size"`
+	Version           string            `json:"version"`
+	Modified          string            `json:"modifiedTime"`
+	Parents           []string          `json:"parents,omitempty"`
+	DriveID           string            `json:"driveId,omitempty"`
+	Trashed           bool              `json:"trashed"`
+	ExplicitlyTrashed bool              `json:"explicitlyTrashed"`
+	HasThumbnail      bool              `json:"hasThumbnail"`
+	Thumbnail         string            `json:"thumbnailLink,omitempty"`
+	WebURL            string            `json:"webViewLink,omitempty"`
+	Properties        map[string]string `json:"appProperties,omitempty"`
+	Capabilities      DriveCapabilities `json:"capabilities"`
 }
+
+const driveScope = "https://www.googleapis.com/auth/drive"
+
+func (g Google) writable() bool {
+	for _, scope := range g.Scopes {
+		if scope == driveScope {
+			return true
+		}
+	}
+	return false
+}
+func (s *Service) requireDriveWrite(connection string) error {
+	g, e := s.google()
+	if e != nil {
+		return e
+	}
+	if !g.writable() {
+		return ErrDriveWrite
+	}
+	if connection != "" && g.Connection != connection {
+		return ErrDriveAccount
+	}
+	return nil
+}
+
 type DriveList struct {
 	Files []DriveItem `json:"files"`
 	Next  string      `json:"nextPageToken"`
@@ -87,7 +133,7 @@ func (s *Service) token(ctx context.Context, connection string) (Google, error) 
 		return g, e
 	}
 	if connection != "" && connection != g.Connection {
-		return g, ErrAuthorization
+		return g, ErrDriveAccount
 	}
 	if g.Expires > time.Now().Unix()+60 {
 		return g, nil
@@ -101,6 +147,9 @@ func (s *Service) token(ctx context.Context, connection string) (Google, error) 
 		g.Refresh = reply.Refresh
 	}
 	g.Expires = time.Now().Unix() + reply.Lifetime
+	if reply.Scope != "" {
+		g.Scopes = strings.Fields(reply.Scope)
+	}
 	return g, privateJSON(filepath.Join(s.config.State, "google.json"), g)
 }
 
@@ -154,7 +203,7 @@ func (s *Service) driveRequest(ctx context.Context, path string, q url.Values, c
 	return res, nil
 }
 
-const driveFields = "id,name,mimeType,size,version,modifiedTime,capabilities(canDownload)"
+const driveFields = "id,name,mimeType,size,version,modifiedTime,parents,driveId,trashed,explicitlyTrashed,hasThumbnail,thumbnailLink,webViewLink,appProperties,capabilities(canDownload,canCopy,canRename,canEdit,canMoveItemWithinDrive,canMoveItemOutOfDrive,canAddChildren,canTrash,canUntrash,canDelete,canDeleteChildren)"
 
 func (s *Service) driveMeta(ctx context.Context, id, connection string) (DriveItem, error) {
 	var d DriveItem
@@ -182,7 +231,7 @@ func driveID(id string) bool {
 }
 func (s *Service) driveList(ctx context.Context, folder, page, connection string) (DriveList, error) {
 	var d DriveList
-	q := "trashed=false and "
+	q := "trashed=false and not (appProperties has { key='filebeansStage' and value='true' }) and "
 	switch folder {
 	case "shared":
 		q += "sharedWithMe=true"
@@ -207,6 +256,9 @@ func (s *Service) driveList(ctx context.Context, folder, page, connection string
 	return d, e
 }
 func (s *Service) driveManifest(ctx context.Context, id, connection string) ([]File, string, error) {
+	return s.driveTree(ctx, id, connection, false)
+}
+func (s *Service) driveTree(ctx context.Context, id, connection string, withinDrive bool) ([]File, string, error) {
 	var files []File
 	seen := map[string]bool{}
 	top, e := s.driveMeta(ctx, id, connection)
@@ -226,18 +278,18 @@ func (s *Service) driveManifest(ctx context.Context, id, connection string) ([]F
 		}
 		seen[d.ID] = true
 		dir := d.Mime == "application/vnd.google-apps.folder"
-		if !dir && (strings.HasPrefix(d.Mime, "application/vnd.google-apps.") || !d.Capabilities.Download) {
+		if !dir && ((!withinDrive && (strings.HasPrefix(d.Mime, "application/vnd.google-apps.") || !d.Capabilities.Download)) || (withinDrive && !d.Capabilities.Copy)) {
 			return ErrUnsupported
 		}
 		size := int64(0)
-		if !dir {
+		if !dir && d.Size != "" {
 			var e error
 			size, e = strconv.ParseInt(d.Size, 10, 64)
 			if e != nil || size < 0 {
 				return ErrUnsafe
 			}
 		}
-		files = append(files, File{Source: "drive", From: d.ID, To: path, Size: size, Version: d.Version, Directory: dir})
+		files = append(files, File{Source: "drive", From: d.ID, To: path, Size: size, Version: d.Version, Directory: dir, Mime: d.Mime})
 		if dir {
 			names := map[string]bool{}
 			page := ""
@@ -338,7 +390,7 @@ func (s *Service) authURL() (string, error) {
 		return "", e
 	}
 	hash := sha256.Sum256([]byte(state.Verifier))
-	q := url.Values{"client_id": {s.config.GoogleClientID}, "redirect_uri": {s.config.GoogleRedirect}, "response_type": {"code"}, "scope": {"https://www.googleapis.com/auth/drive.readonly"}, "access_type": {"offline"}, "prompt": {"consent"}, "state": {state.State}, "code_challenge": {base64.RawURLEncoding.EncodeToString(hash[:])}, "code_challenge_method": {"S256"}}
+	q := url.Values{"client_id": {s.config.GoogleClientID}, "redirect_uri": {s.config.GoogleRedirect}, "response_type": {"code"}, "scope": {driveScope}, "access_type": {"offline"}, "prompt": {"consent"}, "state": {state.State}, "code_challenge": {base64.RawURLEncoding.EncodeToString(hash[:])}, "code_challenge_method": {"S256"}}
 	return "https://accounts.google.com/o/oauth2/v2/auth?" + q.Encode(), nil
 }
 func (s *Service) callback(ctx context.Context, state, code string) error {
@@ -360,14 +412,39 @@ func (s *Service) callback(ctx context.Context, state, code string) error {
 	if e != nil {
 		return e
 	}
-	if t.Refresh == "" || !strings.Contains(t.Scope, "https://www.googleapis.com/auth/drive.readonly") {
-		return ErrAuthorization
+	grant := Google{Access: t.Access, Refresh: t.Refresh, Expires: time.Now().Unix() + t.Lifetime, Connection: ID(), Scopes: strings.Fields(t.Scope)}
+	if grant.Refresh == "" || !grant.writable() {
+		return ErrDriveWrite
 	}
-	return privateJSON(filepath.Join(s.config.State, "google.json"), Google{Access: t.Access, Refresh: t.Refresh, Expires: time.Now().Unix() + t.Lifetime, Connection: ID()})
+	// Use Google's opaque account identifier, never an embedded account/email.
+	account, e := googleAccount(ctx, grant.Access)
+	if e != nil {
+		return e
+	}
+	grant.Account = account
+	if old, er := s.google(); er == nil {
+		oldAccount := old.Account
+		if oldAccount == "" {
+			access := old.Access
+			if old.Expires <= time.Now().Unix()+60 {
+				if refreshed, er := s.tokenRequest(ctx, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {old.Refresh}}); er == nil {
+					access = refreshed.Access
+				}
+			}
+			oldAccount, _ = googleAccount(ctx, access)
+		}
+		if oldAccount != "" && oldAccount == account {
+			grant.Connection = old.Connection
+		}
+	}
+	return privateJSON(filepath.Join(s.config.State, "google.json"), grant)
 }
 
 // Keep provider bodies private; expose only known categories to the worker.
-type driveRetry struct{ seconds int64 }
+type driveRetry struct {
+	seconds   int64
+	ambiguous bool
+}
 
 func (e driveRetry) Error() string { return "Drive temporarily unavailable" }
 func driveFailure(res *http.Response) error {
@@ -383,7 +460,7 @@ func driveFailure(res *http.Response) error {
 	if res.StatusCode == 401 {
 		return ErrAuthorization
 	}
-	if res.StatusCode == 404 {
+	if res.StatusCode == 404 || res.StatusCode == 410 {
 		return os.ErrNotExist
 	}
 	retry := res.StatusCode == 429 || res.StatusCode >= 500
@@ -393,6 +470,12 @@ func driveFailure(res *http.Response) error {
 		}
 	}
 	if !retry {
+		if res.StatusCode == 403 {
+			return ErrDrivePermission
+		}
+		if res.StatusCode == 409 {
+			return ErrConflict
+		}
 		return ErrUnsupported
 	}
 	seconds, _ := strconv.ParseInt(res.Header.Get("Retry-After"), 10, 64)
@@ -401,5 +484,33 @@ func driveFailure(res *http.Response) error {
 			seconds = int64(time.Until(at).Seconds())
 		}
 	}
-	return driveRetry{seconds: max(5, min(seconds, 86400))}
+	return driveRetry{seconds: max(5, min(seconds, 86400)), ambiguous: res.StatusCode >= 500}
+}
+
+func googleAccount(ctx context.Context, access string) (string, error) {
+	r, e := http.NewRequestWithContext(ctx, "GET", "https://www.googleapis.com/drive/v3/about?fields=user(permissionId)", nil)
+	if e != nil {
+		return "", e
+	}
+	r.Header.Set("Authorization", "Bearer "+access)
+	response, e := googleHTTP.Do(r)
+	if e != nil {
+		return "", e
+	}
+	defer response.Body.Close()
+	if response.StatusCode != 200 {
+		return "", ErrAuthorization
+	}
+	var value struct {
+		User struct {
+			ID string `json:"permissionId"`
+		} `json:"user"`
+	}
+	if e = json.NewDecoder(io.LimitReader(response.Body, 65536)).Decode(&value); e != nil {
+		return "", e
+	}
+	if value.User.ID == "" {
+		return "", ErrAuthorization
+	}
+	return value.User.ID, nil
 }

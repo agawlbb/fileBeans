@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 /// The delegate and loading-request state are confined to the main queue.
 @MainActor
 final class MediaStream: NSObject, @preconcurrency AVAssetResourceLoaderDelegate {
-    private let client: QuantumClient
+    private let fetch: (URLRequest, Int64, Int) async throws -> MediaChunk
     private let request: URLRequest
     private let name: String
     private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
@@ -14,7 +14,11 @@ final class MediaStream: NSObject, @preconcurrency AVAssetResourceLoaderDelegate
     private(set) var suppliedByteCount: Int64 = 0
 
     init(client: QuantumClient, request: URLRequest, name: String) {
-        self.client = client; self.request = request; self.name = name
+        self.fetch = { try await client.streamChunk($0, offset: $1, length: $2) }; self.request = request; self.name = name
+    }
+
+    init(client: CompanionClient, request: URLRequest, name: String) {
+        self.fetch = { try await client.streamChunk($0, offset: $1, length: $2) }; self.request = request; self.name = name
     }
 
     func asset() -> AVURLAsset {
@@ -61,7 +65,7 @@ final class MediaStream: NSObject, @preconcurrency AVAssetResourceLoaderDelegate
                     length = 2 // Content information probe; never a full-file GET.
                 }
                 try await MediaRange.read(offset: offset, length: length, fetch: { offset, count in
-                    try await self.client.streamChunk(self.request, offset: offset, length: count)
+                    try await self.fetch(self.request, offset, count)
                 }, receive: { chunk in
                     if let info = loading.contentInformationRequest {
                         info.contentLength = chunk.totalLength

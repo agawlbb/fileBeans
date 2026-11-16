@@ -41,21 +41,33 @@ func (s *Service) discover(ctx context.Context, j *Job) error {
 	j.Manifest = nil
 	j.Total = 0
 	j.Done = 0
-	dest, e := s.root(j.Request.Destination.Source)
-	if e != nil {
-		return e
-	}
-	defer dest.Close()
-	p, e := clean(j.Request.Destination.Path)
-	if e != nil || protected(p) {
-		return ErrUnsafe
-	}
-	if e = safe(dest, p); e != nil {
-		return e
-	}
-	st, e := dest.Stat(p)
-	if e != nil || !st.IsDir() {
-		return errors.New("destination folder is unavailable")
+	var dest *os.Root
+	p := ""
+	var e error
+	if j.Request.Destination.Source == "drive" {
+		if e = s.requireDriveWrite(j.Connection); e != nil {
+			return e
+		}
+		if _, e = s.driveParent(ctx, j.Request.Destination.Path, j.Connection); e != nil {
+			return e
+		}
+	} else {
+		dest, e = s.root(j.Request.Destination.Source)
+		if e != nil {
+			return e
+		}
+		defer dest.Close()
+		p, e = clean(j.Request.Destination.Path)
+		if e != nil || protected(p) {
+			return ErrUnsafe
+		}
+		if e = safe(dest, p); e != nil {
+			return e
+		}
+		st, e := dest.Stat(p)
+		if e != nil || !st.IsDir() {
+			return errors.New("destination folder is unavailable")
+		}
 	}
 	names := map[string]bool{}
 	for _, item := range j.Request.Items {
@@ -72,7 +84,7 @@ func (s *Service) discover(ctx context.Context, j *Job) error {
 				}
 				j.Connection = g.Connection
 			}
-			files, name, e = s.driveManifest(ctx, item.Path, j.Connection)
+			files, name, e = s.driveTree(ctx, item.Path, j.Connection, j.Request.Destination.Source == "drive")
 			if e != nil {
 				return e
 			}
@@ -121,20 +133,33 @@ func (s *Service) discover(ctx context.Context, j *Job) error {
 				return er
 			}
 		}
-		if !validName(name) || names[name] || name == "Trash" || name == ".filebeans-stage" {
+		if !validName(name) || names[name] || (j.Request.Destination.Source != "drive" && (name == "Trash" || name == ".filebeans-stage")) {
 			return ErrConflict
 		}
 		names[name] = true
-		if _, e := dest.Lstat(filepath.Join(p, name)); e == nil {
-			return ErrConflict
-		} else if !errors.Is(e, fs.ErrNotExist) {
-			return e
+		if dest != nil {
+			if _, e := dest.Lstat(filepath.Join(p, name)); e == nil {
+				return ErrConflict
+			} else if !errors.Is(e, fs.ErrNotExist) {
+				return e
+			}
+		} else {
+			if e = s.driveNameConflict(ctx, j.Request.Destination.Path, name, "", j.Connection); e != nil {
+				return e
+			}
 		}
 		for _, f := range files {
 			if !f.Directory {
 				j.Total += f.Size
 			}
 			j.Manifest = append(j.Manifest, f)
+		}
+	}
+	j.ItemsTotal = len(j.Manifest)
+	if j.Request.Destination.Source == "drive" {
+		j.ProgressUnit = "bytes"
+		if len(j.Request.Items) > 0 && j.Request.Items[0].Source == "drive" {
+			j.ProgressUnit = "items"
 		}
 	}
 	complete = true
@@ -152,7 +177,16 @@ func (s *Service) runJob(ctx context.Context, j *Job) {
 		e = errCancelled
 	}
 	if errors.Is(e, errCancelled) {
-		if r, er := s.root(j.Request.Destination.Source); er == nil {
+		if j.Request.Destination.Source == "drive" {
+			if cleanupError := s.cleanupDriveStage(ctx, j); cleanupError != nil {
+				j.Error = publicError(cleanupError)
+				j.State = "waiting"
+				j.Cancel = true
+				j.Next = time.Now().Add(time.Minute).Unix()
+				_ = s.save(j.ID, "copy", j.State, j)
+				return
+			}
+		} else if r, er := s.root(j.Request.Destination.Source); er == nil {
 			r.RemoveAll(filepath.Join(".filebeans-stage", j.ID))
 			r.Close()
 		}
@@ -161,7 +195,7 @@ func (s *Service) runJob(ctx context.Context, j *Job) {
 	} else if e != nil {
 		j.Error = publicError(e)
 		j.Speed = 0
-		if errors.Is(e, ErrUnsafe) || errors.Is(e, ErrConflict) || errors.Is(e, ErrUnsupported) || errors.Is(e, syscall.EEXIST) || errors.Is(e, syscall.ENOSPC) || errors.Is(e, syscall.EXDEV) || errors.Is(e, syscall.EBUSY) || errors.Is(e, fs.ErrPermission) || errors.Is(e, fs.ErrNotExist) {
+		if errors.Is(e, ErrDrivePermission) || errors.Is(e, ErrDriveAccount) || errors.Is(e, ErrUnsafe) || errors.Is(e, ErrConflict) || errors.Is(e, ErrUnsupported) || errors.Is(e, syscall.EEXIST) || errors.Is(e, syscall.ENOSPC) || errors.Is(e, syscall.EXDEV) || errors.Is(e, syscall.EBUSY) || errors.Is(e, fs.ErrPermission) || errors.Is(e, fs.ErrNotExist) {
 			j.State = "failed"
 		} else {
 			j.State = "waiting"
@@ -182,9 +216,14 @@ func (s *Service) runJob(ctx context.Context, j *Job) {
 		j.Error = ""
 	}
 	// Failure to save leaves the previous recoverable state, never an invented success.
-	_ = s.save(j.ID, "copy", j.State, j)
+	if s.save(j.ID, "copy", j.State, j) == nil && (j.State == "completed" || j.State == "cancelled") {
+		s.cleanupJobUploads(j)
+	}
 }
 func (s *Service) execute(ctx context.Context, j *Job) error {
+	if j.Request.Destination.Source == "drive" {
+		return s.executeDrive(ctx, j)
+	}
 	if len(j.Manifest) == 0 {
 		j.State = "discovering"
 		if e := s.checkpoint(j); e != nil {
@@ -480,6 +519,14 @@ func (s *Service) copyFile(ctx context.Context, j *Job, f *File, dst *os.Root, t
 }
 func publicError(e error) string {
 	switch {
+	case errors.Is(e, ErrDriveWrite):
+		return "Google Drive needs full access. Choose Upgrade Drive Access and approve the requested permission."
+	case errors.Is(e, ErrDriveAccount):
+		return "The Google Drive account changed. Cancel this transfer and submit it again for the connected account."
+	case errors.Is(e, ErrDrivePermission):
+		return "Google Drive does not allow this action for this item. Check its sharing permissions."
+	case errors.Is(e, ErrUncertain):
+		return "Google has not confirmed the operation. Waiting to reconcile it before retrying."
 	case errors.Is(e, ErrUnsupported):
 		return "Unsupported Drive item or download not permitted"
 	case errors.Is(e, syscall.EXDEV), errors.Is(e, syscall.EBUSY):

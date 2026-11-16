@@ -64,6 +64,11 @@ struct ConnectionsView: View {
             }
         }
         .task { model.reload() }
+        .onReceive(NotificationCenter.default.publisher(for: .fileBeansConnectionChanged)) { _ in
+            let current = selected?.id
+            model.reload()
+            if let current { selected = model.connections.first { $0.id == current } }
+        }
         .sheet(isPresented: $adding) { ConnectionEditor(connection: nil) { model.reload() } }
         .sheet(item: $editing) { ConnectionEditor(connection: $0) { model.reload(); selected = nil } }
         .confirmationDialog("Remove this connection and its cached files?", isPresented: Binding(
@@ -173,7 +178,9 @@ struct ConnectionEditor: View {
             }
             if c.companionURL == nil, let id = connection?.companionTokenID { try? TokenStore.remove(id) }
             repo.notify()
-            saved(); dismiss()
+            saved(); NotificationCenter.default.post(name: .fileBeansConnectionChanged, object: nil); dismiss()
         } catch { self.error = error.localizedDescription }
     }
 }
+
+extension Notification.Name { static let fileBeansConnectionChanged = Notification.Name("fileBeans.connectionChanged") }

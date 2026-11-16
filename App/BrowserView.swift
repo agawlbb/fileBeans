@@ -25,12 +25,16 @@ struct BrowserView: View {
     @State private var movie: Movie?
     @State private var photos: [PhotosPickerItem] = []
     private var visible: [StoredItem] {
-        model.items.filter { search.isEmpty || $0.file.name.localizedStandardContains(search) }.sorted {
-            if $0.file.isDirectory != $1.file.isDirectory { return $0.file.isDirectory }
-            if sortOrder == "modified" { return ($0.file.date ?? .distantPast) > ($1.file.date ?? .distantPast) }
-            if sortOrder == "size" { return ($0.file.size ?? 0) > ($1.file.size ?? 0) }
-            return $0.file.name.localizedStandardCompare($1.file.name) == .orderedAscending
+        model.items.filter {
+            (connection.companionURL == nil || $0.file.path != "/Trash") &&
+            (search.isEmpty || $0.file.name.localizedStandardContains(search))
+        }.sorted {
+            BrowserOrdering.precedes(sortValue($0), sortValue($1), order: sortOrder)
         }
+    }
+    private func sortValue(_ item: StoredItem) -> BrowserSortValue {
+        BrowserSortValue(id: item.id, name: item.file.name, folder: item.file.isDirectory,
+                         size: item.file.size ?? 0, modified: item.file.date ?? .distantPast)
     }
     private var chosen: [StoredItem] { model.items.filter { selected.contains($0.id) } }
     var body: some View {
@@ -59,29 +63,15 @@ struct BrowserView: View {
         .sheet(item: $movie) { MovieView(movie: $0) }
     }
     private var fileContent: some View {
-        Group {
-            if grid {
-                ScrollView {
-                    companionLinks.padding(.horizontal)
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 140))], spacing: 24) {
-                        ForEach(visible) { item in entry(item, large: true) }
-                    }.padding()
-                }
-            } else {
-                List {
-                    companionLinks
-                    ForEach(visible) { item in entry(item, large: false) }
-                }
-                    .listStyle(.plain)
-            }
-        }
+        BrowserFileCollection(items: visible, grid: grid, header: companionLinks, row: { item, large in entry(item, large: large) })
     }
     @ViewBuilder private var companionLinks: some View {
-        if parent == nil && connection.companionURL != nil {
+        if parent == nil {
             NavigationLink { DriveBrowser(connection: connection) } label: { Label("Google Drive", systemImage: "externaldrive") }
-            NavigationLink { TransferList(connection: connection) } label: { Label("Transfers", systemImage: "arrow.left.arrow.right") }
-            NavigationLink { TrashList(connection: connection) } label: { Label("Trash", systemImage: "trash") }
-            Text("Deletion protection: 10 days").font(.caption).foregroundStyle(.secondary)
+            if connection.companionURL != nil {
+                NavigationLink { TransferList(connection: connection) } label: { Label("Transfers", systemImage: "arrow.left.arrow.right") }
+                Text("Deletion protection: 10 days").font(.caption).foregroundStyle(.secondary)
+            }
         }
     }
     private var browserContent: some View {
@@ -89,7 +79,14 @@ struct BrowserView: View {
         .navigationTitle(parent?.file.name ?? connection.name)
         .searchable(text: $search, prompt: "Search this folder")
         .overlay { emptyState }
-        .safeAreaInset(edge: .bottom) { transferStatus }
+                .safeAreaInset(edge: .bottom) {
+            VStack(spacing: 0) {
+                transferStatus
+                if let parent, parent.isSource, connection.companionURL != nil {
+                    SourceTrashBar(destination: TrashList(connection: connection, source: parent.source))
+                }
+            }
+        }
         .toolbar { browserToolbar }
         .refreshable { await reload() }
         .task {
@@ -140,7 +137,9 @@ struct BrowserView: View {
         .sheet(isPresented: $moving) {
             if let repository = model.repository, let parent {
                 NavigationStack {
-                    FolderDestination(repository: repository, folder: nil, source: parent.source, excluded: chosen, copying: copying) { destination in
+                    SourceDestinationPicker(connection: connection,
+                                            mode: copying ? .copy : .localMove(parent.source),
+                                            excludedLocal: chosen, excludedDrive: []) { destination in
                         let items = chosen
                         let isCopy = copying
                         moving = false
@@ -148,8 +147,14 @@ struct BrowserView: View {
                             copyInProgress = isCopy
                             defer { copyInProgress = false }
                             let succeeded = await model.perform {
-                                if isCopy { try await repository.copy(items, to: destination) }
-                                else { for item in items { try await repository.move(item, to: destination, name: item.file.name) } }
+                                switch destination {
+                                case .local(let folder):
+                                    if isCopy { try await repository.copy(items, to: folder) }
+                                    else { for item in items { try await repository.move(item, to: folder, name: item.file.name) } }
+                                case .drive(let folder):
+                                    guard isCopy, let companion = repository.companion else { throw APIError.forbidden }
+                                    _ = try await companion.submit(BackgroundCopy(items: items.map { CopyLocation(source: $0.source, path: $0.file.path) }, destination: CopyLocation(source: "drive", path: folder.id)))
+                                }
                             }
                             if succeeded { selected.removeAll(); selecting = false; await reload() }
                         }
@@ -159,8 +164,8 @@ struct BrowserView: View {
         }
     }
     @ViewBuilder private var emptyState: some View {
-            if model.busy && model.items.isEmpty { ProgressView() }
-            else if model.items.isEmpty && model.error == nil {
+            if model.busy && visible.isEmpty { ProgressView() }
+            else if model.items.filter({ connection.companionURL == nil || $0.file.path != "/Trash" }).isEmpty && model.error == nil && parent != nil {
                 ContentUnavailableView("No files", systemImage: "folder")
             } else if !model.items.isEmpty && visible.isEmpty {
                 ContentUnavailableView.search(text: search)
@@ -190,22 +195,14 @@ struct BrowserView: View {
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 if selecting {
-                    Button("Copy", systemImage: "doc.on.doc") { copying = true; moving = true }
-                        .disabled(model.busy || chosen.isEmpty || chosen.contains { $0.isSource || !$0.permissions.download || protected($0) })
-                    Button("Move", systemImage: "folder") { copying = false; moving = true }
-                        .disabled(chosen.isEmpty || chosen.contains { $0.isSource || !$0.permissions.modify })
-                    Button("Delete", systemImage: "trash", role: .destructive) { deleting = true }
-                        .disabled(chosen.isEmpty || chosen.contains { $0.isSource || !$0.permissions.delete })
-                    Button("Done") { selecting = false; selected.removeAll() }
+                    BrowserSelectionControls(
+                        canCopy: !model.busy && !chosen.isEmpty && !chosen.contains { $0.isSource || !$0.permissions.download || protected($0) },
+                        canMove: !chosen.isEmpty && !chosen.contains { $0.isSource || !$0.permissions.modify },
+                        canDelete: !chosen.isEmpty && !chosen.contains { $0.isSource || !$0.permissions.delete },
+                        copy: { copying = true; moving = true }, move: { copying = false; moving = true },
+                        delete: { deleting = true }, done: { selecting = false; selected.removeAll() })
                 } else {
-                    Menu {
-                        Button(grid ? "List" : "Grid", systemImage: grid ? "list.bullet" : "square.grid.2x2") { grid.toggle() }
-                        Picker("Sort", selection: $sortOrder) {
-                            Text("Name").tag("name"); Text("Modified").tag("modified"); Text("Size").tag("size")
-                        }
-                        Button("Select", systemImage: "checkmark.circle") { selecting = true }
-                        Button("Refresh", systemImage: "arrow.clockwise") { Task { await reload() } }
-                    } label: { Label("View Options", systemImage: "ellipsis.circle") }
+                    BrowserViewOptions(grid: $grid, sortOrder: $sortOrder, select: { selecting = true }, refresh: { Task { await reload() } })
                     if let parent, parent.permissions.create {
                         Menu {
                             Button("New Folder", systemImage: "folder.badge.plus") { proposedName = ""; newFolder = true }
@@ -220,9 +217,7 @@ struct BrowserView: View {
     }
     @ViewBuilder private func entry(_ item: StoredItem, large: Bool) -> some View {
         Group {
-            if item.file.isDirectory && !selecting && connection.companionURL != nil && item.file.path == "/Trash" {
-                NavigationLink { TrashList(connection: connection, source: item.source) } label: { cell(item, large: large) }
-            } else if item.file.isDirectory && !selecting {
+            if item.file.isDirectory && !selecting {
                 NavigationLink { BrowserView(connection: connection, parent: item) } label: { cell(item, large: large) }
             } else {
                 Button {
@@ -249,23 +244,10 @@ struct BrowserView: View {
             }
         }
     }
-    @ViewBuilder private func cell(_ item: StoredItem, large: Bool) -> some View {
-        let layout = large ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))
-        layout {
-            ThumbnailView(item: item, client: model.repository?.client)
-                .frame(width: large ? 120 : 44, height: large ? 100 : 44)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(item.file.name).foregroundStyle(.primary).lineLimit(2)
-                if !item.file.isDirectory, let size = item.file.size {
-                    Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            if selecting { Image(systemName: selected.contains(item.id) ? "checkmark.circle.fill" : "circle").foregroundStyle(.tint) }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(selected.contains(item.id) ? .isSelected : [])
+    private func cell(_ item: StoredItem, large: Bool) -> some View {
+        BrowserItemCell(name: item.file.name, size: item.file.size, folder: item.file.isDirectory,
+                        large: large, selecting: selecting, selected: selected.contains(item.id),
+                        thumbnail: ThumbnailView(item: item, client: model.repository?.client))
     }
     private func protected(_ item: StoredItem) -> Bool { connection.companionURL != nil && CompanionClient.protected(item.file.path) }
     private func reload() async { await model.load(connection: connection, parent: parent) }
@@ -291,7 +273,7 @@ struct BrowserView: View {
     }
 }
 
-private struct ImportedMedia: Transferable {
+struct ImportedMedia: Transferable {
     var url: URL
     static var transferRepresentation: some TransferRepresentation {
         FileRepresentation(importedContentType: .data) { received in
@@ -304,8 +286,8 @@ private struct ImportedMedia: Transferable {
     }
 }
 
-private struct Movie: Identifiable { let id = UUID(); let name: String; let stream: MediaStream }
-private struct MovieView: View {
+struct Movie: Identifiable { let id = UUID(); let name: String; let stream: MediaStream }
+struct MovieView: View {
     let movie: Movie
     @Environment(\.dismiss) private var dismiss
     @State private var player = AVPlayer()

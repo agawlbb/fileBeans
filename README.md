@@ -37,14 +37,23 @@ Writeback checks server modification time and size before uploading. Quantum doe
 
 The [companion service](companion/README.md) adds persistent background copy jobs,
 automatic interrupted-copy recovery, ten-day trash on VPS/Samba storage, and a
-read-only Google Drive browser. Configure its HTTPS URL and separate API token in
-the connection editor. Drive-to-server copies run entirely on the VPS. Drive is
-visible only inside fileBeans and never registered with Apple Files.
+Google Drive browser with native file management. Configure its HTTPS URL and separate API token in
+the connection editor. Drive/server copies in both directions and Drive-to-Drive
+copies run on the VPS, with resumable uploads and persistent progress. Drive is
+visible only inside fileBeans and never registered with Apple Files. Existing
+read-only connections require **Upgrade Drive Access** for writes. Account choice
+happens at Google sign-in; no account is embedded in the app. Drive supports native
+trash/restore, folders, rename, within-Drive moves, Files/Photos uploads, thumbnails
+and supported media playback. Google-native documents open in Google's browser;
+export/conversion to server files is deferred.
 
 With a companion configured, app and Apple Files extension deletions move local
 items to trash; service failures never fall back to permanent deletion. Restore,
 Delete Permanently, and Empty Trash are available in fileBeans. Direct deletions
-through Quantum remain unchanged. Server installation, database migration, Google
+through Quantum remain unchanged. Each source has a separate bottom Trash shortcut
+at its top level, with no combined Trash source or inline managed trash folder.
+Local retention is ten days; Drive uses Google's native 30-day policy and includes
+items deleted outside fileBeans. Server installation, database migration, Google
 consent, and iOS release are separate steps; see the companion instructions.
 
 ## Public repository

@@ -27,7 +27,7 @@ func fail(w http.ResponseWriter, e error) {
 		status = 409
 	case errors.Is(e, sql.ErrNoRows), errors.Is(e, os.ErrNotExist):
 		status = 404
-	case errors.Is(e, ErrAuthorization):
+	case errors.Is(e, ErrAuthorization), errors.Is(e, ErrDriveWrite), errors.Is(e, ErrDriveAccount), errors.Is(e, ErrDrivePermission):
 		status = 403
 	}
 	reply(w, status, map[string]string{"error": publicError(e)})
@@ -65,8 +65,8 @@ func (s *Service) Handler() http.Handler {
 		for _, root := range s.config.Roots {
 			roots = append(roots, map[string]string{"source": root.Name, "trash": "/Trash"})
 		}
-		_, e := s.google()
-		reply(w, 200, map[string]any{"version": 1, "roots": roots, "driveConnected": e == nil})
+		g, e := s.google()
+		reply(w, 200, map[string]any{"version": 1, "roots": roots, "driveConnected": e == nil, "driveWriteAccess": e == nil && g.writable(), "features": []string{"driveWrite", "driveDestinations", "driveUploads", "driveThumbnails", "driveMedia"}})
 	})
 	mux.HandleFunc("POST /v1/jobs", func(w http.ResponseWriter, r *http.Request) {
 		var req CopyRequest
@@ -74,12 +74,23 @@ func (s *Service) Handler() http.Handler {
 			fail(w, e)
 			return
 		}
-		destination, err := clean(req.Destination.Path)
-		if err != nil || protected(destination) {
-			fail(w, ErrUnsafe)
-			return
+		if req.Destination.Source == "drive" {
+			if !driveID(req.Destination.Path) {
+				fail(w, ErrUnsafe)
+				return
+			}
+			if e := s.requireDriveWrite(""); e != nil {
+				fail(w, e)
+				return
+			}
+		} else {
+			destination, err := clean(req.Destination.Path)
+			if err != nil || protected(destination) || req.Destination.Source == "upload" {
+				fail(w, ErrUnsafe)
+				return
+			}
+			req.Destination.Path = destination
 		}
-		req.Destination.Path = destination
 		for i := range req.Items {
 			if req.Items[i].Source != "drive" {
 				p, err := clean(req.Items[i].Path)
@@ -91,7 +102,7 @@ func (s *Service) Handler() http.Handler {
 			}
 		}
 		k := key(r)
-		if k == "" || len(req.Items) == 0 || len(req.Items) > 100 || req.Destination.Source == "drive" {
+		if k == "" || len(req.Items) == 0 || len(req.Items) > 100 {
 			fail(w, ErrUnsafe)
 			return
 		}
@@ -112,14 +123,20 @@ func (s *Service) Handler() http.Handler {
 			fail(w, e)
 			return
 		}
-		// Validate roots before accepting; full discovery occurs in the worker.
-		root, e := s.root(req.Destination.Source)
-		if e != nil {
-			fail(w, e)
-			return
+		var e error
+		if req.Destination.Source != "drive" {
+			root, er := s.root(req.Destination.Source)
+			if er != nil {
+				fail(w, er)
+				return
+			}
+			root.Close()
 		}
-		root.Close()
 		for _, item := range req.Items {
+			if item.Source == "upload" {
+				fail(w, ErrUnsafe)
+				return
+			}
 			if item.Source == "drive" {
 				if !driveID(item.Path) {
 					fail(w, ErrUnsafe)
@@ -152,7 +169,7 @@ func (s *Service) Handler() http.Handler {
 			fail(w, e)
 			return
 		}
-		reply(w, 202, j)
+		reply(w, 202, publicJob(j))
 	})
 	mux.HandleFunc("GET /v1/jobs", func(w http.ResponseWriter, r *http.Request) {
 		records, e := s.records("copy")
@@ -179,7 +196,7 @@ func (s *Service) Handler() http.Handler {
 			return
 		}
 		j.Manifest = nil
-		reply(w, 200, j)
+		reply(w, 200, publicJob(j))
 	})
 	mux.HandleFunc("POST /v1/jobs/{id}/cancel", func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
@@ -190,7 +207,7 @@ func (s *Service) Handler() http.Handler {
 			return
 		}
 		if j.State == "completed" || j.State == "cancelled" {
-			reply(w, 200, j)
+			reply(w, 200, publicJob(j))
 			return
 		}
 		j.Cancel = true
@@ -203,7 +220,7 @@ func (s *Service) Handler() http.Handler {
 			return
 		}
 		j.Manifest = nil
-		reply(w, 200, j)
+		reply(w, 200, publicJob(j))
 	})
 	mux.HandleFunc("POST /v1/jobs/{id}/retry", func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
@@ -217,28 +234,42 @@ func (s *Service) Handler() http.Handler {
 			fail(w, ErrConflict)
 			return
 		}
-		root, e := s.root(j.Request.Destination.Source)
-		if e != nil {
-			fail(w, e)
-			return
-		}
-		defer root.Close()
-		if e = root.RemoveAll(filepath.Join(".filebeans-stage", j.ID)); e != nil {
-			fail(w, e)
-			return
+		if j.Request.Destination.Source == "drive" {
+			if e := s.requireDriveWrite(j.Connection); e != nil {
+				fail(w, e)
+				return
+			}
+			if e := s.cleanupDriveStage(r.Context(), &j); e != nil {
+				fail(w, e)
+				return
+			}
+			j.RemoteStage = ""
+		} else {
+			root, e := s.root(j.Request.Destination.Source)
+			if e != nil {
+				fail(w, e)
+				return
+			}
+			defer root.Close()
+			if e = root.RemoveAll(filepath.Join(".filebeans-stage", j.ID)); e != nil {
+				fail(w, e)
+				return
+			}
 		}
 		j.Manifest = nil
+		j.ItemsDone = 0
+		j.ItemsTotal = 0
 		j.Done = 0
 		j.Total = 0
 		j.Error = ""
 		j.Cancel = false
 		j.Next = 0
 		j.State = "queued"
-		if e = s.save(j.ID, "copy", j.State, j); e != nil {
+		if e := s.save(j.ID, "copy", j.State, j); e != nil {
 			fail(w, e)
 			return
 		}
-		reply(w, 200, j)
+		reply(w, 200, publicJob(j))
 	})
 	mux.HandleFunc("POST /v1/trash", func(w http.ResponseWriter, r *http.Request) {
 		var item Item
@@ -363,6 +394,9 @@ func (s *Service) Handler() http.Handler {
 			fail(w, e)
 			return
 		}
+		for i := range d.Files {
+			d.Files[i].Thumbnail = ""
+		}
 		reply(w, 200, d)
 	})
 	mux.HandleFunc("GET /v1/drive/drives", func(w http.ResponseWriter, r *http.Request) {
@@ -402,6 +436,7 @@ func (s *Service) Handler() http.Handler {
 		}
 		reply(w, 200, map[string]bool{"disconnected": true})
 	})
+	s.driveRoutes(mux)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -423,6 +458,9 @@ func (s *Service) Handler() http.Handler {
 	})
 }
 func hasDrive(r CopyRequest) bool {
+	if r.Destination.Source == "drive" {
+		return true
+	}
 	for _, i := range r.Items {
 		if i.Source == "drive" {
 			return true
@@ -430,3 +468,5 @@ func hasDrive(r CopyRequest) bool {
 	}
 	return false
 }
+
+func publicJob(j Job) Job { j.Manifest = nil; j.RemoteStage = ""; return j }

@@ -31,22 +31,31 @@ type File struct {
 	Directory bool   `json:"directory"`
 	Source    string `json:"source"`
 	Hash      string `json:"hash,omitempty"`
+	Mime      string `json:"mime,omitempty"`
+	TargetID  string `json:"targetId,omitempty"`
+	Session   string `json:"session,omitempty"`
+	Completed bool   `json:"completed,omitempty"`
+	Attempted bool   `json:"attempted,omitempty"`
 }
 type Job struct {
-	ID         string      `json:"id"`
-	State      string      `json:"state"`
-	Request    CopyRequest `json:"request"`
-	Manifest   []File      `json:"manifest,omitempty"`
-	Connection string      `json:"connection,omitempty"`
-	Total      int64       `json:"total"`
-	Done       int64       `json:"done"`
-	Speed      float64     `json:"speed"`
-	Current    string      `json:"current"`
-	Error      string      `json:"error,omitempty"`
-	Attempts   int         `json:"attempts"`
-	Next       int64       `json:"next"`
-	Cancel     bool        `json:"cancel"`
-	Published  []string    `json:"published,omitempty"`
+	ID           string      `json:"id"`
+	State        string      `json:"state"`
+	Request      CopyRequest `json:"request"`
+	Manifest     []File      `json:"manifest,omitempty"`
+	Connection   string      `json:"connection,omitempty"`
+	Total        int64       `json:"total"`
+	Done         int64       `json:"done"`
+	Speed        float64     `json:"speed"`
+	Current      string      `json:"current"`
+	Error        string      `json:"error,omitempty"`
+	Attempts     int         `json:"attempts"`
+	Next         int64       `json:"next"`
+	Cancel       bool        `json:"cancel"`
+	Published    []string    `json:"published,omitempty"`
+	RemoteStage  string      `json:"remoteStage,omitempty"`
+	ProgressUnit string      `json:"progressUnit,omitempty"`
+	ItemsTotal   int         `json:"itemsTotal,omitempty"`
+	ItemsDone    int         `json:"itemsDone,omitempty"`
 }
 type Trash struct {
 	ID       string `json:"id"`
@@ -133,3 +142,8 @@ var ErrUnsafe = errors.New("operation is outside allowed storage or uses an unsa
 var ErrUnsupported = errors.New("unsupported Drive item or download forbidden")
 var ErrMount = errors.New("configured network mount is unavailable")
 var ErrAuthorization = errors.New("Google Drive authorization required")
+
+var ErrDriveWrite = errors.New("Google Drive full-access consent required")
+var ErrDriveAccount = errors.New("Google Drive connection changed")
+var ErrDrivePermission = errors.New("Google Drive does not permit this operation")
+var ErrUncertain = errors.New("Google has not confirmed this operation")

@@ -6,6 +6,8 @@ struct CompanionCapabilities: Decodable {
     let version: Int
     let roots: [Root]
     let driveConnected: Bool
+    let driveWriteAccess: Bool?
+    let features: [String]?
 }
 struct CopyLocation: Codable {
     let source: String
@@ -23,6 +25,9 @@ struct CopyJob: Decodable, Identifiable {
     let speed: Double
     let current: String
     let error: String?
+    let progressUnit: String?
+    let itemsTotal: Int?
+    let itemsDone: Int?
     var active: Bool { !["completed", "cancelled", "failed"].contains(state) }
 }
 struct TrashEntry: Decodable, Identifiable {
@@ -55,8 +60,9 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
     func close() { session.invalidateAndCancel() }
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
-    func request(_ route: String, method: String = "GET", body: Data? = nil,
-                 key: String? = nil, permanent: Bool = false, query: [String: String] = [:]) async throws -> Data {
+    func authorizedRequest(_ route: String, method: String = "GET", body: Data? = nil,
+                           key: String? = nil, permanent: Bool = false, query: [String: String] = [:],
+                           headers: [String: String] = [:]) throws -> URLRequest {
         guard let configured = connection.companionURL, let tokenID = connection.companionTokenID else { throw APIError.authentication }
         let base = try QuantumClient.validateURL(configured.absoluteString)
         var parts = URLComponents(url: base.appendingPathComponent("v1/" + route), resolvingAgainstBaseURL: false)!
@@ -68,6 +74,13 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
         if body != nil { r.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         if let key { r.setValue(key, forHTTPHeaderField: "Idempotency-Key") }
         if permanent { r.setValue("yes", forHTTPHeaderField: "X-Confirm-Permanent") }
+        for (name, value) in headers { r.setValue(value, forHTTPHeaderField: name) }
+        return r
+    }
+    func request(_ route: String, method: String = "GET", body: Data? = nil,
+                 key: String? = nil, permanent: Bool = false, query: [String: String] = [:],
+                 headers: [String: String] = [:]) async throws -> Data {
+        let r = try authorizedRequest(route, method: method, body: body, key: key, permanent: permanent, query: query, headers: headers)
         let (data, response) = try await session.data(for: r)
         guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
         guard (200..<300).contains(http.statusCode) else {
@@ -79,6 +92,26 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
             throw APIError.status(http.statusCode)
         }
         return data
+    }
+    func streamChunk(_ request: URLRequest, offset: Int64, length: Int) async throws -> MediaChunk {
+        guard offset >= 0, length > 0, length <= MediaRange.chunkSize, offset <= Int64.max - Int64(length) else { throw URLError(.badURL) }
+        var r = request
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        r.setValue("bytes=\(offset)-\(offset + Int64(length) - 1)", forHTTPHeaderField: "Range")
+        r.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        let (bytes, response) = try await session.data(for: r)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 206 else { throw URLError(.badServerResponse) }
+        return try MediaChunk.decode(bytes, response: http, offset: offset, length: length)
+    }
+    func download(_ route: String) async throws -> URL {
+        let (file, response) = try await session.download(for: authorizedRequest(route))
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            try? FileManager.default.removeItem(at: file)
+            throw APIError.status((response as? HTTPURLResponse)?.statusCode ?? 0)
+        }
+        let target = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.moveItem(at: file, to: target)
+        return target
     }
     private struct ServiceError: Decodable { let error: String }
     func capabilities() async throws -> CompanionCapabilities {
