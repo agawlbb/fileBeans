@@ -50,7 +50,7 @@ The second command reuses the existing distribution certificate, creates the two
 
 When refreshing credentials for this project, the shared VM helper installs the retained identity directly into the `testflight` environment. There is no workflow-based extraction from other repositories and no credential artifact transfer. Temporary copies on ephemeral GitHub runners are removed after use; the VM originals remain intact.
 
-## Latest build-only verification — 0.1.0 (14)
+## Initial build-only verification — 0.1.0 (14)
 
 Source `b7ac1b93c30dfac816fef19e65b33c0a0144f2f6` builds the corrected single large
 breadcrumb heading in place of the folder title.
@@ -65,10 +65,31 @@ breadcrumb heading in place of the folder title.
 - Downloaded test-result, unsigned-archive, and signed-IPA artifact SHA-256 digests
   matched GitHub metadata. Both packaged targets have version 0.1.0 (14), correct
   bundle IDs, iOS 18 minimum, and iPhone/iPad support.
-- Build 14 has not been uploaded; TestFlight's current release remains build 13.
-  Publication remains pending. No VPS deployment is needed.
+- This initial build skipped upload; subsequent explicitly authorized publication
+  is recorded below. No VPS deployment is needed.
 
 ## Current release — November 16, 2026
+
+**0.1.0 (14)** is uploaded; Apple reports **VALID** / **IN_BETA_TESTING**.
+The existing internal group retains access to all builds.
+
+- Source: `b7ac1b93c30dfac816fef19e65b33c0a0144f2f6`, immutable tag
+  `testflight/0.1.0-14`.
+- [Validation](https://github.com/agawlbb/fileBeans/actions/runs/43952665641):
+  simulator tests and unsigned iPhone/iPad Release archiving passed.
+- Initial signed IPA build and validation artifacts were downloaded and verified
+  against GitHub SHA-256 digests. Both targets have the expected identifiers,
+  version 0.1.0 (14), iOS 18 minimum, and iPhone/iPad support.
+- [Publication](https://github.com/agawlbb/fileBeans/actions/runs/43957926938):
+  preflight, signed archive/export, TestFlight upload, and credential cleanup passed.
+- Apple build ID: `5e839cb5-480c-4c26-b50f-2916caadd20a`.
+- The folder hierarchy replaces the original folder-title heading in one large
+  row below the navigation controls. Narrow layouts abbreviate the hierarchy
+  while retaining source access and a menu of ancestors. The iPad sidebar retains
+  its active hierarchy.
+- Physical-device layout acceptance remains manual. No VPS deployment is needed.
+
+## Previous release — 0.1.0 (13)
 
 **0.1.0 (13)** is uploaded; Apple reports **VALID** / **IN_BETA_TESTING**.
 The existing internal group retains access to all builds.

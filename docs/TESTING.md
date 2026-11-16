@@ -203,7 +203,7 @@ Check there is only one large heading row on iPhone and iPad, including at sourc
 roots, with deep paths, long names, larger text, and narrow landscape/split widths.
 Verify ancestor taps, overflow access, native back navigation, and scrolling.
 Static checks do not replace Apple layout/device acceptance; this correction has
-not yet been released.
+been validated and published as build 14; layout acceptance remains manual.
 
 ## Heading correction build validation
 
@@ -214,3 +214,13 @@ The signed **0.1.0 (14)** IPA was built and retained by
 Downloaded validation and signed artifacts matched GitHub SHA-256 digests;
 packaged app/extension versions and identities were verified. Upload was skipped.
 Heading layout and physical-device acceptance remain manual.
+
+## Build 14 TestFlight publication
+
+Following explicit publication approval, source `b7ac1b9` was tagged
+`testflight/0.1.0-14` and published through
+[run 43957926938](https://github.com/agawlbb/fileBeans/actions/runs/43957926938).
+Preflight, signed archive/export, upload, and credential cleanup passed.
+Apple build `5e839cb5-480c-4c26-b50f-2916caadd20a` reports VALID and
+IN_BETA_TESTING; the existing internal group retains access to all builds.
+The heading layout acceptance checks above still require physical-device review.
