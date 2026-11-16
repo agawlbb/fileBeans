@@ -49,7 +49,7 @@ struct TransferList: View {
     }
     private func refresh() async {
         let client = CompanionClient(connection: connection); defer { client.close() }
-        do { jobs = try await client.jobs(); error = nil } catch { self.error = error.localizedDescription }
+        do { jobs = try await client.jobs().filter { $0.state != "completed" }; error = nil } catch { self.error = error.localizedDescription }
     }
     private func action(_ route: String, id: String) {
         pendingActions.insert(id)
