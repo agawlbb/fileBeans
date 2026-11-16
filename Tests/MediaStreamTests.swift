@@ -30,7 +30,17 @@ final class MediaStreamTests: XCTestCase {
 
     @MainActor
     func testPlaybackAdvancesAndDecodesMultipleFrames() async throws {
-        let fixture = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "playback-probe", withExtension: "mp4"))
+        try await assertPlayback(fixtureName: "playback-probe")
+    }
+
+    @MainActor
+    func testNormalizedHEVCPlaybackAdvancesAndSeeks() async throws {
+        try await assertPlayback(fixtureName: "normalization-probe")
+    }
+
+    @MainActor
+    private func assertPlayback(fixtureName: String) async throws {
+        let fixture = try XCTUnwrap(Bundle(for: Self.self).url(forResource: fixtureName, withExtension: "mp4"))
         let content = try Data(contentsOf: fixture)
         MediaProtocol.delay = 0.15
         MediaProtocol.respond = { request in
