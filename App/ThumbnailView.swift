@@ -19,7 +19,7 @@ struct ThumbnailView: View {
     }
     var body: some View {
         Group {
-            if let image { Image(uiImage: image).resizable().scaledToFit().clipShape(RoundedRectangle(cornerRadius: 6)) }
+            if !item.file.isDirectory, let image { Image(uiImage: image).resizable().scaledToFit().clipShape(RoundedRectangle(cornerRadius: 6)) }
             else {
                 Image(systemName: client?.connection.companionURL != nil && item.file.isDirectory && item.file.path == "/Trash" ? "trash.fill" : item.file.isDirectory ? "folder.fill" : item.file.isMedia ? "play.rectangle" : "doc")
                     .resizable().scaledToFit().padding(8).foregroundStyle(item.file.isDirectory ? Color.accentColor : .secondary)
@@ -28,7 +28,7 @@ struct ThumbnailView: View {
         .accessibilityHidden(true)
         .task(id: key) {
             image = nil
-            guard item.file.hasPreview == true, let client else { return }
+            guard !item.file.isDirectory, item.file.hasPreview == true, let client else { return }
             if let cached = ThumbnailCache.images.object(forKey: key as NSString) { image = cached; return }
             do {
                 let data = try await client.thumbnail(source: item.source, file: item.file)

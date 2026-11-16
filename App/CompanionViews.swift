@@ -133,6 +133,13 @@ struct DriveBrowser: View {
     @State private var busy = false
     @State private var connected = false
     @State private var disconnecting = false
+    private var sortedFiles: [DriveFile] {
+        files.sorted {
+            if $0.folder != $1.folder { return $0.folder }
+            let order = $0.name.localizedStandardCompare($1.name)
+            return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
+        }
+    }
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var phase
     var body: some View {
@@ -142,7 +149,7 @@ struct DriveBrowser: View {
                 NavigationLink("Shared with me") { DriveBrowser(connection: connection, folder: "shared", title: "Shared with me") }
                 NavigationLink("Shared drives") { DriveBrowser(connection: connection, folder: "__drives", title: "Shared drives") }
             }
-            ForEach(files) { file in
+            ForEach(sortedFiles) { file in
                 Group {
                     if file.folder {
                         NavigationLink { DriveBrowser(connection: connection, folder: file.id, title: file.name) } label: { Label(file.name, systemImage: "folder") }
