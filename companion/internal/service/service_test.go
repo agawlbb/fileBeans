@@ -413,6 +413,34 @@ func TestDatabaseWorkflow(t *testing.T) {
 		}
 	})
 
+	t.Run("maintenance-expires-without-copy-worker", func(t *testing.T) {
+		os.WriteFile(filepath.Join(vps, "maintenance-expiry"), []byte("fixture"), 0600)
+		entry, e := s.trash(Item{Source: "vps", Path: "maintenance-expiry"}, "maintenance-test-key")
+		if e != nil {
+			t.Fatal(e)
+		}
+		entry.Expires = time.Now().Unix() - 1
+		if e = s.save(entry.ID, "trash", entry.State, entry); e != nil {
+			t.Fatal(e)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() { defer close(done); s.maintenance(ctx) }()
+		defer func() { cancel(); <-done }()
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			var current Trash
+			if e = s.read(entry.ID, "trash", &current); e != nil {
+				t.Fatal(e)
+			}
+			if current.State == "purged" {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatal("independent maintenance did not expire the retained entry")
+	})
+
 	t.Run("permanent-confirmation", func(t *testing.T) {
 		r := httptest.NewRequest("POST", "/v1/trash/empty", nil)
 		r.Header.Set("Authorization", "Bearer "+s.config.Token)

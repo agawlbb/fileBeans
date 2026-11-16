@@ -78,20 +78,11 @@ func (s *Service) loop(ctx context.Context, lease *sql.Conn) {
 	}()
 	defer func() { cancel(); <-heartbeatDone }()
 	ctx = workerCtx
-	nextCleanup := time.Time{}
+	maintenanceDone := make(chan struct{})
+	go func() { defer close(maintenanceDone); s.maintenance(ctx) }()
+	defer func() { cancel(); <-maintenanceDone }()
 	for ctx.Err() == nil {
 		s.mu.Lock()
-		if time.Now().After(nextCleanup) {
-			for _, root := range s.config.Roots {
-				if r, e := s.root(root.Name); e == nil {
-					_ = mkdir(r, "Trash")
-					_ = r.Chmod("Trash", 0750)
-					r.Close()
-				}
-			}
-			s.reconcileTrash()
-			nextCleanup = time.Now().Add(time.Hour)
-		}
 		data, e := s.records("copy")
 		var selected *Job
 		if e == nil {
@@ -116,6 +107,24 @@ func (s *Service) loop(ctx context.Context, lease *sql.Conn) {
 		}
 	}
 }
+
+// Maintenance is independent of the serial copy worker, including long transfers.
+func (s *Service) maintenance(ctx context.Context) {
+	for ctx.Err() == nil {
+		s.mu.Lock()
+		for _, root := range s.config.Roots {
+			if r, e := s.root(root.Name); e == nil {
+				_ = mkdir(r, "Trash")
+				_ = r.Chmod("Trash", 0750)
+				r.Close()
+			}
+		}
+		s.reconcileTrash()
+		s.mu.Unlock()
+		wait(ctx, time.Hour)
+	}
+}
+
 func wait(ctx context.Context, d time.Duration) {
 	select {
 	case <-ctx.Done():
