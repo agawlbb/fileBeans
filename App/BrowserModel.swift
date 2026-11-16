@@ -26,7 +26,12 @@ final class BrowserModel: ObservableObject {
                 items = try await repository.children(refreshed)
             } else { items = try await repository.roots() }
             error = nil
-        } catch { self.error = error.localizedDescription }
+        } catch {
+            // SwiftUI cancels the listing task when navigating away.
+            guard !Task.isCancelled, !(error is CancellationError),
+                  (error as? URLError)?.code != .cancelled else { return }
+            self.error = error.localizedDescription
+        }
     }
     @discardableResult
     func perform(_ operation: () async throws -> Void) async -> Bool {

@@ -20,7 +20,12 @@ comparison remains part of device acceptance.
 - Cold-launch with one connection: Drive, Samba, and VPS should be available
   immediately without choosing a connection. Check list/grid, search, and the
   persistent iPad source sidebar. On iPhone, open a source, browse nested folders,
-  then return to the source list.
+  then return to the source list. Reopen the same source repeatedly, switch
+  between Samba, VPS, and Drive, and back out while a listing is still loading.
+  Confirm each opening loads without cancellation alerts and Drive retains its
+  authorization. Repeat on iPad with the source sidebar visible. If the companion
+  cannot be reached, Drive should offer Retry rather than ask for sign-in before
+  its connection status is known.
 - In Settings, add a second connection with duplicate source names. Confirm one
   flat source list with connection subtitles and correct credentials for each
   source. Edit and remove connections while browsing; check navigation resets,

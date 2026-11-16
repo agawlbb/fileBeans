@@ -72,6 +72,7 @@ struct SourcesView: View {
     @StateObject private var connections = ConnectionsModel()
     @StateObject private var model = SourcesModel()
     @State private var selected: SourceDestination?
+    @State private var presentationID = UUID()
     @State private var settings = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var compactColumn: NavigationSplitViewColumn = .sidebar
@@ -118,7 +119,12 @@ struct SourcesView: View {
             NavigationStack {
                 if let selected { selected.destination }
                 else { ContentUnavailableView("Choose a source", systemImage: "folder") }
-            }.id(selected)
+            }.id(presentationID)
+        }
+        .onChange(of: compactColumn) { _, column in
+            // The compact back button returns to the sidebar without changing
+            // selected. Discard that destination's cancelled task and view state.
+            if column == .sidebar { selected = nil }
         }
         .sheet(isPresented: $settings) { NavigationStack { ConnectionsSettingsView(model: connections) } }
         .task { connections.reload() }
@@ -135,6 +141,9 @@ struct SourcesView: View {
         } message: { Text(connections.error ?? "") }
     }
     private func select(_ source: SourceDestination) {
+        // A source can be reopened with the same value after its task was
+        // cancelled by navigation. Each opening needs a fresh detail lifetime.
+        presentationID = UUID()
         selected = source; compactColumn = .detail
     }
     @ViewBuilder private var status: some View {

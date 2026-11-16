@@ -7,6 +7,7 @@ final class DriveBrowserModel: ObservableObject {
     @Published var files: [DriveFile] = []
     @Published var current: DriveFile?
     @Published var connected = false
+    @Published var capabilitiesLoaded = false
     @Published var writable = false
     @Published var modern = false
     @Published var normalizationEnabled = false
@@ -22,6 +23,7 @@ final class DriveBrowserModel: ObservableObject {
             if client?.transport.connection != connection { client?.close(); client = DriveClient(connection: connection) }
             guard let client else { return }
             let capabilities = try await client.transport.capabilities()
+            capabilitiesLoaded = true
             connected = capabilities.driveConnected
             writable = capabilities.driveWriteAccess == true
             normalizationEnabled = capabilities.normalizationEnabled == true
@@ -48,7 +50,11 @@ final class DriveBrowserModel: ObservableObject {
             if page.isEmpty { files = loaded; if !refreshLoaded { pages = 1 } }
             else { let known = Set(files.map(\.id)); files += loaded.filter { !known.contains($0.id) }; pages += 1 }
             error = nil
-        } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
+        } catch {
+            guard !Task.isCancelled, !(error is CancellationError),
+                  (error as? URLError)?.code != .cancelled else { return }
+            self.error = error.localizedDescription
+        }
     }
     func perform(_ work: () async throws -> Void) async -> Bool {
         guard !busy else { return false }; busy = true; defer { busy = false }
@@ -147,6 +153,15 @@ struct DriveBrowser: View {
             ContentUnavailableView {
                 Label("Set Up Google Drive", systemImage: "externaldrive")
             } description: { Text("Add this connection’s companion URL and token to enable Google Drive.") } actions: { Button("Set Up Companion") { configuring = true } }
+        } else if !model.capabilitiesLoaded {
+            if let error = model.error {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(error).font(.callout)
+                    Button("Retry") { Task { await reload() } }
+                }
+            } else {
+                ProgressView("Checking Google Drive…")
+            }
         } else if !model.connected {
             ContentUnavailableView {
                 Label("Connect Google Drive", systemImage: "externaldrive")
