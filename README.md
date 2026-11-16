@@ -4,6 +4,8 @@ A native iPhone and iPad client for File Browser Quantum v2. An independent proj
 
 Browse folders in list or grid view, preview server-generated thumbnails, copy, move and rename items, create folders, delete files, and upload from Files or Photos. Videos and audio stream through the native player. Each connection is also available as a read/write location in Apple's Files app and document pickers.
 
+The optional companion adds durable server-side transfers, ten-day local Trash, Google Drive browsing outside Apple Files, and sequential media normalization into VPS `/pics`. Open **Transfers → Media Normalization** to import the configured Drive library and monitor, cancel or retry work. The worker downloads and finishes one file before fetching the next; stable new VPS media is normalized automatically. See [companion setup](companion/README.md#sequential-vps-media-normalization).
+
 Requires iOS/iPadOS 18+, a Quantum v2 HTTPS server, and an API token with API access enabled. Add a connection using the server's base URL, a display name, and its token. Enable fileBeans under **Files → Browse → Edit** if it is not visible automatically. Server permissions still apply.
 
 ## Development
@@ -19,7 +21,7 @@ BUNDLE_ID_PREFIX = your.registered.app.identifier
 
 Register the main app ID and its `.FileProvider` extension with the same App Group (`group.` followed by the main bundle ID) and shared Keychain group. Use your registered identifiers rather than the example defaults. The extension must be signed and installed with the app for device testing.
 
-This VM is for editing and static checks; Apple SDK compilation, simulator tests, and archives run on GitHub macOS runners. The app and Files extension compile, and all 46 unit tests pass on the simulator. Validate iOS also builds an unsigned device Release archive. Version 0.1.0 (9) is available in internal TestFlight; physical-device acceptance remains manual. See [release setup](docs/RELEASING.md) and the [device acceptance checklist](docs/TESTING.md).
+This VM is for editing and static checks; Apple SDK compilation, simulator tests, and archives run on GitHub macOS runners. The app and Files extension compile, and all 50 unit tests pass on the simulator. Validate iOS also builds an unsigned device Release archive. Version 0.1.0 (10) is available in internal TestFlight; physical-device acceptance remains manual. See [release setup](docs/RELEASING.md) and the [device acceptance checklist](docs/TESTING.md).
 
 For static checks, install `scripts/requirements-validation.txt` in an isolated Python environment and run `python scripts/validate-source.py`. This parses Swift, Python, plists, asset JSON, and workflow/project configuration; it does not replace compilation or XCTest.
 

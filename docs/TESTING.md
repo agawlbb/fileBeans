@@ -1,5 +1,22 @@
 # Acceptance checks
 
+## Media normalization
+
+- In **Transfers → Media Normalization**, verify the configured VPS library and sequential status. Import the configured Drive folder; repeat the request and confirm completed files are deduplicated.
+- Observe download, conversion, validation and publication phases. Cancel during each phase and retry after restart or connection loss. Verify Drive originals remain unchanged and a failed local conversion retains its source.
+- Play and seek the normalized pilot video on an iPad. Compare image dimensions, orientation, color, audio and perceived video quality with the original before committing to the full library conversion.
+- Add a local VPS file and wait for the stability interval. Confirm automatic conversion, no output loop, safe name conflicts and unchanged unsupported inputs. Trash/delete a normalized output and confirm the scanner does not recreate it.
+- The isolated Go/MariaDB race suite covers the sequential pipeline, source checksums, local publication recovery, cancellation, disk admission, Google locking and backup publication fencing. The iOS suite includes native HEVC Main10 playback advancement and seeking through the authenticated resource loader.
+
+Source `7ebd703` passed all **50** simulator tests and the unsigned iPhone/iPad
+Release archive on [validation run 43912220792](https://github.com/agawlbb/fileBeans/actions/runs/43912220792).
+The HEVC playback/seek test passed. The final Go race/MariaDB suite, real FFmpeg
+conversion tests and 22 isolated backup policy tests passed. The deployed worker
+has no Samba mount; its backup inventory audit passed. Physical iPad quality
+comparison remains part of device acceptance.
+
+## Existing browser and transfer checks
+
 Use a disposable Quantum v2 instance or test account and synthetic files. Do not test mutations against production files. Run XCTest using the shared `myFiles` scheme on a GitHub macOS runner when a build is authorized.
 
 - Connect to two servers, including one mounted under a URL base path. Restart the app and confirm names and credentials persist. Replace an expired token; remove a connection and confirm its Files location disappears.

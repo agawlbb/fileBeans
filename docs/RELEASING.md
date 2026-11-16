@@ -52,6 +52,31 @@ When refreshing credentials for this project, the shared VM helper installs the 
 
 ## Current release — November 16, 2026
 
+**0.1.0 (10)** is uploaded; Apple reports **VALID** / **IN_BETA_TESTING**.
+The existing internal group retains access. No tester/group changes or App Store
+submission were made.
+
+- Source: `7ebd7035526d04f4ba48ebf670a80c6027ba0e78`, immutable tag
+  `testflight/0.1.0-10`.
+- [Validation](https://github.com/agawlbb/fileBeans/actions/runs/43912220792):
+  50 simulator tests passed, including HEVC Main10 native playback/seek and
+  normalization controls; the unsigned iPhone/iPad Release archive passed.
+- [Signed release](https://github.com/agawlbb/fileBeans/actions/runs/43916695794):
+  signing preflight, archive/export, upload and temporary credential cleanup passed.
+- Apple build ID: `77e5818b-ca6a-4e0a-ae39-0ea73622b0d0`.
+- The companion and separate FFmpeg worker run the same source on the VPS.
+  **Transfers → Media Normalization** exposes job/batch progress, cancel and retry.
+  Drive imports download, convert, validate, publish and clean one file at a time.
+  New stable VPS `/pics` media is normalized automatically; existing VPS Trash
+  and backup policies continue. This feature does not mount or modify Samba.
+- The photo pilot completed. The HD video pilot is converting under a separate
+  1536 MiB/one-CPU worker limit. A bounded one-time server gate will queue the
+  initial Drive library only after both pilots complete and publish; failures
+  leave the full import stopped. Full population is background work, not complete
+  at release time. Physical iPad quality comparison remains manual.
+
+## Previous release — 0.1.0 (9)
+
 **0.1.0 (9)** is uploaded; Apple reports **VALID** / **IN_BETA_TESTING**.
 The existing internal group retains access to all builds; no tester/group changes
 or App Store submission were made.
