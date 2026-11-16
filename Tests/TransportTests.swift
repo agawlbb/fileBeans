@@ -53,6 +53,36 @@ final class TransportTests: XCTestCase {
         let client = client(); defer { client.close() }
         try await client.move(source: "disk", from: "/a & b.txt", to: "/new/a & b.txt")
     }
+    func testCopySendsOnlyServerPathsWithoutOverwrite() async throws {
+        StubProtocol.response = { request in
+            XCTAssertEqual(request.httpMethod, "PATCH")
+            XCTAssertEqual(request.url?.path, "/quantum/api/resources")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer synthetic-api-token")
+            var body = request.httpBody ?? Data()
+            if let stream = request.httpBodyStream {
+                stream.open(); defer { stream.close() }
+                var buffer = [UInt8](repeating: 0, count: 4096)
+                while stream.hasBytesAvailable {
+                    let read = stream.read(&buffer, maxLength: buffer.count)
+                    if read <= 0 { break }
+                    body.append(contentsOf: buffer.prefix(read))
+                }
+            }
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            XCTAssertEqual(json["action"] as? String, "copy")
+            XCTAssertEqual(json["overwrite"] as? Bool, false)
+            XCTAssertEqual(json["rename"] as? Bool, false)
+            let items = try XCTUnwrap(json["items"] as? [[String: String]])
+            XCTAssertEqual(items.count, 1)
+            XCTAssertEqual(items[0]["fromPath"], "/a & b.txt")
+            XCTAssertEqual(items[0]["fromSource"], "disk")
+            XCTAssertEqual(items[0]["toSource"], "disk")
+            XCTAssertEqual(items[0]["toPath"], "/new/a & b.txt")
+            return (200, Data())
+        }
+        let client = client(); defer { client.close() }
+        try await client.copy(source: "disk", from: "/a & b.txt", to: "/new/a & b.txt")
+    }
     func testStreamingUsesScopedViewTokenInsteadOfAPITokenInURL() async throws {
         StubProtocol.response = { _ in
             (200, Data(#"{"name":"clip.mp4","path":"/clip.mp4","type":"video/mp4","viewToken":"scoped-view-token"}"#.utf8))

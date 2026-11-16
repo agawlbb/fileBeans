@@ -2,7 +2,7 @@
 
 A native iPhone and iPad client for File Browser Quantum v2. An independent project, not affiliated with File Browser Quantum or Google.
 
-Browse folders in list or grid view, preview server-generated thumbnails, move and rename items, create folders, delete files, and upload from Files or Photos. Videos and audio stream through the native player. Each connection is also available as a read/write location in Apple's Files app and document pickers.
+Browse folders in list or grid view, preview server-generated thumbnails, copy, move and rename items, create folders, delete files, and upload from Files or Photos. Videos and audio stream through the native player. Each connection is also available as a read/write location in Apple's Files app and document pickers.
 
 Requires iOS/iPadOS 18+, a Quantum v2 HTTPS server, and an API token with API access enabled. Add a connection using the server's base URL, a display name, and its token. Enable fileBeans under **Files → Browse → Edit** if it is not visible automatically. Server permissions still apply.
 
@@ -29,7 +29,7 @@ Connections go directly to your servers. API tokens are stored in the device Key
 
 The shared App Group stores connection names, URLs, source permissions, and file metadata. Previews and uploads use local cache files. The Files framework manages its own downloaded content and pending changes. Remove a connection to unregister its Files domain and delete its saved token and catalog. Temporary files expire through app cleanup and iOS storage management.
 
-Search currently filters the displayed folder. Sorting keeps folders first. Moves stay within a server source. Remote renames appear as removal/addition because Quantum's API exposes paths rather than stable object IDs; app-initiated renames and moves retain local identities. Metadata refresh occurs when browsing or when Files requests reconciliation; there is no continuous background polling.
+Search currently filters the displayed folder. Sorting keeps folders first. Copies and moves stay within a server source. In fileBeans, use Copy from an item’s context menu or select multiple items and choose Copy, then choose a destination folder. Copies run on the server without downloading and uploading file contents; existing destination names are never overwritten. Keep the app open while it waits for completion. Apple’s Files app manages its own copy transfers. Remote renames appear as removal/addition because Quantum's API exposes paths rather than stable object IDs; app-initiated renames and moves retain local identities. Metadata refresh occurs when browsing or when Files requests reconciliation; there is no continuous background polling.
 
 Writeback checks server modification time and size before uploading. Quantum does not document an atomic conditional-write API, so a remote edit racing the subsequent write cannot be fully prevented. Conflict and upload failures are surfaced to Files; its pending local contents are not deleted. Explicit offline folder synchronization, photo backup, SSO, cross-source moves, server administration, and media transcoding are outside the initial release.
 

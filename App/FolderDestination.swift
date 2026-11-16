@@ -5,6 +5,7 @@ struct FolderDestination: View {
     let folder: StoredItem?
     let source: String
     let excluded: [StoredItem]
+    var copying = false
     let choose: (StoredItem) -> Void
     @State private var folders: [StoredItem] = []
     @State private var error: String?
@@ -12,14 +13,14 @@ struct FolderDestination: View {
     var body: some View {
         List(folders) { child in
             NavigationLink {
-                FolderDestination(repository: repository, folder: child, source: source, excluded: excluded, choose: choose)
+                FolderDestination(repository: repository, folder: child, source: source, excluded: excluded, copying: copying, choose: choose)
             } label: { Label(child.file.name, systemImage: "folder") }
         }
-        .navigationTitle(folder?.file.name ?? "Move To")
+        .navigationTitle(folder?.file.name ?? (copying ? "Copy To" : "Move To"))
         .safeAreaInset(edge: .bottom) {
             if let folder {
-                Button("Move Here") { choose(folder) }
-                    .buttonStyle(.borderedProminent).padding().disabled(!folder.permissions.create)
+                Button(copying ? "Copy Here" : "Move Here") { choose(folder) }
+                    .buttonStyle(.borderedProminent).padding().disabled(!folder.permissions.create || (copying && excluded.contains { $0.parent == folder.id }))
             }
         }
         .overlay {

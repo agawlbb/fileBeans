@@ -70,6 +70,19 @@ final class Repository {
         _ = try await children(parent)
         notify(item.parent); notify(parent.id)
     }
+    func copy(_ item: StoredItem, to parent: StoredItem) async throws {
+        guard !item.isSource, item.source == parent.source, item.permissions.download,
+              parent.file.isDirectory, parent.permissions.create else { throw APIError.forbidden }
+        let path = try FilePath.child(item.file.name, in: parent.file.path)
+        guard path != item.file.path else { throw APIError.conflict }
+        guard !item.file.isDirectory || !FilePath.contains(parent.file.path, in: item.file.path) else {
+            throw APIError.invalidName
+        }
+        try await client.copy(source: item.source, from: item.file.path, to: path)
+        // Reconciliation creates new identities; the originals and their descendants stay intact.
+        _ = try await children(parent)
+        notify(parent.id)
+    }
     func delete(_ item: StoredItem) async throws {
         guard !item.isSource, item.permissions.delete else { throw APIError.forbidden }
         try await client.delete(source: item.source, path: item.file.path)

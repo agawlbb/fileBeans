@@ -18,6 +18,8 @@ struct BrowserView: View {
     @State private var newFolder = false
     @State private var deleting = false
     @State private var moving = false
+    @State private var copying = false
+    @State private var copyInProgress = false
     @State private var importing = false
     @State private var preview: URL?
     @State private var movie: Movie?
@@ -118,12 +120,18 @@ struct BrowserView: View {
         .sheet(isPresented: $moving) {
             if let repository = model.repository, let parent {
                 NavigationStack {
-                    FolderDestination(repository: repository, folder: nil, source: parent.source, excluded: chosen) { destination in
+                    FolderDestination(repository: repository, folder: nil, source: parent.source, excluded: chosen, copying: copying) { destination in
                         let items = chosen
+                        let isCopy = copying
                         moving = false
                         Task {
+                            copyInProgress = isCopy
+                            defer { copyInProgress = false }
                             let succeeded = await model.perform {
-                                for item in items { try await repository.move(item, to: destination, name: item.file.name) }
+                                for item in items {
+                                    if isCopy { try await repository.copy(item, to: destination) }
+                                    else { try await repository.move(item, to: destination, name: item.file.name) }
+                                }
                             }
                             if succeeded { selected.removeAll(); selecting = false; await reload() }
                         }
@@ -141,7 +149,10 @@ struct BrowserView: View {
             }
     }
     @ViewBuilder private var transferStatus: some View {
-            if let progress = model.uploadProgress {
+            if copyInProgress {
+                HStack { ProgressView(); Text("Copying on server…") }
+                    .padding().background(.regularMaterial)
+            } else if let progress = model.uploadProgress {
                 HStack {
                     VStack(alignment: .leading) {
                         Text(model.uploadName).lineLimit(1)
@@ -156,7 +167,9 @@ struct BrowserView: View {
     @ToolbarContentBuilder private var browserToolbar: some ToolbarContent {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 if selecting {
-                    Button("Move", systemImage: "folder") { moving = true }
+                    Button("Copy", systemImage: "doc.on.doc") { copying = true; moving = true }
+                        .disabled(model.busy || chosen.isEmpty || chosen.contains { $0.isSource || !$0.permissions.download })
+                    Button("Move", systemImage: "folder") { copying = false; moving = true }
                         .disabled(chosen.isEmpty || chosen.contains { $0.isSource || !$0.permissions.modify })
                     Button("Delete", systemImage: "trash", role: .destructive) { deleting = true }
                         .disabled(chosen.isEmpty || chosen.contains { $0.isSource || !$0.permissions.delete })
@@ -195,9 +208,13 @@ struct BrowserView: View {
             }
         }
         .contextMenu {
+            if !item.isSource && item.permissions.download {
+                Button("Copy", systemImage: "doc.on.doc") { selected = [item.id]; copying = true; moving = true }
+                    .disabled(model.busy)
+            }
             if !item.isSource && item.permissions.modify {
                 Button("Rename", systemImage: "pencil") { proposedName = item.file.name; renameItem = item }
-                Button("Move", systemImage: "folder") { selected = [item.id]; moving = true }
+                Button("Move", systemImage: "folder") { selected = [item.id]; copying = false; moving = true }
             }
             if !item.file.isDirectory && item.permissions.download {
                 Button("Open", systemImage: "arrow.up.right.square") { open(item) }
