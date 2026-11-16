@@ -207,3 +207,60 @@ the VM development container, package it with the CA bundle using
 `deploy/Dockerfile` (or import the equivalent root filesystem), and transfer the
 prebuilt image to production. The VPS retains the runtime binary, CA, schema SQL,
 Dockerfile and source revision for recovery. Do not build on the VPS.
+
+## Sequential VPS media normalization
+
+An optional dedicated worker normalizes one file completely before the next
+Drive media request. It never mounts or reads Samba. Configure `normalization`
+in private config with `enabled`, local root `source` (for example `VPS`),
+`path` (`pics`), optional `driveFolder`, `minFreeBytes` (default 2 GiB), and
+`stableSeconds` (default 60). The API process needs no encoder. Run a separate
+FFmpeg-enabled image with `-config /config/config.json -normalize-worker`, sharing
+private state, MariaDB and the VPS root only. Give the worker a 1.5 GiB memory
+limit and one CPU initially; use one worker replica. An advisory database lock
+and a single owned workspace enforce serialization even across replicas.
+
+POST `/v1/normalization/jobs` accepts `{source:"drive",path:"DRIVE_ID"}` for a
+file or folder; folder requests require `Idempotency-Key`. Folder inventory reads
+metadata only, preserves hierarchy/empty directories, and records unsupported
+items as visible failures. A file request may specify a library-relative
+`relativePath`. Drive IDs/account bindings are configuration or request data,
+never compiled account settings. Drive originals remain unchanged.
+
+GET `/v1/normalization/status`, `/jobs`, `/jobs/{id}` and `/batches` under the
+normalization prefix report configuration, phases, progress and batch totals.
+POST `/jobs/{id}/cancel`, `/jobs/{id}/retry` and `/batches/{id}/cancel` control work.
+The existing copy-job API remains unchanged. In the app use Transfers → Media
+Normalization, or a Drive item's “Normalize to VPS pics” context action.
+
+A Drive file downloads into `.filebeans-stage/normalization/input`, is checked
+against available SHA-256/MD5 and its pinned Drive version, encoded, fully decoded
+for validation, published with no-overwrite renames, and cleaned before another
+file downloads. Space admission reserves the input plus output allowance above
+the free-space floor. A running encoder is cancelled if free space reaches that
+floor. Disk-space waits pause all normalization downloads. Interrupted downloads
+and encodes restart that one file; completed publications are fingerprinted and
+never repeated. A private owner marker fences recovery and cleanup.
+
+New stable files in VPS `pics` are discovered by 30-second reconciliation scans.
+Source fingerprints and completed output versions prevent conversion loops.
+Publication records intent before moving a local input into protected staging;
+failed publication restores it without overwriting a competing file. Unresolved
+conflicts retain that original and pause the queue for intervention. Once
+publication commits, ordinary later user edits/deletes do not resurrect the
+previous output. Existing protected Trash behavior remains unchanged.
+
+Profile `ipad-hevc18-v1` uses HEVC Main 10, medium/CRF 18, AAC stereo 192 kb/s and
+MP4 fast-start, preserving frame rate and fitting proportionally within a
+1080-pixel short edge/2560-pixel long edge without upscaling. Compact compatible
+HEVC MP4 files are remuxed; compliant JPEG/transparent PNG and supported animation
+are retained. Other still images become high-quality JPEG or PNG for alpha.
+HDR sources are tone-mapped to SDR BT.709. Source URLs/playlists are not accepted
+by the media demuxer. Collisions and unsupported/corrupt media are reported;
+backfill scratch is removed and Drive sources retained. Failed local inputs stay
+on VPS. Completed incoming originals are replaced only after output validation.
+
+The worker must be registered with the existing VPS backup writer/inventory
+policy; staging already lives under the excluded `.filebeans-stage` tree. Backup
+cadence/retention and Samba library/archive folders are not changed. Confirm
+backup coverage and perform a pilot playback check before starting a full import.

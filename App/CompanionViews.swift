@@ -27,6 +27,7 @@ struct TransferList: View {
             }
         }
         .navigationTitle("Transfers")
+        .toolbar { NavigationLink { NormalizationView(connection: connection) } label: { Label("Media Normalization", systemImage: "film.stack") } }
         .refreshable { await refresh() }
         .task(id: phase) {
             guard phase == .active else { return }

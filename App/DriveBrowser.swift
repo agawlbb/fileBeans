@@ -9,6 +9,7 @@ final class DriveBrowserModel: ObservableObject {
     @Published var connected = false
     @Published var writable = false
     @Published var modern = false
+    @Published var normalizationEnabled = false
     @Published var busy = false
     @Published var error: String?
     @Published var next = ""
@@ -23,6 +24,7 @@ final class DriveBrowserModel: ObservableObject {
             let capabilities = try await client.transport.capabilities()
             connected = capabilities.driveConnected
             writable = capabilities.driveWriteAccess == true
+            normalizationEnabled = capabilities.normalizationEnabled == true
             modern = capabilities.features?.contains("driveWrite") == true
             guard connected else { files = []; next = ""; current = nil; return }
             var loaded: [DriveFile] = []
@@ -76,6 +78,7 @@ struct DriveBrowser: View {
     @State private var movie: Movie?
     @State private var configuring = false
     @State private var disconnecting = false
+    @State private var normalizing: DriveFile?
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var phase
     private var queue: DriveUploadQueue { DriveUploadQueue.shared(connection: connection) }
@@ -225,6 +228,15 @@ struct DriveBrowser: View {
                     }
                 }
             }
+            .confirmationDialog("Import and normalize this item into VPS pics? Drive files remain unchanged.", isPresented: Binding(get: { normalizing != nil }, set: { if !$0 { normalizing = nil } }), titleVisibility: .visible) {
+                if let item = normalizing { Button("Import to VPS pics") {
+                    normalizing = nil
+                    Task {
+                        let client = NormalizationClient(connection: connection); defer { client.close() }
+                        _ = await model.perform { try await client.submit(.init(source: "drive", path: item.id)) }
+                    }
+                } }
+            }
             .confirmationDialog("Disconnect Drive? Existing transfers remain tied to this account and may need reconnection or cancellation.", isPresented: $disconnecting, titleVisibility: .visible) {
                 Button("Disconnect", role: .destructive) {
                     Task {
@@ -274,6 +286,9 @@ struct DriveBrowser: View {
             }
         }
         .contextMenu {
+            if model.normalizationEnabled && (item.folder || item.downloadable) {
+                Button("Normalize to VPS pics", systemImage: "film.stack") { normalizing = item }
+            }
             if item.canCopy { Button("Copy", systemImage: "doc.on.doc") { selected = [item.id]; copying = true; choosingDestination = true } }
             if model.writable && item.canRename { Button("Rename", systemImage: "pencil") { renaming = item; proposedName = item.name } }
             if model.writable && item.canMove { Button("Move", systemImage: "folder") { selected = [item.id]; copying = false; choosingDestination = true } }

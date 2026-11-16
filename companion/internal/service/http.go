@@ -66,7 +66,7 @@ func (s *Service) Handler() http.Handler {
 			roots = append(roots, map[string]string{"source": root.Name, "trash": "/Trash"})
 		}
 		g, e := s.google()
-		reply(w, 200, map[string]any{"version": 1, "roots": roots, "driveConnected": e == nil, "driveWriteAccess": e == nil && g.writable(), "features": []string{"driveWrite", "driveDestinations", "driveUploads", "driveThumbnails", "driveMedia"}})
+		reply(w, 200, map[string]any{"version": 1, "roots": roots, "driveConnected": e == nil, "driveWriteAccess": e == nil && g.writable(), "normalizationEnabled": s.config.Normalization.Enabled, "features": []string{"driveWrite", "driveDestinations", "driveUploads", "driveThumbnails", "driveMedia", "normalization"}})
 	})
 	mux.HandleFunc("POST /v1/jobs", func(w http.ResponseWriter, r *http.Request) {
 		var req CopyRequest
@@ -432,8 +432,12 @@ func (s *Service) Handler() http.Handler {
 		reply(w, 200, map[string]string{"url": u})
 	})
 	mux.HandleFunc("POST /v1/drive/disconnect", func(w http.ResponseWriter, r *http.Request) {
-		s.driveMu.Lock()
-		defer s.driveMu.Unlock()
+		unlock, e := s.lockGoogle(r.Context())
+		if e != nil {
+			fail(w, e)
+			return
+		}
+		defer unlock()
 		for _, name := range []string{"google.json", "oauth-state.json"} {
 			if e := os.Remove(filepath.Join(s.config.State, name)); e != nil && !errors.Is(e, os.ErrNotExist) {
 				fail(w, e)
@@ -443,6 +447,7 @@ func (s *Service) Handler() http.Handler {
 		reply(w, 200, map[string]bool{"disconnected": true})
 	})
 	s.driveRoutes(mux)
+	s.normalizationRoutes(mux)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")

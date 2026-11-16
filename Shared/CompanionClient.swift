@@ -6,6 +6,7 @@ struct CompanionCapabilities: Decodable {
     let version: Int
     let roots: [Root]
     let driveConnected: Bool
+    let normalizationEnabled: Bool?
     let driveWriteAccess: Bool?
     let features: [String]?
 }

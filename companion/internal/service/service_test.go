@@ -477,4 +477,6 @@ func TestDatabaseWorkflow(t *testing.T) {
 	})
 	t.Run("drive-write-workflows", func(t *testing.T) { testDriveWriteWorkflow(t, s) })
 
+	t.Run("normalization-workflows", func(t *testing.T) { testNormalizationWorkflow(t, s) })
+
 }

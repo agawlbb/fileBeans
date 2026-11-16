@@ -1,0 +1,7 @@
+# Build this runtime image in development and transfer the prebuilt image to VPS.
+FROM debian:trixie-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY filebeans /filebeans
+USER 1000:1000
+ENTRYPOINT ["/filebeans"]
+CMD ["-config", "/config/config.json", "-normalize-worker"]

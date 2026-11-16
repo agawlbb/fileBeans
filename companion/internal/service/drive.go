@@ -39,6 +39,8 @@ type DriveCapabilities struct {
 	DeleteChildren bool `json:"canDeleteChildren"`
 }
 type DriveItem struct {
+	SHA256            string            `json:"sha256Checksum,omitempty"`
+	MD5               string            `json:"md5Checksum,omitempty"`
 	ID                string            `json:"id"`
 	Name              string            `json:"name"`
 	Mime              string            `json:"mimeType"`
@@ -81,8 +83,9 @@ func (s *Service) requireDriveWrite(connection string) error {
 }
 
 type DriveList struct {
-	Files []DriveItem `json:"files"`
-	Next  string      `json:"nextPageToken"`
+	Incomplete bool        `json:"incompleteSearch,omitempty"`
+	Files      []DriveItem `json:"files"`
+	Next       string      `json:"nextPageToken"`
 }
 
 // Google omits empty arrays; keep the app API stable for empty folders/trash.
@@ -135,8 +138,11 @@ func (s *Service) google() (Google, error) {
 	return g, nil
 }
 func (s *Service) token(ctx context.Context, connection string) (Google, error) {
-	s.driveMu.Lock()
-	defer s.driveMu.Unlock()
+	unlock, lockError := s.lockGoogle(ctx)
+	if lockError != nil {
+		return Google{}, lockError
+	}
+	defer unlock()
 	g, e := s.google()
 	if e != nil {
 		return g, e
@@ -212,7 +218,7 @@ func (s *Service) driveRequest(ctx context.Context, path string, q url.Values, c
 	return res, nil
 }
 
-const driveFields = "id,name,mimeType,size,version,modifiedTime,parents,driveId,trashed,explicitlyTrashed,hasThumbnail,thumbnailLink,webViewLink,appProperties,capabilities(canDownload,canCopy,canRename,canEdit,canMoveItemWithinDrive,canMoveItemOutOfDrive,canAddChildren,canTrash,canUntrash,canDelete,canDeleteChildren)"
+const driveFields = "sha256Checksum,md5Checksum,id,name,mimeType,size,version,modifiedTime,parents,driveId,trashed,explicitlyTrashed,hasThumbnail,thumbnailLink,webViewLink,appProperties,capabilities(canDownload,canCopy,canRename,canEdit,canMoveItemWithinDrive,canMoveItemOutOfDrive,canAddChildren,canTrash,canUntrash,canDelete,canDeleteChildren)"
 
 func (s *Service) driveMeta(ctx context.Context, id, connection string) (DriveItem, error) {
 	var d DriveItem
@@ -252,7 +258,7 @@ func (s *Service) driveList(ctx context.Context, folder, page, connection string
 		}
 		q += "'" + folder + "' in parents"
 	}
-	params := url.Values{"q": {q}, "fields": {"nextPageToken,files(" + driveFields + ")"}, "pageSize": {"100"}, "orderBy": {"folder,name"}, "supportsAllDrives": {"true"}, "includeItemsFromAllDrives": {"true"}}
+	params := url.Values{"q": {q}, "fields": {"incompleteSearch,nextPageToken,files(" + driveFields + ")"}, "pageSize": {"100"}, "orderBy": {"folder,name"}, "supportsAllDrives": {"true"}, "includeItemsFromAllDrives": {"true"}}
 	if page != "" {
 		params.Set("pageToken", page)
 	}
@@ -392,8 +398,13 @@ func (s *Service) authURL() (string, error) {
 	if s.config.GoogleClientID == "" {
 		return "", errors.New("Google OAuth client is not configured")
 	}
-	s.driveMu.Lock()
-	defer s.driveMu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	unlock, lockError := s.lockGoogle(ctx)
+	if lockError != nil {
+		return "", lockError
+	}
+	defer unlock()
 	state := oauthState{State: ID(), Verifier: ID() + ID(), Expires: time.Now().Add(10 * time.Minute).Unix()}
 	if e := privateJSON(filepath.Join(s.config.State, "oauth-state.json"), state); e != nil {
 		return "", e
@@ -403,8 +414,11 @@ func (s *Service) authURL() (string, error) {
 	return "https://accounts.google.com/o/oauth2/v2/auth?" + q.Encode(), nil
 }
 func (s *Service) callback(ctx context.Context, state, code string) error {
-	s.driveMu.Lock()
-	defer s.driveMu.Unlock()
+	unlock, lockError := s.lockGoogle(ctx)
+	if lockError != nil {
+		return lockError
+	}
+	defer unlock()
 	var saved oauthState
 	path := filepath.Join(s.config.State, "oauth-state.json")
 	b, e := os.ReadFile(path)

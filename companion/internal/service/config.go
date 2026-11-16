@@ -15,14 +15,15 @@ type Root struct {
 	MountSource string `json:"mountSource,omitempty"`
 }
 type Config struct {
-	Listen             string `json:"listen"`
-	DSN                string `json:"dsn"`
-	Token              string `json:"token"`
-	State              string `json:"state"`
-	Roots              []Root `json:"roots"`
-	GoogleClientID     string `json:"googleClientID"`
-	GoogleClientSecret string `json:"googleClientSecret"`
-	GoogleRedirect     string `json:"googleRedirect"`
+	Normalization      NormalizationConfig `json:"normalization,omitempty"`
+	Listen             string              `json:"listen"`
+	DSN                string              `json:"dsn"`
+	Token              string              `json:"token"`
+	State              string              `json:"state"`
+	Roots              []Root              `json:"roots"`
+	GoogleClientID     string              `json:"googleClientID"`
+	GoogleClientSecret string              `json:"googleClientSecret"`
+	GoogleRedirect     string              `json:"googleRedirect"`
 }
 
 func Load(path string) (Config, error) {
@@ -61,6 +62,22 @@ func Load(path string) (Config, error) {
 	}
 	if c.GoogleClientID != "" && (!strings.HasPrefix(c.GoogleRedirect, "https://") || c.GoogleClientSecret == "") {
 		return c, errors.New("Google requires client secret and HTTPS redirect")
+	}
+	c.Normalization = c.Normalization.defaults()
+	if c.Normalization.Enabled {
+		path, err := clean(c.Normalization.Path)
+		if err != nil || path == "." || protected(path) || !names[c.Normalization.Source] || c.Normalization.StableSeconds < 1 {
+			return c, errors.New("invalid normalization configuration")
+		}
+		for _, root := range c.Roots {
+			if root.Name == c.Normalization.Source && root.Mount != "" {
+				return c, errors.New("normalization requires VPS-local storage")
+			}
+		}
+		c.Normalization.Path = path
+		if c.Normalization.DriveFolder != "" && !driveID(c.Normalization.DriveFolder) {
+			return c, errors.New("invalid normalization Drive folder")
+		}
 	}
 	return c, nil
 }

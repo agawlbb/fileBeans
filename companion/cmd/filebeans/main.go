@@ -15,6 +15,7 @@ import (
 
 func main() {
 	path := flag.String("config", "/etc/filebeans/config.json", "private configuration path")
+	normalizer := flag.Bool("normalize-worker", false, "run the serial media normalization worker")
 	migrate := flag.Bool("migrate", false, "apply schema and exit")
 	printSchema := flag.Bool("schema", false, "print migration SQL and exit without connecting")
 	flag.Parse()
@@ -39,6 +40,13 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if *normalizer {
+		if !c.Normalization.Enabled {
+			log.Fatal("Normalization is not enabled")
+		}
+		s.RunNormalization(ctx)
+		return
+	}
 	server := &http.Server{Addr: c.Listen, Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 2 * time.Minute, IdleTimeout: time.Minute, MaxHeaderBytes: 16384}
 	done := make(chan struct{})
 	go func() { defer close(done); s.Run(ctx) }()
