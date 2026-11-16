@@ -20,6 +20,13 @@ final class CompanionTests: XCTestCase {
         XCTAssertTrue(job.active)
         XCTAssertEqual(job.done, 0)
     }
+    func testQueuedJobShowsNamesAndDestinationBeforeDiscovery() throws {
+        let data = Data(#"{"id":"queued","state":"queued","total":0,"done":0,"speed":0,"current":"","cancel":true,"request":{"items":[{"source":"drive","path":"opaque-id","name":"video.mp4"}],"destination":{"source":"samba","path":"Videos"}}}"#.utf8)
+        let job = try JSONDecoder().decode(CopyJob.self, from: data)
+        XCTAssertEqual(job.title, "video.mp4")
+        XCTAssertEqual(job.request?.destination.displayLocation, "samba: Videos")
+        XCTAssertEqual(job.cancel, true)
+    }
 }
 
 private final class CompanionStub: URLProtocol {

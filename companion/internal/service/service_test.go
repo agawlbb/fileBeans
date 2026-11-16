@@ -192,6 +192,73 @@ func TestDatabaseWorkflow(t *testing.T) {
 		}
 		return j
 	}
+	cancelJob := func(id string) Job {
+		t.Helper()
+		r := httptest.NewRequest("POST", "/v1/jobs/"+id+"/cancel", nil)
+		r.Header.Set("Authorization", "Bearer "+s.config.Token)
+		w := httptest.NewRecorder()
+		s.Handler().ServeHTTP(w, r)
+		if w.Code != 200 {
+			t.Fatalf("cancel status %d: %s", w.Code, w.Body.String())
+		}
+		var result Job
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	t.Run("queued-cancel-does-not-need-worker", func(t *testing.T) {
+		j := submit(CopyRequest{Items: []Item{{Source: "samba", Path: "folder"}}, Destination: Item{Source: "vps", Path: "/"}}, "queued-cancel-fixture")
+		result := cancelJob(j.ID)
+		if result.State != "cancelled" || !result.Cancel {
+			t.Fatalf("cancel not immediate: %+v", result)
+		}
+		// A worker that selected this job before cancellation must not copy it.
+		s.runJob(context.Background(), &j)
+		if j.State != "cancelled" {
+			t.Fatal(j.State)
+		}
+		if _, err := os.Stat(filepath.Join(vps, "folder")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("cancelled job published", err)
+		}
+	})
+	t.Run("cancel-interrupts-stalled-drive-read", func(t *testing.T) {
+		previous := googleHTTP
+		defer func() { googleHTTP = previous }()
+		privateJSON(filepath.Join(s.config.State, "google.json"), Google{Access: "fixture", Refresh: "fixture", Expires: time.Now().Add(time.Hour).Unix(), Connection: "drive-cancel-test"})
+		reading := make(chan struct{})
+		googleHTTP = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+			var body io.ReadCloser = io.NopCloser(strings.NewReader(`{"id":"cancel-file","name":"cancel-video","mimeType":"video/mp4","size":"100","version":"1","capabilities":{"canDownload":true}}`))
+			if r.URL.Query().Get("alt") == "media" {
+				body = &cancelReadBody{ctx: r.Context(), started: reading}
+			}
+			return &http.Response{StatusCode: 200, Header: http.Header{}, Body: body}, nil
+		})}
+		j := submit(CopyRequest{Items: []Item{{Source: "drive", Path: "cancel-file"}}, Destination: Item{Source: "vps", Path: "/"}}, "stalled-drive-cancel-fixture")
+		ctx, stop := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		defer func() { stop(); <-done }()
+		go func() { defer close(done); s.runJob(ctx, &j) }()
+		select {
+		case <-reading:
+		case <-time.After(3 * time.Second):
+			t.Fatal("download never started")
+		}
+		if result := cancelJob(j.ID); !result.Cancel {
+			t.Fatal("missing cancel acknowledgement")
+		}
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			t.Fatal("cancel did not interrupt HTTP read")
+		}
+		if j.State != "cancelled" {
+			t.Fatal(j.State, j.Error)
+		}
+		if _, err := os.Stat(filepath.Join(vps, "cancel-video")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("cancelled download published", err)
+		}
+	})
 	t.Run("copy-and-idempotency", func(t *testing.T) {
 		req := CopyRequest{Items: []Item{{Source: "samba", Path: "/folder"}}, Destination: Item{Source: "vps", Path: "/"}}
 		j := submit(req, "copy-test-key-0001")
@@ -480,3 +547,16 @@ func TestDatabaseWorkflow(t *testing.T) {
 	t.Run("normalization-workflows", func(t *testing.T) { testNormalizationWorkflow(t, s) })
 
 }
+
+// A download that makes no progress until its HTTP context is cancelled.
+type cancelReadBody struct {
+	ctx     context.Context
+	started chan struct{}
+}
+
+func (b *cancelReadBody) Read(p []byte) (int, error) {
+	close(b.started)
+	<-b.ctx.Done()
+	return 0, b.ctx.Err()
+}
+func (b *cancelReadBody) Close() error { return nil }

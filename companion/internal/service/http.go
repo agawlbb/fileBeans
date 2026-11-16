@@ -211,6 +211,12 @@ func (s *Service) Handler() http.Handler {
 			return
 		}
 		j.Cancel = true
+		// A job that has never started has no staged data to clean up. Do not
+		// make its cancellation wait behind a running transfer.
+		if j.State == "queued" && len(j.Manifest) == 0 && j.RemoteStage == "" {
+			j.State = "cancelled"
+			j.Speed = 0
+		}
 		if j.State == "failed" {
 			j.State = "queued"
 		}
@@ -218,6 +224,12 @@ func (s *Service) Handler() http.Handler {
 		if e := s.save(j.ID, "copy", j.State, j); e != nil {
 			fail(w, e)
 			return
+		}
+		if stop := s.copyCancels[j.ID]; stop != nil {
+			stop() // Interrupt in-flight Drive HTTP reads immediately.
+		}
+		if j.State == "cancelled" {
+			s.cleanupJobUploads(&j)
 		}
 		j.Manifest = nil
 		reply(w, 200, publicJob(j))

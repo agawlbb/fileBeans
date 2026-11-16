@@ -4,6 +4,7 @@ struct TransferList: View {
     let connection: Connection
     @State private var jobs: [CopyJob] = []
     @State private var error: String?
+    @State private var pendingActions: Set<String> = []
     @Environment(\.scenePhase) private var phase
     var body: some View {
         List {
@@ -11,8 +12,13 @@ struct TransferList: View {
             if jobs.isEmpty { Text("No copy jobs") }
             ForEach(jobs) { job in
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(job.current.isEmpty ? "Server copy" : job.current.replacingOccurrences(of: "publish:", with: "Finishing ")).lineLimit(2)
-                    Text(job.state.capitalized).font(.caption)
+                    Text(job.title).lineLimit(2)
+                    if let request = job.request {
+                        Text("From \(request.items.map(\.displayLocation).joined(separator: ", "))").font(.caption).lineLimit(2)
+                        Text("To \(request.destination.displayLocation)").font(.caption).lineLimit(2)
+                    }
+                    if !job.current.isEmpty { Text(job.current.replacingOccurrences(of: "publish:", with: "Finishing ")).font(.caption).lineLimit(2) }
+                    Text(job.active && job.cancel == true ? "Cancelling…" : job.state.capitalized).font(.caption)
                     if job.progressUnit == "items", let total = job.itemsTotal, total > 0 {
                         ProgressView(value: Double(job.itemsDone ?? 0) / Double(total))
                         Text("\(job.itemsDone ?? 0) / \(total) items").font(.caption)
@@ -21,9 +27,13 @@ struct TransferList: View {
                         Text("\(ByteCountFormatter.string(fromByteCount: job.done, countStyle: .file)) / \(ByteCountFormatter.string(fromByteCount: job.total, countStyle: .file)) · \(ByteCountFormatter.string(fromByteCount: Int64(job.speed), countStyle: .file))/s").font(.caption)
                     }
                     if let detail = job.error, !detail.isEmpty { Text(detail).foregroundStyle(.red).font(.caption) }
-                    if job.active { Button("Cancel", role: .destructive) { action("jobs/\(job.id)/cancel") } }
-                    if job.state == "failed" { Button("Retry") { action("jobs/\(job.id)/retry") } }
+                    if job.active {
+                        Button(pendingActions.contains(job.id) || job.cancel == true ? "Cancelling…" : "Cancel", role: .destructive) { action("jobs/\(job.id)/cancel", id: job.id) }
+                            .disabled(pendingActions.contains(job.id) || job.cancel == true)
+                    }
+                    if job.state == "failed" { Button("Retry") { action("jobs/\(job.id)/retry", id: job.id) }.disabled(pendingActions.contains(job.id)) }
                 }
+                .buttonStyle(.borderless)
             }
         }
         .navigationTitle("Transfers")
@@ -41,8 +51,10 @@ struct TransferList: View {
         let client = CompanionClient(connection: connection); defer { client.close() }
         do { jobs = try await client.jobs(); error = nil } catch { self.error = error.localizedDescription }
     }
-    private func action(_ route: String) {
+    private func action(_ route: String, id: String) {
+        pendingActions.insert(id)
         Task {
+            defer { pendingActions.remove(id) }
             let client = CompanionClient(connection: connection); defer { client.close() }
             do { _ = try await client.request(route, method: "POST"); await refresh() } catch { self.error = error.localizedDescription }
         }

@@ -182,7 +182,7 @@ struct BrowserView: View {
                                     else { for item in items { try await repository.move(item, to: folder, name: item.file.name) } }
                                 case .drive(let folder):
                                     guard isCopy, let companion = repository.companion else { throw APIError.forbidden }
-                                    _ = try await companion.submit(BackgroundCopy(items: items.map { CopyLocation(source: $0.source, path: $0.file.path) }, destination: CopyLocation(source: "drive", path: folder.id)))
+                                    _ = try await companion.submit(BackgroundCopy(items: items.map { CopyLocation(source: $0.source, path: $0.file.path) }, destination: CopyLocation(source: "drive", path: folder.id, name: folder.name)))
                                 }
                             }
                             if succeeded { selected.removeAll(); selecting = false; await reload() }

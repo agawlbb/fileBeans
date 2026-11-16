@@ -12,10 +12,11 @@ import (
 )
 
 type Service struct {
-	config  Config
-	db      *sql.DB
-	mu      sync.Mutex
-	driveMu sync.Mutex
+	config      Config
+	db          *sql.DB
+	mu          sync.Mutex
+	driveMu     sync.Mutex
+	copyCancels map[string]context.CancelFunc // guarded by mu
 }
 
 func ID() string {

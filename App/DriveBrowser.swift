@@ -279,11 +279,11 @@ struct DriveBrowser: View {
                                 if isCopy {
                                     let target: CopyLocation
                                     switch destination { case .local(let item): target = CopyLocation(source: item.source, path: item.file.path)
-                                    case .drive(let item): target = CopyLocation(source: "drive", path: item.id) }
+                                    case .drive(let item): target = CopyLocation(source: "drive", path: item.id, name: item.name) }
                                     if target.source != "drive" && items.contains(where: \.nativeDocument) {
                                         throw NSError(domain: "fileBeans.Drive", code: 1, userInfo: [NSLocalizedDescriptionKey: "Google-native documents and shortcuts cannot be exported to server storage in this version."])
                                     }
-                                    _ = try await client.transport.submit(BackgroundCopy(items: items.map { CopyLocation(source: "drive", path: $0.id) }, destination: target))
+                                    _ = try await client.transport.submit(BackgroundCopy(items: items.map { CopyLocation(source: "drive", path: $0.id, name: $0.name) }, destination: target))
                                 } else if case .drive(let folder) = destination {
                                     for item in items { try await client.mutate(DriveMutationRequest(action: "move", fileId: item.id, parent: folder.id, version: item.version)) }
                                 }

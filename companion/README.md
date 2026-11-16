@@ -182,6 +182,13 @@ no-store. Callback state is one-use and expires after ten minutes.
 
 ## Verification
 
+Copy cancellation interrupts in-flight Drive requests. Jobs cancelled before
+discovery finish immediately without waiting for the serial copy worker. Active
+jobs retain their cancellation flag until staging cleanup finishes; a Samba
+filesystem call already in progress must return before the worker can clean up.
+The app shows cancellation progress and the submitted source/destination, with
+Drive display names included by newer clients even before discovery starts.
+
 Use `dev` for every command. Unit tests use only synthetic files and HTTP fixtures.
 For MariaDB recovery tests, explicitly set `FILEBEANS_TEST_CONFIG` to a JSON file
 under `/home/dev/projects/.test-config/` with host/port/user/password/database.

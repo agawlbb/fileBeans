@@ -13,12 +13,18 @@ struct CompanionCapabilities: Decodable {
 struct CopyLocation: Codable {
     let source: String
     let path: String
+    var name: String? = nil
+    var displayLocation: String { "\(source): \(name ?? (path.isEmpty || path == "." ? "/" : path))" }
 }
 struct BackgroundCopy: Encodable {
     let items: [CopyLocation]
     let destination: CopyLocation
 }
 struct CopyJob: Decodable, Identifiable {
+    struct Request: Decodable {
+        let items: [CopyLocation]
+        let destination: CopyLocation
+    }
     let id: String
     let state: String
     let total: Int64
@@ -29,6 +35,14 @@ struct CopyJob: Decodable, Identifiable {
     let progressUnit: String?
     let itemsTotal: Int?
     let itemsDone: Int?
+    let request: Request?
+    let cancel: Bool?
+    var title: String {
+        if let items = request?.items, !items.isEmpty {
+            return items.map { $0.name ?? ($0.path as NSString).lastPathComponent }.joined(separator: ", ")
+        }
+        return current.isEmpty ? "Server copy" : current.replacingOccurrences(of: "publish:", with: "Finishing ")
+    }
     var active: Bool { !["completed", "cancelled", "failed"].contains(state) }
 }
 struct TrashEntry: Decodable, Identifiable {

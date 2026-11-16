@@ -166,7 +166,20 @@ func (s *Service) discover(ctx context.Context, j *Job) error {
 	return nil
 }
 func (s *Service) runJob(ctx context.Context, j *Job) {
-	e := s.execute(ctx, j)
+	copyCtx, stop := context.WithCancel(ctx)
+	s.mu.Lock()
+	if s.copyCancels == nil {
+		s.copyCancels = make(map[string]context.CancelFunc)
+	}
+	s.copyCancels[j.ID] = stop
+	s.mu.Unlock()
+	defer func() {
+		stop()
+		s.mu.Lock()
+		delete(s.copyCancels, j.ID)
+		s.mu.Unlock()
+	}()
+	e := s.execute(copyCtx, j)
 	if ctx.Err() != nil {
 		return
 	}
