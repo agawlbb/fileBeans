@@ -19,7 +19,7 @@ BUNDLE_ID_PREFIX = your.registered.app.identifier
 
 Register the main app ID and its `.FileProvider` extension with the same App Group (`group.` followed by the main bundle ID) and shared Keychain group. Use your registered identifiers rather than the example defaults. The extension must be signed and installed with the app for device testing.
 
-This VM is for editing and static checks; Apple SDK compilation, simulator tests, and archives run on GitHub macOS runners. The app and Files extension compile, and all 19 unit tests pass on the simulator. Validate iOS also builds an unsigned device Release archive. Signed-device checks and TestFlight upload remain pending. See [release setup](docs/RELEASING.md) and the [device acceptance checklist](docs/TESTING.md).
+This VM is for editing and static checks; Apple SDK compilation, simulator tests, and archives run on GitHub macOS runners. The app and Files extension compile, and all 40 unit tests pass on the simulator. Validate iOS also builds an unsigned device Release archive. Version 0.1.0 (8) is available in internal TestFlight; physical-device acceptance remains manual. See [release setup](docs/RELEASING.md) and the [device acceptance checklist](docs/TESTING.md).
 
 For static checks, install `scripts/requirements-validation.txt` in an isolated Python environment and run `python scripts/validate-source.py`. This parses Swift, Python, plists, asset JSON, and workflow/project configuration; it does not replace compilation or XCTest.
 
