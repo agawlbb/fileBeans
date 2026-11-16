@@ -273,8 +273,13 @@ private struct MovieView: View {
             VideoPlayer(player: player)
                 .navigationTitle(movie.name).navigationBarTitleDisplayMode(.inline)
                 .toolbar { Button("Done") { dismiss() } }
-                .onAppear {
-                    movie.stream.play(on: player)
+                .task {
+                    do { try await movie.stream.play(on: player) }
+                    catch {
+                        guard !Task.isCancelled else { return }
+                        failureDetails = PlaybackDiagnostics.summary(error: error as NSError)
+                        self.error = true
+                    }
                 }
                 .onDisappear { player.pause(); player.replaceCurrentItem(with: nil); movie.stream.cancel() }
                 .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime)) { notification in

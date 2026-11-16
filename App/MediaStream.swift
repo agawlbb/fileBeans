@@ -9,6 +9,9 @@ final class MediaStream: NSObject, @preconcurrency AVAssetResourceLoaderDelegate
     private let request: URLRequest
     private let name: String
     private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
+    private(set) var loadingRequestCount = 0
+    private(set) var completedRequestCount = 0
+    private(set) var suppliedByteCount: Int64 = 0
 
     init(client: QuantumClient, request: URLRequest, name: String) {
         self.client = client; self.request = request; self.name = name
@@ -16,17 +19,23 @@ final class MediaStream: NSObject, @preconcurrency AVAssetResourceLoaderDelegate
 
     func asset() -> AVURLAsset {
         // Keep authenticated server URLs out of the player and its error logs.
-        let asset = AVURLAsset(url: URL(string: "filebeans-media://playback/" + UUID().uuidString)!)
+        let url = URL(string: "filebeans-media://playback/" + UUID().uuidString)!
+            .appendingPathExtension((name as NSString).pathExtension)
+        let asset = AVURLAsset(url: url)
         asset.resourceLoader.setDelegate(self, queue: .main)
         return asset
     }
 
-    func play(on player: AVPlayer) {
-        // AVPlayer cannot estimate HTTP throughput behind our custom URL scheme.
-        // Its automatic buffer-rate evaluation can wait forever at the first frame.
-        // Let playback consume the byte ranges we deliver as they become available.
-        player.automaticallyWaitsToMinimizeStalling = false
-        player.replaceCurrentItem(with: AVPlayerItem(asset: asset()))
+    func play(on player: AVPlayer) async throws {
+        let asset = asset()
+        let playable = try await withTaskCancellationHandler {
+            try await asset.load(.isPlayable)
+        } onCancel: {
+            asset.cancelLoading()
+        }
+        try Task.checkCancellation()
+        guard playable else { throw AVError(.fileFormatNotRecognized) }
+        player.replaceCurrentItem(with: AVPlayerItem(asset: asset))
         player.play()
     }
 
@@ -38,6 +47,7 @@ final class MediaStream: NSObject, @preconcurrency AVAssetResourceLoaderDelegate
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader,
                         shouldWaitForLoadingOfRequestedResource loading: AVAssetResourceLoadingRequest) -> Bool {
         let id = ObjectIdentifier(loading)
+        loadingRequestCount += 1
         tasks[id] = Task { @MainActor in
             defer { tasks.removeValue(forKey: id) }
             do {
@@ -59,12 +69,14 @@ final class MediaStream: NSObject, @preconcurrency AVAssetResourceLoaderDelegate
                             ?? UTType(filenameExtension: (self.name as NSString).pathExtension)?.identifier
                             ?? UTType.data.identifier
                         info.isByteRangeAccessSupported = true
-                        info.isEntireLengthAvailableOnDemand = true
+                        // These bytes arrive over HTTPS, not from a complete local cache.
+                        info.isEntireLengthAvailableOnDemand = false
                     }
+                    self.suppliedByteCount += Int64(chunk.data.count)
                     dataRequest?.respond(with: chunk.data)
                 })
                 try Task.checkCancellation()
-                if !loading.isCancelled { loading.finishLoading() }
+                if !loading.isCancelled { completedRequestCount += 1; loading.finishLoading() }
             } catch {
                 if !Task.isCancelled, !loading.isCancelled { loading.finishLoading(with: error) }
             }

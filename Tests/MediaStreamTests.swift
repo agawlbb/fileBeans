@@ -52,7 +52,7 @@ final class MediaStreamTests: XCTestCase {
         let stream = MediaStream(client: client, request: request, name: "probe.mp4")
         let player = AVPlayer()
         defer { player.pause(); player.replaceCurrentItem(with: nil); stream.cancel() }
-        stream.play(on: player)
+        try await stream.play(on: player)
         let output = AVPlayerItemVideoOutput(pixelBufferAttributes: nil)
         player.currentItem?.add(output)
         let deadline = Date().addingTimeInterval(15)
@@ -65,7 +65,7 @@ final class MediaStreamTests: XCTestCase {
             if player.currentItem?.status == .failed { break }
             try await Task.sleep(for: .milliseconds(100))
         }
-        let state = "time=\(player.currentTime().seconds), rate=\(player.rate), control=\(player.timeControlStatus.rawValue), waiting=\(player.reasonForWaitingToPlay?.rawValue ?? "none"), item=\(player.currentItem?.status.rawValue ?? -1)"
+        let state = "time=\(player.currentTime().seconds), rate=\(player.rate), control=\(player.timeControlStatus.rawValue), waiting=\(player.reasonForWaitingToPlay?.rawValue ?? "none"), item=\(player.currentItem?.status.rawValue ?? -1), requests=\(stream.loadingRequestCount), completed=\(stream.completedRequestCount), bytes=\(stream.suppliedByteCount)"
         XCTAssertGreaterThanOrEqual(player.currentTime().seconds, 1.5, state)
         XCTAssertGreaterThanOrEqual(decodedFrames, 3, "Only \(decodedFrames) video frames decoded; \(state)")
         guard player.currentTime().seconds >= 1.5, decodedFrames >= 3 else { return }
