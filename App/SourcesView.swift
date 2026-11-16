@@ -107,7 +107,21 @@ struct SourcesView: View {
         SourceNavigation(compact: sizeClass == .compact, path: $sourcePath, selected: $selected,
                          columnVisibility: $columnVisibility, sidebar: sourceList) { $0.destination }
     }
-    private var sourceList: some View {
+    @ViewBuilder private var sourceList: some View {
+        if sizeClass != .compact, selected != nil {
+            // While browsing, the sidebar is the active hierarchy. Sources
+            // returns to the picker instead of duplicating that picker here.
+            List { FolderBreadcrumbSidebar() }
+                .listStyle(.plain)
+                .navigationTitle("Sources")
+                .toolbar {
+                    Button("Settings", systemImage: "gearshape") { settings = true }
+                }
+        } else {
+            sourceCollection
+        }
+    }
+    private var sourceCollection: some View {
         BrowserFileCollection(items: entries, grid: grid, header: status, row: { source, large in
             sourceLink(source) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -119,7 +133,7 @@ struct SourcesView: View {
                 }.accessibilityElement(children: .combine)
             }.buttonStyle(.plain)
         })
-        .navigationTitle("fileBeans")
+        .navigationTitle("Sources")
         .searchable(text: $search, prompt: "Search sources")
         .toolbar {
             Button("Settings", systemImage: "gearshape") { settings = true }
@@ -146,7 +160,6 @@ struct SourcesView: View {
         }
     }
     @ViewBuilder private var status: some View {
-        if sizeClass != .compact { FolderBreadcrumbSidebar() }
         if model.loading { ProgressView("Loading sources…") }
         ForEach(connections.connections) { connection in
             if let error = model.errors[connection.id] {

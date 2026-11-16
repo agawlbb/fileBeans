@@ -224,3 +224,17 @@ Preflight, signed archive/export, upload, and credential cleanup passed.
 Apple build `5e839cb5-480c-4c26-b50f-2916caadd20a` reports VALID and
 IN_BETA_TESTING; the existing internal group retains access to all builds.
 The heading layout acceptance checks above still require physical-device review.
+
+## Compact hierarchy with Sources root
+
+The heading uses subheadline-size text to fit more ancestors in the same row.
+Every width fallback keeps a direct Sources button; ancestor overflow remains
+available. The iPad browsing sidebar shows only Sources → selected source → open
+folders, with the same smaller type. Tapping Sources clears selection and returns
+to the source picker; source choices and Transfers appear there rather than being
+repeated below the active hierarchy. Settings remains available while browsing.
+
+Verify Sources from both heading and sidebar, opening another source afterwards,
+long/deep paths and Dynamic Type, list/grid, and all three heading width fallbacks.
+Static checks do not substitute for Apple layout/device acceptance; this follow-up
+is not yet built or published.
