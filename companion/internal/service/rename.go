@@ -1,13 +1,12 @@
 package service
 
 import (
-	"os"
 	"path/filepath"
 
 	"golang.org/x/sys/unix"
 )
 
-func renameNoReplace(r *os.Root, from, to string) error {
+func renameNoReplace(r rootFS, from, to string) error {
 	// Resolve both parent descriptors through os.Root. Passing only basenames to
 	// renameat2 prevents intermediate-path substitution escaping root confinement.
 	a, e := r.Open(filepath.Dir(from))

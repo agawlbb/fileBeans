@@ -29,7 +29,7 @@ func clean(path string) (string, error) {
 func validName(name string) bool {
 	return name != "" && name != "." && name != ".." && !strings.ContainsAny(name, "/\\\x00")
 }
-func (s *Service) root(name string) (*os.Root, error) {
+func (s *Service) root(name string) (rootFS, error) {
 	if s.vaults != nil {
 		if e := s.vaults.checkRoot(name); e != nil {
 			return nil, e
@@ -84,12 +84,16 @@ func (s *Service) root(name string) (*os.Root, error) {
 	if info.Mode()&os.ModeSymlink != 0 {
 		return nil, ErrUnsafe
 	}
-	return os.OpenRoot(config.Path)
+	root, e := os.OpenRoot(config.Path)
+	if e != nil {
+		return nil, e
+	}
+	return s.guarded(root)
 }
 
 // os.Root confines operations even if an intermediate directory is changed concurrently.
 // Reject symlinks as well; they are not copyable objects in this service.
-func safe(r *os.Root, path string) error {
+func safe(r rootFS, path string) error {
 	p, e := clean(path)
 	if e != nil {
 		return e
@@ -118,13 +122,13 @@ func protected(path string) bool {
 	return p == "Trash" || strings.HasPrefix(p, "Trash/") || p == ".filebeans-stage" || strings.HasPrefix(p, ".filebeans-stage/")
 }
 func version(st fs.FileInfo) string { return fmt.Sprintf("%d:%d", st.Size(), st.ModTime().UnixNano()) }
-func mkdir(r *os.Root, path string) error {
+func mkdir(r rootFS, path string) error {
 	if e := safe(r, path); e != nil {
 		return e
 	}
 	return r.MkdirAll(path, 0700)
 }
-func syncDir(r *os.Root, path string) error {
+func syncDir(r rootFS, path string) error {
 	f, e := r.Open(path)
 	if e != nil {
 		return e
@@ -132,7 +136,12 @@ func syncDir(r *os.Root, path string) error {
 	defer f.Close()
 	return f.Sync()
 }
-func renameExclusive(r *os.Root, from, to string) error {
+func renameExclusive(r rootFS, from, to string) error {
+	if guarded, ok := r.(*guardedRoot); ok {
+		if e := guarded.mutation(from, to); e != nil {
+			return e
+		}
+	}
 	if e := safe(r, from); e != nil {
 		return e
 	}

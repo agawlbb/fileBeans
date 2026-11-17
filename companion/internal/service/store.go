@@ -61,6 +61,7 @@ type Job struct {
 	ItemsDone    int         `json:"itemsDone,omitempty"`
 }
 type Trash struct {
+	Storage  string `json:"storage,omitempty"`
 	ID       string `json:"id"`
 	Source   string `json:"source"`
 	Original string `json:"original"`

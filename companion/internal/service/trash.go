@@ -5,10 +5,17 @@ import (
 	"errors"
 	"io/fs"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
-func trashPath(t Trash) string { return filepath.Join("Trash", t.ID, t.Name) }
+func trashDirectory(t Trash) string {
+	if t.Storage != "" {
+		return t.Storage
+	}
+	return filepath.Join("Trash", t.ID)
+}
+func trashPath(t Trash) string { return filepath.Join(trashDirectory(t), t.Name) }
 func (s *Service) trash(item Item, key string) (Trash, error) {
 	var t Trash
 	p, e := clean(item.Path)
@@ -23,21 +30,29 @@ func (s *Service) trash(item Item, key string) (Trash, error) {
 	if e = safe(r, p); e != nil {
 		return t, e
 	}
+	if guarded, ok := r.(*guardedRoot); ok {
+		if e = guarded.tree(p); e != nil {
+			return t, e
+		}
+	}
 	if _, e = r.Stat(p); e != nil {
 		return t, e
 	}
 	now := time.Now().Unix()
 	t = Trash{ID: ID(), Source: item.Source, Original: p, Name: filepath.Base(p), Deleted: now, Expires: now + 10*24*3600, State: "trashing"}
+	if v := s.vaults.pathVault(item.Source, p); v != nil && v.Path != "" {
+		t.Storage = filepath.Join(strings.TrimPrefix(v.Path, "/"), "Trash", t.ID)
+	}
 	if e = s.insert(t.ID, "trash", t.State, key, t); e != nil {
 		return t, e
 	}
-	if e = mkdir(r, filepath.Join("Trash", t.ID)); e != nil {
+	if e = mkdir(r, trashDirectory(t)); e != nil {
 		return t, e
 	}
-	if e = r.Chmod("Trash", 0750); e != nil {
+	if e = r.Chmod(filepath.Dir(trashDirectory(t)), 0750); e != nil {
 		return t, e
 	}
-	if e = r.Chmod(filepath.Join("Trash", t.ID), 0750); e != nil {
+	if e = r.Chmod(trashDirectory(t), 0750); e != nil {
 		return t, e
 	}
 	if e = renameExclusive(r, p, trashPath(t)); e != nil {
@@ -94,7 +109,7 @@ func (s *Service) restore(id string) error {
 	if e = s.save(t.ID, "trash", t.State, t); e != nil {
 		return e
 	}
-	return r.RemoveAll(filepath.Join("Trash", t.ID))
+	return r.RemoveAll(trashDirectory(t))
 }
 func (s *Service) purge(t *Trash) error {
 	r, e := s.root(t.Source)
@@ -102,17 +117,17 @@ func (s *Service) purge(t *Trash) error {
 		return e
 	}
 	defer r.Close()
-	if e = safe(r, filepath.Join("Trash", t.ID)); e != nil {
+	if e = safe(r, trashDirectory(*t)); e != nil {
 		return e
 	}
 	t.State = "purging"
 	if e = s.save(t.ID, "trash", t.State, t); e != nil {
 		return e
 	}
-	if e = r.RemoveAll(filepath.Join("Trash", t.ID)); e != nil {
+	if e = r.RemoveAll(trashDirectory(*t)); e != nil {
 		return e
 	}
-	if e = syncDir(r, "Trash"); e != nil {
+	if e = syncDir(r, filepath.Dir(trashDirectory(*t))); e != nil {
 		return e
 	}
 	t.State = "purged"

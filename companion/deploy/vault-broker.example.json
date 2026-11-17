@@ -1,0 +1,13 @@
+{
+  "state": "/var/lib/filebeans-vaults",
+  "runtime": "/run/filebeans-vaults",
+  "gocryptfs": "/usr/local/bin/gocryptfs",
+  "fusermount": "/usr/bin/fusermount3",
+  "controlUID": 10001,
+  "readerUID": 10002,
+  "gid": 10003,
+  "roots": [
+    {"name": "vps", "path": "/srv/filebeans/local"},
+    {"name": "samba", "path": "/srv/filebeans/samba", "mount": "/srv/filebeans/samba", "mountSource": "//nas/share"}
+  ]
+}

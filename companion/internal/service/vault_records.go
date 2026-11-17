@@ -7,6 +7,8 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -18,9 +20,85 @@ type sealedRecord struct {
 	Ciphertext []byte   `json:"ciphertext"`
 }
 
+func (s *Service) recordSources(b []byte) ([]string, error) {
+	if s.vaults == nil {
+		return nil, nil
+	}
+	if s.vaults.guard != nil {
+		lease, e := s.vaults.guard.Acquire()
+		if e != nil {
+			return nil, ErrVaultLocked
+		}
+		defer lease.Close()
+	}
+	var value any
+	if json.Unmarshal(b, &value) != nil {
+		return nil, ErrUnsafe
+	}
+	configs := s.vaults.configs()
+	labels := map[string]bool{}
+	var walk func(any, string)
+	walk = func(value any, inherited string) {
+		switch x := value.(type) {
+		case map[string]any:
+			if library, ok := x["librarySource"].(string); ok {
+				path, _ := x["libraryPath"].(string)
+				walk(map[string]any{"source": library, "path": path}, "")
+			}
+			source := inherited
+			if src, ok := x["source"].(string); ok {
+				source = src
+			}
+			for _, v := range configs {
+				if v.Source != source {
+					continue
+				}
+				label := v.Source
+				if s.vaults.remote != nil {
+					label = "vault:" + v.ID
+				}
+				if v.Path == "" {
+					labels[label] = true
+					continue
+				}
+				hasPath, matched := false, false
+				for _, field := range []string{"path", "original", "from"} {
+					if path, ok := x[field].(string); ok {
+						hasPath = true
+						p, e := clean(path)
+						if e != nil || within("/"+strings.TrimPrefix(p, "./"), v.Path) {
+							matched = true
+						}
+					}
+				}
+				if matched || !hasPath && source != inherited {
+					labels[label] = true
+				}
+			}
+			for _, child := range x {
+				walk(child, source)
+			}
+		case []any:
+			for _, child := range x {
+				walk(child, inherited)
+			}
+		}
+	}
+	walk(value, "")
+	out := make([]string, 0, len(labels))
+	for label := range labels {
+		out = append(out, label)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
 func (m *vaultManager) recordCipher(sources []string) (cipher.AEAD, error) {
 	if m == nil {
 		return nil, ErrVaultLocked
+	}
+	if m.remote != nil {
+		return m.remoteCipher(sources)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -52,15 +130,12 @@ func recordAAD(id, kind string, sources []string) []byte {
 	return b
 }
 func (s *Service) encodeRecord(id, kind string, b []byte) ([]byte, error) {
-	if !s.sensitiveRecord(b) {
-		return b, nil
+	sources, e := s.recordSources(b)
+	if e != nil {
+		return nil, e
 	}
-	sources := []string{}
-	for _, v := range s.vaults.states {
-		probe := &Service{vaults: &vaultManager{states: []*vaultState{v}}}
-		if probe.sensitiveRecord(b) {
-			sources = append(sources, v.config.Source)
-		}
+	if len(sources) == 0 {
+		return b, nil
 	}
 	a, e := s.vaults.recordCipher(sources)
 	if e != nil {

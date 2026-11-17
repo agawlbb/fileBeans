@@ -37,7 +37,7 @@ func (s *Service) discover(ctx context.Context, j *Job) error {
 	j.Manifest = nil
 	j.Total = 0
 	j.Done = 0
-	var dest *os.Root
+	var dest rootFS
 	p := ""
 	var e error
 	if j.Request.Destination.Source == "drive" {
@@ -98,6 +98,9 @@ func (s *Service) discover(ctx context.Context, j *Job) error {
 				return er
 			}
 			er = safe(root, from)
+			if guarded, ok := root.(*guardedRoot); er == nil && ok {
+				er = guarded.tree(from)
+			}
 			if er == nil {
 				er = fs.WalkDir(root.FS(), from, func(path string, d fs.DirEntry, walkErr error) error {
 					if walkErr != nil {
@@ -164,6 +167,13 @@ func (s *Service) discover(ctx context.Context, j *Job) error {
 func (s *Service) runJob(ctx context.Context, j *Job) {
 	s.vaultGate.RLock()
 	defer s.vaultGate.RUnlock()
+	if s.vaults != nil && s.vaults.guard != nil {
+		lease, e := s.vaults.guard.Acquire()
+		if e != nil {
+			return
+		}
+		defer lease.Close()
+	}
 	copyCtx, stop := context.WithCancel(ctx)
 	s.mu.Lock()
 	if s.copyCancels == nil {
@@ -198,7 +208,7 @@ func (s *Service) runJob(ctx context.Context, j *Job) {
 				return
 			}
 		} else if r, er := s.root(j.Request.Destination.Source); er == nil {
-			r.RemoveAll(filepath.Join(".filebeans-stage", j.ID))
+			r.RemoveAll(s.stagePath(j))
 			r.Close()
 		}
 		j.State = "cancelled"

@@ -7,7 +7,7 @@ services:
     network_mode: none
     read_only: true
     cap_drop: [ALL]
-    cap_add: [SYS_ADMIN]
+    cap_add: [SYS_ADMIN, CHOWN, DAC_OVERRIDE, FOWNER, SETUID, SETGID]
     devices:
       - /dev/fuse:/dev/fuse:rw
     security_opt:
@@ -23,9 +23,9 @@ services:
       PATH: /test-tools:/usr/bin:/bin
     entrypoint: [/test-tools/service.test]
     command:
-      - -test.run=^TestGocryptfsIndependentRecovery$
+      - -test.run=^(TestGocryptfsIndependentRecovery|TestBrokerRealFilesystemLifecycle)$
       - -test.v
-      - -test.timeout=45s
+      - -test.timeout=90s
     cpus: 1
     mem_limit: 512m
     memswap_limit: 512m

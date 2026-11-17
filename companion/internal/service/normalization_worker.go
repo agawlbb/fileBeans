@@ -36,7 +36,7 @@ func (s *Service) normCheck(ctx context.Context, j *NormalizationJob) error {
 	}
 	return nil
 }
-func (s *Service) normFree(root *os.Root, extra uint64) error {
+func (s *Service) normFree(root rootFS, extra uint64) error {
 	c := s.config.Normalization.defaults()
 	f, e := root.Open(".")
 	if e != nil {
@@ -81,7 +81,7 @@ func (s *Service) normSourceCurrent(ctx context.Context, j *NormalizationJob) er
 	}
 	return nil
 }
-func hashNormFile(root *os.Root, path string) (string, error) {
+func hashNormFile(root rootFS, path string) (string, error) {
 	if e := safe(root, path); e != nil {
 		return "", e
 	}
@@ -102,7 +102,7 @@ func (s *Service) normStagePath() string {
 	}
 	return ""
 }
-func (s *Service) normPrepare(root *os.Root, j *NormalizationJob) error {
+func (s *Service) normPrepare(root rootFS, j *NormalizationJob) error {
 	if e := mkdir(root, normWorkspace); e != nil {
 		return e
 	}
@@ -131,7 +131,7 @@ func (s *Service) normPrepare(root *os.Root, j *NormalizationJob) error {
 	}
 	return nil
 }
-func (s *Service) normCleanup(root *os.Root, j *NormalizationJob) error {
+func (s *Service) normCleanup(root rootFS, j *NormalizationJob) error {
 	data, markerError := root.ReadFile(filepath.Join(normWorkspace, "owner.json"))
 	if errors.Is(markerError, os.ErrNotExist) {
 		return nil
@@ -251,7 +251,7 @@ func (s *Service) recoverNormOwner(ctx context.Context, lease *sql.Conn) error {
 
 // Monitor blocked network reads and encoder/decoder processes, not just their
 // progress callbacks. Cancellation remains responsive during a stalled transfer.
-func (s *Service) monitorNormalization(parent context.Context, root *os.Root, j *NormalizationJob) (context.Context, func() error) {
+func (s *Service) monitorNormalization(parent context.Context, root rootFS, j *NormalizationJob) (context.Context, func() error) {
 	ctx, cancel := context.WithCancel(parent)
 	done := make(chan struct{})
 	failed := make(chan error, 1)
@@ -291,7 +291,7 @@ func (s *Service) monitorNormalization(parent context.Context, root *os.Root, j 
 	}
 	return ctx, finish
 }
-func (s *Service) downloadNorm(ctx context.Context, root *os.Root, j *NormalizationJob) (file *os.File, err error) {
+func (s *Service) downloadNorm(ctx context.Context, root rootFS, j *NormalizationJob) (file *os.File, err error) {
 	if e := s.normSourceCurrent(ctx, j); e != nil {
 		return nil, e
 	}
@@ -375,7 +375,7 @@ func (s *Service) downloadNorm(ctx context.Context, root *os.Root, j *Normalizat
 	}
 	return f, nil
 }
-func (s *Service) normPublish(ctx context.Context, root *os.Root, j *NormalizationJob, output string) error {
+func (s *Service) normPublish(ctx context.Context, root rootFS, j *NormalizationJob, output string) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -667,7 +667,7 @@ func (s *Service) executeNormalization(ctx context.Context, j *NormalizationJob,
 	}
 	return s.normPublish(ctx, root, j, outputRel)
 }
-func normPublicDirs(root *os.Root, path string) error {
+func normPublicDirs(root rootFS, path string) error {
 	current := ""
 	for _, part := range strings.Split(path, "/") {
 		current = filepath.Join(current, part)

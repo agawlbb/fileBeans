@@ -102,10 +102,13 @@ func normKey(parts ...string) string {
 	h := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 	return "norm:" + hex.EncodeToString(h[:])[:59]
 }
-func (s *Service) normalizationRoot() (*os.Root, NormalizationConfig, error) {
+func (s *Service) normalizationRoot() (rootFS, NormalizationConfig, error) {
 	c := s.config.Normalization.defaults()
 	if !c.Enabled {
 		return nil, c, ErrUnsupported
+	}
+	if s.vaults.pathVault(c.Source, c.Path) != nil {
+		return nil, c, ErrUnsafe
 	}
 	for _, r := range s.config.Roots {
 		if r.Name == c.Source && r.Mount != "" {
@@ -116,10 +119,13 @@ func (s *Service) normalizationRoot() (*os.Root, NormalizationConfig, error) {
 	return root, c, e
 }
 func (s *Service) enqueueNormalization(req NormalizationRequest, batch, connection string, meta *DriveItem) (NormalizationJob, error) {
-	if s.vaults.protectedSource(req.Source) {
+	if s.vaults.pathVault(req.Source, req.Path) != nil {
 		return NormalizationJob{}, ErrUnsafe
 	}
 	c := s.config.Normalization.defaults()
+	if s.vaults.pathVault(c.Source, c.Path) != nil {
+		return NormalizationJob{}, ErrUnsafe
+	}
 	j := NormalizationJob{ID: ID(), Request: req, State: "queued", Phase: "queued", Profile: normalizationProfile, LibrarySource: c.Source, LibraryPath: c.Path, Batch: batch, Connection: connection, Created: time.Now().Unix()}
 	if req.Source == "drive" {
 		if meta == nil || meta.Trashed || !meta.Capabilities.Download || strings.HasPrefix(meta.Mime, "application/vnd.google-apps.") {
@@ -574,6 +580,12 @@ func (s *Service) scanNormalization() error {
 		if e != nil {
 			return e
 		}
+		if s.vaults.pathVault(c.Source, path) != nil {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
 		if d.IsDir() {
 			return nil
 		}
@@ -594,7 +606,7 @@ func (s *Service) scanNormalization() error {
 		return e
 	})
 }
-func accessibleDirectory(root *os.Root, path string) error {
+func accessibleDirectory(root rootFS, path string) error {
 	if e := safe(root, path); e != nil {
 		return e
 	}

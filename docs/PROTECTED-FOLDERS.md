@@ -47,6 +47,10 @@ discarded configuration password; that password is not used for recovery.
 
 ## Server setup for later testing
 
+This section describes the older static-root integration. The current-location
+broker implementation and its remaining Quantum work are documented in
+[VAULT-BROKER.md](VAULT-BROKER.md). Neither integration has been deployed.
+
 Use a disposable Linux test environment and synthetic files first. The current
 scratch companion image does not include FUSE/gocryptfs or client lifecycle
 utilities; it cannot run vaults as-is. The supplied example uses host systemd,
@@ -220,23 +224,27 @@ runtime. The VM still has swap enabled, so actual companion vault startup
 correctly refuses keys under its present host policy. No host security policy
 was relaxed.
 
-### Current-location creation: implementation still pending
+### Current-location creation: broker implemented, Quantum integration pending
 
 The app now has a protected-folder draft, API client, folder badges, and an
 unlock action before navigation. The Add Protected Folder control is gated by
-the `protectedFoldersCreate` server capability. The current companion does not
-advertise that capability or implement `POST /v1/vaults`; creation at the current
-location is **not operational**. The existing configured-vault initialization
-route remains supported by the app.
+the `protectedFoldersCreate` server capability. The companion now implements
+`POST /v1/vaults` through a separate mount broker. It advertises the capability
+only while a compatible Quantum consumer registers all required protections.
+There is no Quantum adapter yet, so current-location creation remains disabled
+in normal use. The existing configured-vault initialization route remains
+supported by the app.
 
-Remaining server work includes a restricted mount broker, a persistent public
-vault registry, creation and mounting at the selected location, and integration
-with the pinned Quantum server. Quantum must keep protected indexes, previews,
+The restricted broker, persistent public registry, same-location bind mount,
+idempotent creation, per-vault companion history sealing, encrypted transfer
+staging/Trash, and normalizer exclusions are implemented. Remaining server work
+is integration with the pinned Quantum server. Quantum must isolate indexes, previews,
 temporary files and filename-bearing metadata inside the encrypted mount, check
 lock state before cached responses, and drain all readers before unmounting.
-Ordinary copy/move/Trash operations and normalization must respect protected
-boundaries. Do not enable the capability before these checks and integration
-tests pass. The existing scratch server image cannot supply this runtime.
+Ordinary companion operations now reject protected mountpoint/ancestor moves
+and copies; registry-aware operations on a protected folder itself remain to be
+implemented. The capability must stay disabled until Quantum integration tests
+pass. The existing scratch server image cannot supply the new runtime.
 
 New Apple test cases cover pending-key recovery after process recreation, secure
 storage failure, backup acknowledgment, authentication cancellation, stable
@@ -244,3 +252,11 @@ creation request IDs, path boundaries, catalog compatibility and API requests.
 These are source additions, not executed Apple test results. Swift syntax and
 project checks can run on VM-laptop; compilation and XCTest execution need the
 separately authorized Apple workflow. No new app build or deployment has occurred.
+
+Broker, guard and companion tests pass with race detection, including the VM
+MariaDB suite with the previously established hard-link failure excluded. Real
+FUSE tests pass for socket creation/retry, wrong-key rejection, busy readers,
+same-key multiple folders, encrypted private caches, protected history access,
+and standalone ciphertext recovery. These synthetic tests use an isolated
+runtime; they do not establish Samba, production mount propagation, or Quantum
+integration correctness.

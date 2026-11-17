@@ -74,7 +74,11 @@ func (s *Service) Handler() http.Handler {
 			roots = append(roots, map[string]string{"source": root.Name, "trash": "/Trash"})
 		}
 		g, e := s.google()
-		reply(w, 200, map[string]any{"version": 1, "roots": roots, "driveConnected": e == nil, "driveWriteAccess": e == nil && g.writable(), "normalizationEnabled": s.config.Normalization.Enabled, "features": []string{"driveWrite", "driveDestinations", "driveUploads", "driveThumbnails", "driveMedia", "normalization"}})
+		features := []string{"driveWrite", "driveDestinations", "driveUploads", "driveThumbnails", "driveMedia", "normalization"}
+		if s.vaults != nil && s.vaults.remote != nil && s.vaults.remote.ready() {
+			features = append(features, "protectedFoldersCreate")
+		}
+		reply(w, 200, map[string]any{"version": 1, "roots": roots, "driveConnected": e == nil, "driveWriteAccess": e == nil && g.writable(), "normalizationEnabled": s.config.Normalization.Enabled, "features": features})
 	})
 	mux.HandleFunc("POST /v1/jobs", func(w http.ResponseWriter, r *http.Request) {
 		var req CopyRequest

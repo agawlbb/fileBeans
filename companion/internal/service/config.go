@@ -15,6 +15,7 @@ type Root struct {
 	MountSource string `json:"mountSource,omitempty"`
 }
 type Config struct {
+	ProtectedRuntime   string              `json:"protectedRuntime,omitempty"`
 	Vaults             []VaultConfig       `json:"vaults,omitempty"`
 	Rclone             string              `json:"rclone,omitempty"`
 	Normalization      NormalizationConfig `json:"normalization,omitempty"`

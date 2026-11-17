@@ -61,7 +61,7 @@ func (s *Service) executeRclone(ctx context.Context, j *Job) error {
 	if !info.IsDir() {
 		return ErrUnsafe
 	}
-	stage := filepath.Join(".filebeans-stage", j.ID)
+	stage := s.stagePath(j)
 	if err = mkdir(dst, stage); err != nil {
 		return err
 	}
@@ -132,6 +132,9 @@ func (s *Service) executeRclone(ctx context.Context, j *Job) error {
 					return err
 				}
 				err = safe(root, f.From)
+				if guarded, ok := root.(*guardedRoot); err == nil && ok {
+					err = guarded.tree(f.From)
+				}
 				var stat fs.FileInfo
 				if err == nil {
 					stat, err = root.Stat(f.From)
@@ -214,7 +217,7 @@ func (s *Service) executeRclone(ctx context.Context, j *Job) error {
 	return dst.RemoveAll(stage)
 }
 
-func (s *Service) runRclone(ctx context.Context, j *Job, f File, dst *os.Root, stage string) error {
+func (s *Service) runRclone(ctx context.Context, j *Job, f File, dst rootFS, stage string) error {
 	binary := s.config.Rclone
 	if binary == "" {
 		binary = "rclone"
@@ -226,10 +229,14 @@ func (s *Service) runRclone(ctx context.Context, j *Job, f File, dst *os.Root, s
 	if s.vaults != nil {
 		// Configuration, caches and any rclone temporary bytes for a protected
 		// transfer belong on an encrypted filesystem, even for exports.
-		for _, v := range s.config.Vaults {
-			touched := j.Request.Destination.Source == v.Source
+		for _, v := range s.vaults.configs() {
+			matches := func(source, path string) bool {
+				p, e := clean(path)
+				return e == nil && source == v.Source && (v.Path == "" || within("/"+p, v.Path))
+			}
+			touched := matches(j.Request.Destination.Source, j.Request.Destination.Path)
 			for _, item := range j.Request.Items {
-				touched = touched || item.Source == v.Source
+				touched = touched || matches(item.Source, item.Path)
 			}
 			if touched {
 				if err := s.vaults.checkRoot(v.Source); err != nil {
@@ -305,6 +312,9 @@ func (s *Service) runRclone(ctx context.Context, j *Job, f File, dst *os.Root, s
 			return err
 		}
 		err = safe(root, f.From)
+		if guarded, ok := root.(*guardedRoot); err == nil && ok {
+			err = guarded.tree(f.From)
+		}
 		var handle *os.File
 		if err == nil {
 			handle, err = root.Open(".")

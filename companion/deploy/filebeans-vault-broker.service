@@ -1,0 +1,31 @@
+[Unit]
+Description=fileBeans protected folder mount broker
+After=network-online.target remote-fs.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=filebeans-vaults
+UMask=0077
+RuntimeDirectory=filebeans-vaults
+RuntimeDirectoryMode=0750
+StateDirectory=filebeans-vaults
+StateDirectoryMode=0700
+ExecStart=/usr/local/bin/filebeans-vault-broker -config /etc/filebeans/vault-broker.json
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SETUID CAP_SETGID
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LimitCORE=0
+MemorySwapMax=0
+KillMode=control-group
+TimeoutStopSec=45
+# Host namespace is intentional: consumers receive these mounts through rslave
+# binds. PrivateTmp, ProtectSystem, and filesystem namespace directives would
+# isolate the mounts from those consumers. This unit is not installed by default.
+PrivateMounts=no
+
+[Install]
+WantedBy=multi-user.target

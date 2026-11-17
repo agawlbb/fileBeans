@@ -10,8 +10,9 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
+	"filebeans/companion/protection"
+	"fmt"
 	"golang.org/x/sys/unix"
 	"io"
 	"net/http"
@@ -30,6 +31,7 @@ var ErrVaultKey = errors.New("encryption key does not match")
 var errVault = errors.New("vault operation failed; check protected-folder setup")
 
 type VaultConfig struct {
+	Path   string `json:"path,omitempty"`
 	ID     string `json:"id"`
 	Source string `json:"source"`
 	Cipher string `json:"cipher"`
@@ -60,6 +62,10 @@ type vaultManager struct {
 	keyFile     string                 // public SHA-256 key identifier only; never key material
 	mountCheck  func(VaultConfig) bool // nil uses the kernel mount table
 	lockFile    *os.File
+	memoryCheck func() error // test injection only; production always uses vaultMemoryPolicy
+	processLog  io.Writer    // synthetic test diagnostics only; production discards process output
+	remote      *brokerClient
+	guard       *protection.Guard
 }
 
 func (m *vaultManager) isMounted(v VaultConfig) bool {
@@ -74,9 +80,22 @@ type VaultStatus struct {
 	Source      string `json:"source"`
 	State       string `json:"state"`
 	Initialized bool   `json:"initialized"`
+	Path        string `json:"path,omitempty"`
+	Name        string `json:"name,omitempty"`
 }
 
 func validateVaults(c Config) error {
+	if c.ProtectedRuntime != "" {
+		if len(c.Vaults) != 0 {
+			return ErrUnsafe
+		}
+		roots := map[string]string{}
+		for _, r := range c.Roots {
+			roots[r.Name] = r.Path
+		}
+		_, e := protection.New(c.ProtectedRuntime, roots)
+		return e
+	}
 	ids, sources := map[string]bool{}, map[string]bool{}
 	for _, v := range c.Vaults {
 		if !validName(v.ID) || ids[v.ID] || sources[v.Source] || v.Source == "" {
@@ -123,6 +142,23 @@ func validateVaults(c Config) error {
 }
 
 func newVaultManager(c Config) (*vaultManager, error) {
+	if c.ProtectedRuntime != "" {
+		if e := validateVaults(c); e != nil {
+			return nil, e
+		}
+		if e := vaultMemoryPolicy(); e != nil {
+			return nil, e
+		}
+		roots := map[string]string{}
+		for _, r := range c.Roots {
+			roots[r.Name] = r.Path
+		}
+		guard, e := protection.New(c.ProtectedRuntime, roots)
+		if e != nil {
+			return nil, e
+		}
+		return &vaultManager{remote: newBrokerClient(c.ProtectedRuntime, c.Roots), guard: guard}, nil
+	}
 	if len(c.Vaults) == 0 {
 		return nil, nil
 	}
@@ -257,6 +293,13 @@ func (m *vaultManager) status() []VaultStatus {
 	if m == nil {
 		return []VaultStatus{}
 	}
+	if m.remote != nil {
+		vaults, e := m.remote.statuses()
+		if e != nil {
+			return m.remote.unavailableStatuses()
+		}
+		return vaults
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := []VaultStatus{}
@@ -271,11 +314,14 @@ func (m *vaultManager) status() []VaultStatus {
 		}
 		_, e := os.Stat(filepath.Join(v.config.Cipher, "gocryptfs.conf"))
 		_, pending := os.Stat(m.initializationFile(v.config.ID))
-		out = append(out, VaultStatus{v.config.ID, v.config.Source, state, e == nil && errors.Is(pending, os.ErrNotExist)})
+		out = append(out, VaultStatus{ID: v.config.ID, Source: v.config.Source, State: state, Initialized: e == nil && errors.Is(pending, os.ErrNotExist), Path: v.config.Path})
 	}
 	return out
 }
 func (m *vaultManager) checkRoot(source string) error {
+	if m.remote != nil {
+		return nil
+	} // guardedRoot enforces path-level access
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, v := range m.states {
@@ -289,21 +335,31 @@ func (m *vaultManager) protectedSource(source string) bool {
 	if m == nil {
 		return false
 	}
-	for _, v := range m.states {
-		if v.config.Source == source {
+	for _, v := range m.configs() {
+		if v.Source == source {
 			return true
 		}
 	}
 	return false
 }
 func (m *vaultManager) unlock(id string, key []byte, initialize bool) error {
+	if m.remote != nil {
+		if initialize {
+			return ErrUnsafe
+		}
+		return m.remote.action(id, "unlock", key)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	v := m.find(id)
 	if v == nil {
 		return ErrUnsafe
 	}
-	if e := vaultMemoryPolicy(); e != nil {
+	checkMemory := vaultMemoryPolicy
+	if m.memoryCheck != nil {
+		checkMemory = m.memoryCheck
+	}
+	if e := checkMemory(); e != nil {
 		return errVault
 	}
 	fingerprint := sha256.Sum256(key)
@@ -355,6 +411,10 @@ func (m *vaultManager) unlock(id string, key []byte, initialize bool) error {
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
 	// Killing companion must not leave an orphan with a usable key.
+	if m.processLog != nil {
+		cmd.Stdout = m.processLog
+		cmd.Stderr = m.processLog
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL}
 	if cmd.Start() != nil {
 		stdin.Close()
@@ -391,7 +451,7 @@ func (m *vaultManager) unlock(id string, key []byte, initialize bool) error {
 		for _, name := range []string{"files", "private", "private/cache", "private/tmp"} {
 			if e = os.MkdirAll(filepath.Join(v.config.Mount, name), 0700); e != nil {
 				rollback()
-				return errVault
+				return fmt.Errorf("%w: initialize directories: %v", errVault, e)
 			}
 		}
 		e = os.WriteFile(marker, []byte("fileBeans vault v1\n"+v.config.ID+"\n"), 0600)
@@ -400,13 +460,13 @@ func (m *vaultManager) unlock(id string, key []byte, initialize bool) error {
 		}
 		if e != nil {
 			rollback()
-			return errVault
+			return fmt.Errorf("%w: write identity: %v", errVault, e)
 		}
 	}
 	b, e := os.ReadFile(marker)
 	if e != nil || string(b) != "fileBeans vault v1\n"+v.config.ID+"\n" {
 		rollback()
-		return errVault
+		return fmt.Errorf("%w: verify identity: %v", errVault, e)
 	}
 	if m.keyFile != "" {
 		f, e := os.OpenFile(m.keyFile, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
@@ -506,6 +566,9 @@ func unmountVault(v *vaultState) error {
 	return nil
 }
 func (m *vaultManager) lock(id string) error {
+	if m.remote != nil {
+		return m.remote.action(id, "lock", nil)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	v := m.find(id)
@@ -535,6 +598,10 @@ func (m *vaultManager) lock(id string) error {
 	return nil
 }
 func (m *vaultManager) close() {
+	if m.remote != nil {
+		m.remote.close()
+		return
+	}
 	for _, v := range m.states {
 		_ = m.lock(v.config.ID)
 	}
@@ -549,7 +616,57 @@ func (m *vaultManager) close() {
 }
 
 func (s *Service) vaultRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /v1/vaults", func(w http.ResponseWriter, r *http.Request) { reply(w, 200, s.vaults.status()) })
+	mux.HandleFunc("GET /v1/vaults", func(w http.ResponseWriter, r *http.Request) {
+		if s.vaults != nil && s.vaults.remote != nil {
+			statuses, e := s.vaults.remote.statuses()
+			if e != nil {
+				fail(w, errVault)
+				return
+			}
+			reply(w, 200, statuses)
+			return
+		}
+		reply(w, 200, s.vaults.status())
+	})
+	mux.HandleFunc("POST /v1/vaults", func(w http.ResponseWriter, r *http.Request) {
+		if s.vaults == nil || s.vaults.remote == nil {
+			fail(w, ErrUnsupported)
+			return
+		}
+		if !s.vaultGate.TryLock() {
+			fail(w, ErrVaultBusy)
+			return
+		}
+		defer s.vaultGate.Unlock()
+		var req struct {
+			Source string `json:"source"`
+			Parent string `json:"parent"`
+			Name   string `json:"name"`
+			Key    string `json:"key"`
+		}
+		if e := body(r, &req); e != nil {
+			fail(w, e)
+			return
+		}
+		keyBytes, e := parseVaultKey(req.Key)
+		req.Key = ""
+		if e != nil {
+			fail(w, e)
+			return
+		}
+		defer clear(keyBytes)
+		status, e := s.vaults.remote.create(req.Source, req.Parent, req.Name, keyBytes, key(r))
+		if e != nil {
+			fail(w, e)
+			return
+		}
+		if e = s.migrateVaultRecords(); e != nil {
+			_ = s.vaults.lock(status.ID)
+			fail(w, errVault)
+			return
+		}
+		reply(w, 201, status)
+	})
 	for _, action := range []string{"initialize", "unlock", "lock"} {
 		mux.HandleFunc("POST /v1/vaults/{id}/"+action, func(w http.ResponseWriter, r *http.Request) {
 			if s.vaults == nil {
@@ -604,11 +721,13 @@ func (s *Service) vaultRoutes(mux *http.ServeMux) {
 					fail(w, errVault)
 					return
 				}
-				v := s.vaults.find(id)
-				if e = vaultHook(v.config.StartClient, id); e != nil {
-					_ = s.vaults.lock(id)
-					fail(w, e)
-					return
+				if s.vaults.remote == nil {
+					v := s.vaults.find(id)
+					if e = vaultHook(v.config.StartClient, id); e != nil {
+						_ = s.vaults.lock(id)
+						fail(w, e)
+						return
+					}
 				}
 			}
 			reply(w, 200, s.vaults.status())
@@ -629,39 +748,9 @@ All vaults created with the same recovery code share that master key.
 Do not change format settings. Never discard filesystem metadata.
 `
 
-// Keep json imported here for the common protected-record classification.
 func (s *Service) sensitiveRecord(b []byte) bool {
-	if s.vaults == nil {
-		return false
-	}
-	var value any
-	if json.Unmarshal(b, &value) != nil {
-		return true
-	}
-	var walk func(any) bool
-	walk = func(v any) bool {
-		switch x := v.(type) {
-		case map[string]any:
-			for k, v := range x {
-				if k == "source" || k == "librarySource" {
-					if source, ok := v.(string); ok && s.vaults.protectedSource(source) {
-						return true
-					}
-				}
-				if walk(v) {
-					return true
-				}
-			}
-		case []any:
-			for _, v := range x {
-				if walk(v) {
-					return true
-				}
-			}
-		}
-		return false
-	}
-	return walk(value)
+	sources, e := s.recordSources(b)
+	return e != nil || len(sources) > 0
 }
 
 // gocryptfs reads the discarded config password first, then the master key,
