@@ -73,6 +73,10 @@ with open(os.environ["GITHUB_ENV"], "a") as env:
             sys.exit(f"{kind} provisioning profile does not match the configured team and bundle ID.")
         if "group." + os.environ["BUNDLE_ID_PREFIX"] not in entitlements.get("com.apple.security.application-groups", []):
             sys.exit(f"{kind} provisioning profile is missing the shared App Group.")
+        groups = entitlements.get("keychain-access-groups", [])
+        prefix = os.environ["APPLE_TEAM_ID"] + "."
+        if kind == "APP" and prefix + "*" not in groups and prefix + bundle + ".vaults" not in groups:
+            sys.exit("APP provisioning profile is missing the app-only vault Keychain group.")
         if entitlements.get("get-task-allow") or profile.get("ProvisionedDevices"):
             sys.exit(f"{kind} provisioning profile must be for App Store distribution.")
         uuid = profile["UUID"]

@@ -28,6 +28,12 @@ test('extension profile must allow the shared main-app Keychain group', () => {
   extension.keychainGroups = [`${config.teamID}.${config.bundleID}.FileProvider`];
   assert.throws(() => validateProfile(extension, config, `${config.bundleID}.FileProvider`, 'fixture-sha256'));
 });
+test('main app profile must also allow the app-only vault Keychain group', () => {
+  const value = { ...profile(), keychainGroups: [`${config.teamID}.${config.bundleID}`] };
+  assert.throws(() => validateProfile(value, config, config.bundleID, 'fixture-sha256'));
+  value.keychainGroups.push(`${config.teamID}.${config.bundleID}.vaults`);
+  assert.doesNotThrow(() => validateProfile(value, config, config.bundleID, 'fixture-sha256'));
+});
 test('release setup cannot write to another repository or App Group', () => {
   assert.doesNotThrow(() => validateReleaseConfig(config));
   for (const change of [{ repository: 'other/repository' }, { appGroup: 'group.unrelated' }, { environment: 'production' }]) {
