@@ -1,0 +1,19 @@
+{
+  "roots": [
+    {"name": "Protected Archive", "path": "/srv/filebeans-vaults/archive/files"}
+  ],
+  "vaults": [
+    {
+      "id": "archive",
+      "source": "Protected Archive",
+      "cipher": "/mnt/encrypted-storage/archive",
+      "mount": "/srv/filebeans-vaults/archive",
+      "backingMount": "/mnt/encrypted-storage",
+      "backingSource": "//storage.example/encrypted",
+      "gocryptfs": "/usr/local/bin/gocryptfs",
+      "fusermount": "/usr/bin/fusermount3",
+      "startClient": "/usr/local/libexec/filebeans-vault-start",
+      "stopClient": "/usr/local/libexec/filebeans-vault-stop"
+    }
+  ]
+}

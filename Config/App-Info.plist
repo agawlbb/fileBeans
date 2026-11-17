@@ -26,8 +26,12 @@
 	<false/>
 	<key>KeychainGroup</key>
 	<string>$(KEYCHAIN_GROUP)</string>
+	<key>VaultKeychainGroup</key>
+	<string>$(AppIdentifierPrefix)$(BUNDLE_ID_PREFIX).vaults</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Use Face ID to protect and unlock your encrypted-folder master key.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

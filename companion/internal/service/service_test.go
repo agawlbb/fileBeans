@@ -172,6 +172,51 @@ func TestDatabaseWorkflow(t *testing.T) {
 	}
 	defer db.Exec("DROP TABLE fb_operations")
 	vps, share := s.config.Roots[0].Path, s.config.Roots[1].Path
+	t.Run("protected-records", func(t *testing.T) {
+		previous := s.vaults
+		s.vaults = testVaultService().vaults
+		defer func() { s.vaults = previous }()
+		j := Job{ID: ID(), State: "completed", Request: CopyRequest{Items: []Item{{Source: "Protected", Path: "private/family.jpg"}}, Destination: Item{Source: "vps", Path: "export"}}}
+		if err := s.insert(j.ID, "vault-test", j.State, "vault-test-request-key", j); err != nil {
+			t.Fatal(err)
+		}
+		defer db.Exec("DELETE FROM fb_operations WHERE id=?", j.ID)
+		var stored []byte
+		if err := db.QueryRow("SELECT body FROM fb_operations WHERE id=?", j.ID).Scan(&stored); err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(stored, []byte("family.jpg")) || bytes.Contains(stored, []byte("export")) {
+			t.Fatal("database contains protected plaintext")
+		}
+		var got Job
+		if err := s.read(j.ID, "vault-test", &got); err != nil || got.Request.Items[0].Path != "private/family.jpg" {
+			t.Fatal("read failed", err)
+		}
+		if err := s.existing("vault-test-request-key", "vault-test", &got); err != nil {
+			t.Fatal("idempotency lookup failed", err)
+		}
+		s.vaults.states[0].unlocked = false
+		if err := s.read(j.ID, "vault-test", &got); !errors.Is(err, ErrVaultLocked) {
+			t.Fatal("locked read accepted", err)
+		}
+		rows, err := s.records("vault-test")
+		if err != nil || len(rows) != 0 {
+			t.Fatal("locked record listed", err)
+		}
+		s.vaults.states[0].unlocked = true
+		if err := s.save(j.ID, "vault-test", j.State, j); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec("UPDATE fb_operations SET body=? WHERE id=?", `{"source":"Protected","path":"legacy-private.jpg"}`, j.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.migrateVaultRecords(); err != nil {
+			t.Fatal("legacy migration failed", err)
+		}
+		if err := db.QueryRow("SELECT body FROM fb_operations WHERE id=?", j.ID).Scan(&stored); err != nil || bytes.Contains(stored, []byte("legacy-private")) {
+			t.Fatal("legacy metadata left plaintext", err)
+		}
+	})
 	payload := bytes.Repeat([]byte("content\n"), 300000)
 	os.MkdirAll(filepath.Join(share, "folder/empty"), 0700)
 	os.WriteFile(filepath.Join(share, "folder/video"), payload, 0600)

@@ -170,6 +170,11 @@ struct SourcesView: View {
                 }
             }
             if connection.companionURL != nil {
+                NavigationLink {
+                    VaultsView(connection: connection)
+                } label: {
+                    Label(connections.connections.count > 1 ? "Protected folders — " + connection.name : "Protected folders", systemImage: "lock.shield")
+                }
                 sourceLink(SourceDestination(connection: connection, kind: .transfers)) {
                     Label(connections.connections.count > 1 ? "Transfers — " + connection.name : "Transfers", systemImage: "arrow.left.arrow.right")
                 }

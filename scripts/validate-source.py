@@ -60,3 +60,14 @@ for directory in provider_sources:
         assert 'struct DriveFile' not in text and 'struct DriveBrowser' not in text, f'Drive type leaked into provider: {path}'
         assert 'source: "drive"' not in text, f'Drive source leaked into shared catalog code: {path}'
 print('Passed app-only Google Drive / File Provider source isolation checks.')
+
+# The vault key must use an access group that the Files extension cannot read.
+app_entitlements = plistlib.loads((root / project['targets']['myFiles']['settings']['base']['CODE_SIGN_ENTITLEMENTS']).read_bytes())
+provider_entitlements = plistlib.loads((root / project['targets']['QuantumFileProvider']['settings']['base']['CODE_SIGN_ENTITLEMENTS']).read_bytes())
+app_info = plistlib.loads((root / 'Config/App-Info.plist').read_bytes())
+vault_group = app_info['VaultKeychainGroup']
+assert vault_group in app_entitlements['keychain-access-groups']
+assert vault_group not in provider_entitlements['keychain-access-groups']
+assert '$(KEYCHAIN_GROUP)' in app_entitlements['keychain-access-groups']
+assert '$(KEYCHAIN_GROUP)' in provider_entitlements['keychain-access-groups']
+print('Passed biometric vault-key / File Provider Keychain isolation checks.')

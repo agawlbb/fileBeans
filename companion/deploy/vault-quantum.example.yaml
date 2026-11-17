@@ -1,0 +1,22 @@
+# Example for current Quantum configuration. Validate against the chosen release.
+# Use a separate HTTPS route/connection. Do not add this source to ordinary Quantum.
+server:
+  address: 127.0.0.1
+  port: 8096
+  cacheDir: /srv/filebeans-vaults/archive/private/cache
+  database:
+    path: /srv/filebeans-vaults/archive/private/filebrowser.sqlite
+  sources:
+    - path: /srv/filebeans-vaults/archive/files
+      name: Protected Archive
+      config:
+        defaultEnabled: true
+        private: true
+  logging:
+    - levels: ""
+      apiLevels: ""
+      output: /srv/filebeans-vaults/archive/private/quantum.log
+auth:
+  methods:
+    password:
+      enabled: true

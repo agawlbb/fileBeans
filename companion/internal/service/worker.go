@@ -162,6 +162,8 @@ func (s *Service) discover(ctx context.Context, j *Job) error {
 	return nil
 }
 func (s *Service) runJob(ctx context.Context, j *Job) {
+	s.vaultGate.RLock()
+	defer s.vaultGate.RUnlock()
 	copyCtx, stop := context.WithCancel(ctx)
 	s.mu.Lock()
 	if s.copyCancels == nil {
@@ -242,6 +244,14 @@ func publicError(e error) string {
 		return engineFailure.Error()
 	}
 	switch {
+	case errors.Is(e, errVault):
+		return "Protected-folder setup or mount failed; check server configuration"
+	case errors.Is(e, ErrVaultLocked):
+		return "Protected folder is locked"
+	case errors.Is(e, ErrVaultKey):
+		return "The encryption key does not match this server's protected folders"
+	case errors.Is(e, ErrVaultBusy):
+		return "Protected folder is busy; stop active clients and retry locking"
 	case errors.Is(e, ErrDriveWrite):
 		return "Google Drive needs full access. Choose Upgrade Drive Access and approve the requested permission."
 	case errors.Is(e, ErrDriveAccount):

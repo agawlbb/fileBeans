@@ -89,6 +89,9 @@ func openDB(dsn string) (*sql.DB, error) {
 }
 func (s *Service) save(id, kind, state string, v any) error {
 	b, e := json.Marshal(v)
+	if e == nil {
+		b, e = s.encodeRecord(id, kind, b)
+	}
 	if e != nil {
 		return e
 	}
@@ -99,6 +102,9 @@ func (s *Service) save(id, kind, state string, v any) error {
 }
 func (s *Service) insert(id, kind, state, key string, v any) error {
 	b, e := json.Marshal(v)
+	if e == nil {
+		b, e = s.encodeRecord(id, kind, b)
+	}
 	if e != nil {
 		return e
 	}
@@ -119,12 +125,16 @@ func (s *Service) read(id, kind string, v any) error {
 	if e != nil {
 		return e
 	}
+	b, e = s.decodeRecord(id, kind, b)
+	if e != nil {
+		return e
+	}
 	return json.Unmarshal(b, v)
 }
 func (s *Service) records(kind string) ([][]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	rows, e := s.db.QueryContext(ctx, "SELECT body FROM fb_operations WHERE kind=? ORDER BY updated_at DESC", kind)
+	rows, e := s.db.QueryContext(ctx, "SELECT id,body FROM fb_operations WHERE kind=? ORDER BY updated_at DESC", kind)
 	if e != nil {
 		return nil, e
 	}
@@ -132,7 +142,15 @@ func (s *Service) records(kind string) ([][]byte, error) {
 	var out [][]byte
 	for rows.Next() {
 		var b []byte
-		if e = rows.Scan(&b); e != nil {
+		var id string
+		if e = rows.Scan(&id, &b); e != nil {
+			return nil, e
+		}
+		b, e = s.decodeRecord(id, kind, b)
+		if errors.Is(e, ErrVaultLocked) {
+			continue
+		}
+		if e != nil {
 			return nil, e
 		}
 		out = append(out, b)

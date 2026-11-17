@@ -116,6 +116,9 @@ func (s *Service) normalizationRoot() (*os.Root, NormalizationConfig, error) {
 	return root, c, e
 }
 func (s *Service) enqueueNormalization(req NormalizationRequest, batch, connection string, meta *DriveItem) (NormalizationJob, error) {
+	if s.vaults.protectedSource(req.Source) {
+		return NormalizationJob{}, ErrUnsafe
+	}
 	c := s.config.Normalization.defaults()
 	j := NormalizationJob{ID: ID(), Request: req, State: "queued", Phase: "queued", Profile: normalizationProfile, LibrarySource: c.Source, LibraryPath: c.Path, Batch: batch, Connection: connection, Created: time.Now().Unix()}
 	if req.Source == "drive" {

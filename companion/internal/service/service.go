@@ -12,6 +12,8 @@ import (
 )
 
 type Service struct {
+	vaultGate   sync.RWMutex // filesystem operations must finish before an unmount
+	vaults      *vaultManager
 	config      Config
 	db          *sql.DB
 	mu          sync.Mutex
@@ -35,9 +37,19 @@ func New(c Config) (*Service, error) {
 		d.Close()
 		return nil, e
 	}
-	return &Service{config: c, db: d}, nil
+	v, e := newVaultManager(c)
+	if e != nil {
+		d.Close()
+		return nil, e
+	}
+	return &Service{config: c, db: d, vaults: v}, nil
 }
-func (s *Service) Close()         { s.db.Close() }
+func (s *Service) Close() {
+	if s.vaults != nil {
+		s.vaults.close()
+	}
+	s.db.Close()
+}
 func (s *Service) Migrate() error { _, e := s.db.Exec(Schema); return e }
 func (s *Service) Run(ctx context.Context) {
 	// A database advisory lock prevents two workers publishing the same job.
@@ -112,6 +124,7 @@ func (s *Service) loop(ctx context.Context, lease *sql.Conn) {
 // Maintenance is independent of the serial copy worker, including long transfers.
 func (s *Service) maintenance(ctx context.Context) {
 	for ctx.Err() == nil {
+		s.vaultGate.RLock()
 		s.mu.Lock()
 		for _, root := range s.config.Roots {
 			if r, e := s.root(root.Name); e == nil {
@@ -122,6 +135,7 @@ func (s *Service) maintenance(ctx context.Context) {
 		}
 		s.reconcileTrash()
 		s.mu.Unlock()
+		s.vaultGate.RUnlock()
 		wait(ctx, time.Hour)
 	}
 }

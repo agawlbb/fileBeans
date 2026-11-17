@@ -1,0 +1,25 @@
+# Example only. Do not enable at boot: companion starts it after verified unlock.
+[Unit]
+Description=Isolated FileBrowser Quantum for encrypted vault %i
+
+[Service]
+Type=simple
+User=filebeans
+Group=filebeans
+WorkingDirectory=/srv/filebeans-vaults/%i/private
+ExecStartPre=/usr/bin/mountpoint -q /srv/filebeans-vaults/%i
+ExecStart=/usr/local/bin/filebrowser -c /etc/filebeans/vault-%i.yaml
+Environment=TMPDIR=/srv/filebeans-vaults/%i/private/tmp
+Environment=SQLITE_TMPDIR=/srv/filebeans-vaults/%i/private/tmp
+UMask=0077
+LimitCORE=0
+Restart=no
+KillMode=control-group
+TimeoutStopSec=15
+# Quantum diagnostics may contain filenames; do not send them to journald.
+StandardOutput=null
+StandardError=null
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/srv/filebeans-vaults/%i

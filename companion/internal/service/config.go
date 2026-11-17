@@ -15,6 +15,7 @@ type Root struct {
 	MountSource string `json:"mountSource,omitempty"`
 }
 type Config struct {
+	Vaults             []VaultConfig       `json:"vaults,omitempty"`
 	Rclone             string              `json:"rclone,omitempty"`
 	Normalization      NormalizationConfig `json:"normalization,omitempty"`
 	Listen             string              `json:"listen"`
@@ -68,6 +69,9 @@ func Load(path string) (Config, error) {
 		return c, errors.New("Google requires client secret and HTTPS redirect")
 	}
 	c.Normalization = c.Normalization.defaults()
+	if e := validateVaults(c); e != nil {
+		return c, e
+	}
 	if c.Normalization.Enabled {
 		path, err := clean(c.Normalization.Path)
 		if err != nil || path == "." || protected(path) || !names[c.Normalization.Source] || c.Normalization.StableSeconds < 1 {

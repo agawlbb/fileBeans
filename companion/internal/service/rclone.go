@@ -222,7 +222,25 @@ func (s *Service) runRclone(ctx context.Context, j *Job, f File, dst *os.Root, s
 	if _, err := exec.LookPath(binary); err != nil {
 		return &copyEngineError{"rclone is not installed on the server"}
 	}
-	private, err := os.MkdirTemp(s.config.State, "rclone-")
+	workspace := s.config.State
+	if s.vaults != nil {
+		// Configuration, caches and any rclone temporary bytes for a protected
+		// transfer belong on an encrypted filesystem, even for exports.
+		for _, v := range s.config.Vaults {
+			touched := j.Request.Destination.Source == v.Source
+			for _, item := range j.Request.Items {
+				touched = touched || item.Source == v.Source
+			}
+			if touched {
+				if err := s.vaults.checkRoot(v.Source); err != nil {
+					return err
+				}
+				workspace = filepath.Join(v.Mount, "private", "tmp")
+				break
+			}
+		}
+	}
+	private, err := os.MkdirTemp(workspace, "rclone-")
 	if err != nil {
 		return err
 	}

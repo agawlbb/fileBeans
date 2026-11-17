@@ -27,6 +27,11 @@ For static checks, install `scripts/requirements-validation.txt` in an isolated 
 
 ## Data and security
 
+Experimental server-side encrypted folders are implemented on the
+`feature/encrypted-vaults` branch. See [setup, recovery and acceptance
+requirements](docs/PROTECTED-FOLDERS.md). They require explicit server
+configuration and isolated encrypted caches; ordinary storage is unchanged.
+
 Connections go directly to your servers. API tokens are stored in the device Keychain and shared with the app's extension. Tokens are never added to API URLs. Native media playback uses Quantum's scoped view token and authenticated HTTPS byte-range requests through a native resource loader. It joins bounded responses to satisfy the player's requested ranges, including seeking, without downloading a local playback copy. HTTPS is required, API redirects are rejected, and there is no certificate-validation bypass, analytics SDK, or third-party backend.
 
 The shared App Group stores connection names, URLs, source permissions, and file metadata. Previews and uploads use local cache files. The Files framework manages its own downloaded content and pending changes. Remove a connection to unregister its Files domain and delete its saved token and catalog. Temporary files expire through app cleanup and iOS storage management.

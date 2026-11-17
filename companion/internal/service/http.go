@@ -30,6 +30,9 @@ func fail(w http.ResponseWriter, e error) {
 	case errors.Is(e, ErrAuthorization), errors.Is(e, ErrDriveWrite), errors.Is(e, ErrDriveAccount), errors.Is(e, ErrDrivePermission):
 		status = 403
 	}
+	if errors.Is(e, ErrVaultLocked) || errors.Is(e, ErrVaultBusy) || errors.Is(e, ErrVaultKey) {
+		status = http.StatusConflict
+	}
 	reply(w, status, map[string]string{"error": publicError(e)})
 }
 func body(r *http.Request, v any) error {
@@ -52,7 +55,12 @@ func key(r *http.Request) string {
 }
 func (s *Service) existing(key, kind string, v any) error {
 	var b []byte
-	e := s.db.QueryRow("SELECT body FROM fb_operations WHERE request_key=? AND kind=?", key, kind).Scan(&b)
+	var id string
+	e := s.db.QueryRow("SELECT id,body FROM fb_operations WHERE request_key=? AND kind=?", key, kind).Scan(&id, &b)
+	if e != nil {
+		return e
+	}
+	b, e = s.decodeRecord(id, kind, b)
 	if e != nil {
 		return e
 	}
@@ -453,6 +461,7 @@ func (s *Service) Handler() http.Handler {
 	})
 	s.driveRoutes(mux)
 	s.normalizationRoutes(mux)
+	s.vaultRoutes(mux)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -469,6 +478,10 @@ func (s *Service) Handler() http.Handler {
 		if subtle.ConstantTimeCompare([]byte(token), []byte(s.config.Token)) != 1 {
 			reply(w, 401, map[string]string{"error": "Authentication required"})
 			return
+		}
+		if !strings.HasPrefix(r.URL.Path, "/v1/vaults") {
+			s.vaultGate.RLock()
+			defer s.vaultGate.RUnlock()
 		}
 		mux.ServeHTTP(w, r)
 	})
