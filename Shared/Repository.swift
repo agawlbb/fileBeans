@@ -12,7 +12,23 @@ final class Repository {
         companion = connection.companionURL == nil ? nil : CompanionClient(connection: connection)
     }
     deinit { client.close(); companion?.close() }
+    func refreshProtection() async {
+        guard let companion else { return }
+        do { try store.setVaults(await companion.vaults(), connection: connection.id) }
+        catch {
+            if let known = try? store.vaults(connection.id), !known.isEmpty {
+                try? store.setVaults(known.map { var v = $0; v.state = "unknown"; return v }, connection: connection.id)
+            }
+        }
+    }
+    func requireUnlocked(_ item: StoredItem) throws {
+        if let protection = protectedItem(item).protection, !protection.unlocked {
+            throw NSError(domain: "fileBeans.VaultLocked", code: 409,
+                          userInfo: [NSLocalizedDescriptionKey: "Unlock this folder in fileBeans."])
+        }
+    }
     func roots() async throws -> [StoredItem] {
+        await refreshProtection()
         let scopes = try await client.scopes().filter { $0.permissions.view }
         var result: [StoredItem] = []
         for scope in scopes {
@@ -35,13 +51,15 @@ final class Repository {
                 }
             }
         }
-        return result
+        return result.map(protectedItem)
     }
     func children(_ parent: StoredItem?) async throws -> [StoredItem] {
         guard let parent else { return try await roots() }
         _ = try item(parent.id)
+        await refreshProtection()
+        try requireUnlocked(parent)
         let resource = try await client.resource(source: parent.source, path: parent.file.path)
-        let files = resource.children.filter { companion == nil || $0.path != "/.filebeans-stage" }
+        let files = resource.children.filter { companion == nil || !FilePath.contains($0.path, in: "/.filebeans-stage") }
         var permissions = parent.permissions
         if companion != nil && CompanionClient.protected(parent.file.path) {
             permissions.create = false; permissions.modify = false; permissions.delete = false
@@ -52,6 +70,9 @@ final class Repository {
     }
     func protectedItem(_ value: StoredItem) -> StoredItem {
         var item = value
+        if companion != nil, let vaults = try? store.vaults(connection.id) {
+            item.protection = SharedStore.protection(for: item, vaults: vaults)
+        }
         if companion != nil && CompanionClient.protected(item.file.path) {
             item.permissions.create = false; item.permissions.modify = false; item.permissions.delete = false
         }

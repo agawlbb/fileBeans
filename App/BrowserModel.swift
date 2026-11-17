@@ -8,6 +8,8 @@ final class BrowserModel: ObservableObject {
     @Published var uploadProgress: Double?
     @Published var uploadName = ""
     @Published var canRetry = false
+    @Published var canCreateProtectedFolder = false
+    @Published var parentProtection: FolderProtection?
     private var transfer: Task<Void, Never>?
     private var pending: [(URL, StoredItem)] = []
     private(set) var repository: Repository?
@@ -17,6 +19,9 @@ final class BrowserModel: ObservableObject {
         do {
             if repository == nil { repository = try Repository(connection: connection, store: SharedStore()) }
             guard let repository else { return }
+            if let companion = repository.companion {
+                canCreateProtectedFolder = (try? await companion.capabilities().features?.contains("protectedFoldersCreate")) == true
+            }
             if let parent {
                 // Refresh access before each listing, including after token replacement.
                 let roots = try await repository.roots()
@@ -24,6 +29,7 @@ final class BrowserModel: ObservableObject {
                       FilePath.contains(parent.file.path, in: root.file.path) else { throw APIError.forbidden }
                 var refreshed = parent; refreshed.permissions = root.permissions
                 items = try await repository.children(refreshed)
+                parentProtection = repository.protectedItem(refreshed).protection
             } else { items = try await repository.roots() }
             error = nil
         } catch {
@@ -31,6 +37,10 @@ final class BrowserModel: ObservableObject {
             guard !Task.isCancelled, !(error is CancellationError),
                   (error as? URLError)?.code != .cancelled else { return }
             self.error = error.localizedDescription
+            if let parent, let repository {
+                parentProtection = repository.protectedItem(parent).protection
+                if parentProtection?.unlocked == false { items = [] }
+            }
         }
     }
     @discardableResult

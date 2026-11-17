@@ -50,10 +50,21 @@ struct BrowserItemCell<Thumbnail: View>: View {
     let selecting: Bool
     let selected: Bool
     let thumbnail: Thumbnail
+    var protection: FolderProtection? = nil
     var body: some View {
         let layout = large ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))
         layout {
             thumbnail.frame(width: large ? 120 : 44, height: large ? 100 : 44)
+                .overlay(alignment: .bottomTrailing) {
+                    if folder, let protection {
+                        Image(systemName: protection.symbol)
+                            .font(large ? .body.weight(.bold) : .caption2.weight(.bold))
+                            .foregroundStyle(Color.primary)
+                            .padding(large ? 7 : 4)
+                            .background(.background, in: Circle())
+                            .accessibilityHidden(true)
+                    }
+                }
             VStack(alignment: .leading, spacing: 4) {
                 Text(name).foregroundStyle(.primary).lineLimit(2)
                 if !folder, let size { Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)).font(.caption).foregroundStyle(.secondary) }
@@ -63,6 +74,7 @@ struct BrowserItemCell<Thumbnail: View>: View {
         .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityValue(protection?.accessibility ?? "")
     }
 }
 struct BrowserViewOptions: View {

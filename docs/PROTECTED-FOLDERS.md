@@ -18,9 +18,14 @@ checksum characters>`. The middle field is the **actual gocryptfs master key**.
 The checksum is the first four bytes of SHA-256 of `FBK1:<hex key>`; it detects
 copy errors, not tampering. There is no recovery password. Keep the code securely
 on a device of your choice. Import that exact code on each new mobile device.
-Generated keys require acknowledgement of a separate backup before local storage.
-The Copy button uses a local-only clipboard item that expires after one minute;
-displayed codes are hidden when leaving the screen or backgrounding the app.
+Generated keys are saved to biometric Keychain before display. A pending-backup
+flag survives process termination; the same key can be displayed again after
+biometric authentication. Backup acknowledgment is required before using the key
+to initialize a folder. The Copy to Clipboard button uses a local-only clipboard
+item without an expiration. App switching retains the displayed code and setup
+state; an opaque overlay covers the code while the app is inactive. Hide clears
+the displayed copy explicitly. Each unlock still authenticates through Keychain,
+including when a code is already displayed.
 
 Keep the entire ciphertext directory, including hidden files, every
 `gocryptfs.diriv`, long-name `.name` files, and `gocryptfs.conf`. A `RECOVERY.txt`
@@ -194,7 +199,7 @@ initialized locked vault; it is deliberately not an atomic multi-vault operation
   Recover every file using standard gocryptfs, without fileBeans or its database.
 - Build/test on the separately authorized macOS workflow and physical iOS
   devices: biometric cancellation, enrollment changes, code backup/import,
-  clipboard expiry, backgrounding, second-device unlock, and Files integration.
+  clipboard copying, backgrounding, second-device unlock, and Files integration.
 
 No merge, deployment, app build or release is authorized by this document.
 
@@ -214,3 +219,28 @@ development, but device/mount privileges are granted only to the isolated test
 runtime. The VM still has swap enabled, so actual companion vault startup
 correctly refuses keys under its present host policy. No host security policy
 was relaxed.
+
+### Current-location creation: implementation still pending
+
+The app now has a protected-folder draft, API client, folder badges, and an
+unlock action before navigation. The Add Protected Folder control is gated by
+the `protectedFoldersCreate` server capability. The current companion does not
+advertise that capability or implement `POST /v1/vaults`; creation at the current
+location is **not operational**. The existing configured-vault initialization
+route remains supported by the app.
+
+Remaining server work includes a restricted mount broker, a persistent public
+vault registry, creation and mounting at the selected location, and integration
+with the pinned Quantum server. Quantum must keep protected indexes, previews,
+temporary files and filename-bearing metadata inside the encrypted mount, check
+lock state before cached responses, and drain all readers before unmounting.
+Ordinary copy/move/Trash operations and normalization must respect protected
+boundaries. Do not enable the capability before these checks and integration
+tests pass. The existing scratch server image cannot supply this runtime.
+
+New Apple test cases cover pending-key recovery after process recreation, secure
+storage failure, backup acknowledgment, authentication cancellation, stable
+creation request IDs, path boundaries, catalog compatibility and API requests.
+These are source additions, not executed Apple test results. Swift syntax and
+project checks can run on VM-laptop; compilation and XCTest execution need the
+separately authorized Apple workflow. No new app build or deployment has occurred.

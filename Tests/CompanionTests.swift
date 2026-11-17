@@ -54,6 +54,31 @@ final class CompanionTransportTests: XCTestCase {
                                credential: "synthetic-companion-token", configuration: config)
     }
     override func tearDown() { CompanionStub.inspect = nil }
+    func testProtectedCreationPreservesIdempotencyAndSendsKeyOnlyInBody() async throws {
+        CompanionStub.inspect = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/companion/v1/vaults")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Idempotency-Key"), "synthetic-create-request")
+            XCTAssertFalse(request.url!.absoluteString.contains("synthetic-key"))
+            let body = try JSONDecoder().decode([String: String].self, from: XCTUnwrap(request.httpBody))
+            XCTAssertEqual(body, ["source": "samba", "parent": "/Photos", "name": "Private", "key": "synthetic-key"])
+            return (201, Data(#"{"id":"fixture","source":"samba","path":"/Photos/Private","name":"Private","state":"unlocked","initialized":true}"#.utf8))
+        }
+        let client = client(); defer { client.close() }
+        let vault = try await client.createProtectedFolder(source: "samba", parent: "/Photos", name: "Private",
+                                                          code: "synthetic-key", requestID: "synthetic-create-request")
+        XCTAssertEqual(vault.path, "/Photos/Private")
+        XCTAssertEqual(vault.state, "unlocked")
+    }
+    func testLegacyInitializeKeepsExplicitConfirmationHeader() async throws {
+        CompanionStub.inspect = { request in
+            XCTAssertEqual(request.url?.path, "/companion/v1/vaults/fixture/initialize")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Confirm-Permanent"), "yes")
+            return (200, Data("[]".utf8))
+        }
+        let client = client(); defer { client.close() }
+        try await client.vaultAction(id: "fixture", action: "initialize", code: "synthetic-key")
+    }
     func testProtectedDeleteUsesCompanionNotQuantum() async throws {
         CompanionStub.inspect = { request in
             XCTAssertEqual(request.httpMethod, "POST")

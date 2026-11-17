@@ -22,4 +22,19 @@ final class VaultTests: XCTestCase {
         XCTAssertEqual(vault.state, "locked")
         XCTAssertTrue(vault.initialized)
     }
+    func testProtectionUsesSourceAndPathBoundaries() throws {
+        let vault = ProtectedVault(id: "private", source: "disk", state: "locked", initialized: true,
+                                   path: "/Photos/Private", name: "Private")
+        XCTAssertTrue(vault.contains(source: "disk", path: "/Photos/Private"))
+        XCTAssertTrue(vault.contains(source: "disk", path: "/Photos/Private/file.jpg"))
+        XCTAssertFalse(vault.contains(source: "other", path: "/Photos/Private"))
+        XCTAssertFalse(vault.contains(source: "disk", path: "/Photos/PrivateCopy/file.jpg"))
+        XCTAssertFalse(vault.contains(source: "disk", path: "/Photos"))
+        XCTAssertEqual(vault.displayName, "Private")
+    }
+    func testOldCatalogDecodesWithoutProtectionFields() throws {
+        let json = #"{"connections":[],"items":{},"enumerated":{},"revisions":{},"deleted":{},"boundaries":{}}"#
+        let catalog = try JSONDecoder().decode(Catalog.self, from: Data(json.utf8))
+        XCTAssertNil(catalog.protectedFolders)
+    }
 }

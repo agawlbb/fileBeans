@@ -16,6 +16,8 @@ struct BrowserView: View {
     @State private var renameItem: StoredItem?
     @State private var proposedName = ""
     @State private var newFolder = false
+    @State private var newProtectedFolder = false
+    @State private var protectedSelection: StoredItem?
     @State private var deleting = false
     @State private var moving = false
     @State private var copying = false
@@ -24,6 +26,7 @@ struct BrowserView: View {
     @State private var preview: URL?
     @State private var movie: Movie?
     @State private var photos: [PhotosPickerItem] = []
+    @Environment(\.scenePhase) private var scenePhase
     private var visible: [StoredItem] {
         model.items.filter {
             (connection.companionURL == nil || $0.file.path != "/Trash") &&
@@ -61,6 +64,20 @@ struct BrowserView: View {
             if current == nil, let previous { try? FileManager.default.removeItem(at: previous.deletingLastPathComponent()) }
         }
         .sheet(item: $movie) { MovieView(movie: $0) }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await reload() } }
+        }
+        .sheet(isPresented: $newProtectedFolder) {
+            if let parent {
+                NewProtectedFolder(connection: connection, parent: parent) { Task { await reload() } }
+            }
+        }
+        .confirmationDialog(protectedSelection?.file.name ?? "Protected Folder", isPresented: Binding(
+            get: { protectedSelection != nil }, set: { if !$0 { protectedSelection = nil } }), titleVisibility: .visible) {
+            if let item = protectedSelection {
+                Button("Unlock") { changeLock(item, action: "unlock"); protectedSelection = nil }
+            }
+        }
     }
     private enum SourceEntry: Identifiable {
         case local(StoredItem)
@@ -194,6 +211,16 @@ struct BrowserView: View {
     }
     @ViewBuilder private var emptyState: some View {
             if model.busy && visible.isEmpty { ProgressView() }
+            else if let protection = model.parentProtection, !protection.unlocked, let item = parent {
+                ContentUnavailableView {
+                    Label(item.file.name, systemImage: "lock.fill")
+                } actions: {
+                    Button("Unlock") {
+                        var lockedItem = item; lockedItem.protection = protection
+                        changeLock(lockedItem, action: "unlock")
+                    }
+                }
+            }
             else if model.items.filter({ connection.companionURL == nil || $0.file.path != "/Trash" }).isEmpty && model.error == nil && parent != nil {
                 ContentUnavailableView("No files", systemImage: "folder")
             } else if parent == nil && sources.isEmpty || parent != nil && !model.items.isEmpty && visible.isEmpty {
@@ -232,9 +259,13 @@ struct BrowserView: View {
                         delete: { deleting = true }, done: { selecting = false; selected.removeAll() })
                 } else {
                     BrowserViewOptions(grid: $grid, sortOrder: $sortOrder, select: { selecting = true }, refresh: { Task { await reload() } })
-                    if let parent, parent.permissions.create {
+                    if let parent, parent.permissions.create, model.parentProtection?.unlocked != false {
                         Menu {
                             Button("New Folder", systemImage: "folder.badge.plus") { proposedName = ""; newFolder = true }
+                            if connection.companionURL != nil {
+                                Button("Add Protected Folder", systemImage: "lock.fill") { newProtectedFolder = true }
+                                    .disabled(!model.canCreateProtectedFolder || model.parentProtection != nil)
+                            }
                             Button("Upload Files", systemImage: "arrow.up.doc") { importing = true }
                             PhotosPicker(selection: $photos, matching: .any(of: [.images, .videos])) {
                                 Label("Upload Photos or Videos", systemImage: "photo")
@@ -246,7 +277,9 @@ struct BrowserView: View {
     }
     @ViewBuilder private func entry(_ item: StoredItem, large: Bool) -> some View {
         Group {
-            if item.file.isDirectory && !selecting {
+            if item.file.isDirectory && !selecting && item.protection?.unlocked == false {
+                Button { protectedSelection = item } label: { cell(item, large: large) }.buttonStyle(.plain)
+            } else if item.file.isDirectory && !selecting {
                 NavigationLink(value: SourceDestination(connection: connection, kind: .local(item))) { cell(item, large: large) }
             } else {
                 Button {
@@ -257,6 +290,11 @@ struct BrowserView: View {
             }
         }
         .contextMenu {
+            if let protection = item.protection, protection.isRoot {
+                Button(protection.unlocked ? "Lock" : "Unlock", systemImage: protection.symbol) {
+                    changeLock(item, action: protection.unlocked ? "lock" : "unlock")
+                }
+            }
             if !item.isSource && item.permissions.download && !protected(item) {
                 Button("Copy", systemImage: "doc.on.doc") { selected = [item.id]; copying = true; moving = true }
                     .disabled(model.busy)
@@ -276,9 +314,22 @@ struct BrowserView: View {
     private func cell(_ item: StoredItem, large: Bool) -> some View {
         BrowserItemCell(name: item.file.name, size: item.file.size, folder: item.file.isDirectory,
                         large: large, selecting: selecting, selected: selected.contains(item.id),
-                        thumbnail: ThumbnailView(item: item, client: model.repository?.client))
+                        thumbnail: ThumbnailView(item: item, client: model.repository?.client), protection: item.protection)
     }
-    private func protected(_ item: StoredItem) -> Bool { connection.companionURL != nil && CompanionClient.protected(item.file.path) }
+    private func changeLock(_ item: StoredItem, action: String) {
+        guard let protection = item.protection else { return }
+        Task {
+            await model.perform {
+                let client = CompanionClient(connection: connection); defer { client.close() }
+                let code = action == "unlock" ? try await VaultKeySession.shared.authorizedCode() : nil
+                try await client.vaultAction(id: protection.id, action: action, code: code)
+                await reload()
+            }
+        }
+    }
+    private func protected(_ item: StoredItem) -> Bool {
+        item.protection?.isRoot == true || connection.companionURL != nil && CompanionClient.protected(item.file.path)
+    }
     private func reload() async { await model.load(connection: connection, parent: parent) }
     private func open(_ item: StoredItem) {
         guard let client = model.repository?.client else { return }

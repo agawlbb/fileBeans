@@ -56,9 +56,11 @@ struct StoredItem: Codable, Identifiable, Hashable {
     var file: RemoteFile
     var permissions: Permissions
     var isSource: Bool = false
+    var protection: FolderProtection? = nil
 }
 
 struct Catalog: Codable, Equatable {
+    var protectedFolders: [String: [ProtectedVault]]? = nil
     var connections: [Connection] = []
     var items: [String: [String: StoredItem]] = [:]
     var enumerated: [String: Set<String>] = [:]
