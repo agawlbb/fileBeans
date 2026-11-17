@@ -254,6 +254,37 @@ the VM development container, package it with the CA bundle using
 prebuilt image to production. The VPS retains the runtime binary, CA, schema SQL,
 Dockerfile and source revision for recovery. Do not build on the VPS.
 
+## Rclone companion deployment — November 17, 2026
+
+Source `e06447241e001258c2574cf9ab68b75805b64874` is deployed as
+`filebeans-companion:e064472`, including static rclone 1.76.0 and its license
+notice. The development-built package was checksum-verified before importing
+and activating only the companion. Runtime and rollback artifacts are retained
+under `/opt/services/filebeans/deploy/companion-e064472`. No database migration
+ran, and the unchanged iOS API remains compatible with TestFlight build 16.
+
+Authenticated health, anonymous denial, the real-rclone VPS/Samba copy checks,
+trash/restore/conflict/purge and existing Drive browsing passed. The video
+normalizer retained its container ID and original
+`2026-11-16T17:10:17.690121031Z` start time throughout deployment and verification.
+
+The 32-file VPS-to-Samba probe took 23.120 seconds with rclone under the observed
+network conditions; all hashes matched and probe files were removed. The previous
+custom-worker probe was 8.729 seconds at a different time. This is not evidence
+of a performance gain from the engine replacement. Observed storage-network RTT
+was approximately 54–66 ms.
+
+Retrying the existing CrewBeans Drive-to-Samba job reused its staging and copied
+another 5,506,279 bytes, but failed after approximately 562 seconds including
+retries. The actionable error was failure to create
+`Retirement-2026-10-23/app/web/icons`. A temporary directory probe confirmed that
+`icons`, `iconx`, and `IconX` are rejected while `icon`, `icons2`, and `pictures`
+are accepted. Read-only inspection of the installed Home Assistant Samba share
+12.11.0 confirmed its `veto_files` includes `icon?`, which matches those rejected
+names. No share configuration was changed. The job remains failed with staging
+preserved and its destination unpublished; correcting the share restriction is
+required before retrying. The failed attempt is not a valid throughput benchmark.
+
 ## Companion deployment — November 16, 2026
 
 Companion source `84ecad127bcb62d2cc1ab18d27076a3f105c329d` is deployed as
