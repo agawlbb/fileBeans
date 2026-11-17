@@ -256,7 +256,29 @@ Dockerfile and source revision for recovery. Do not build on the VPS.
 
 ## Rclone companion deployment — November 17, 2026
 
-Source `e06447241e001258c2574cf9ab68b75805b64874` is deployed as
+### Experimental encryption branch deployment
+
+Feature branch `feature/encrypted-vaults`, source
+`9f342269f2a667300685dc251481a5f307ca6c25`, is deployed as
+`filebeans-companion:9f34226`. The image was built with the canonical VM-local
+builder and its transferred archive SHA-256 verified before loading:
+`719a207091bea63e600b81e8e11724adb115ee1247b86d18003714dd328c6c66`.
+Image config: `sha256:322a4c54bf5029e7986d5fa90d32a9d712e2ce7c35c6b9b3794d2250f4cb78a9`.
+Artifacts and provenance are retained under
+`/opt/services/filebeans/deploy/companion-9f34226`.
+
+Only the companion was recreated using `--no-deps --no-build --pull never`.
+The normalizer retained container `21e2ce3705f1` and start time
+`2026-11-16T17:10:17.690121031Z`. Authenticated HTTPS, anonymous denial,
+Samba-to-VPS copy/checksum, both storages' Trash/restore/conflict/purge, and
+existing Drive browsing passed. Synthetic probe files and history were removed.
+No schema migration or existing-file conversion ran. The live configuration has
+no vaults; encrypted storage/client runtime provisioning remains separate from
+this code rollout. The feature branch remains unmerged.
+
+### Previous rclone deployment
+
+Source `e06447241e001258c2574cf9ab68b75805b64874` was deployed as
 `filebeans-companion:e064472`, including static rclone 1.76.0 and its license
 notice. The development-built package was checksum-verified before importing
 and activating only the companion. Runtime and rollback artifacts are retained
