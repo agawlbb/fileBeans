@@ -101,43 +101,57 @@ Download/range reference: https://developers.google.com/workspace/drive/api/guid
 
 ## Copy behavior and recovery
 
-One worker handles queued jobs serially; a database advisory lock prevents a
-second worker from processing the same queue. Losing its lease cancels its work.
-Jobs persist discovery manifests and file checkpoints in `fb_operations`.
-Partial files live in a job-specific directory under destination staging.
-After interruptions, checkpoints are verified before resuming: local source and
-staged prefixes are compared; Drive uses its version and a saved prefix hash.
-Files whose source changed fail safely; Retry discards unpublished staging and
-rediscovers. Fully copied selections are renamed with Linux `RENAME_NOREPLACE`.
-Cross-filesystem staging/publication is unsupported and must be corrected in
-configuration. Originals are never removed by a copy.
+One queue worker runs jobs serially under the existing database lease. Copies
+whose destination is VPS/Samba use **rclone 1.76.0**, rather than a custom per-file
+copy engine. FileBeans validates the selected roots and final destination, starts
+the tool, records its JSON progress about once per second, and publishes each
+completed selection with a no-overwrite rename. Rclone handles folder traversal,
+parallelism, transfer checksums, ordinary source-change checks, retries and
+partial files. No per-file database manifest, prefix hashing or forced fsync loop
+is added by FileBeans.
 
-For VPS/Samba destinations, up to four files are copied concurrently; files over
-4 MiB share one large-file slot. Drive folder discovery also overlaps up to four
-list requests and preserves deterministic parent-first manifest order. Drive
-uploads and Drive-to-Drive publication retain their existing serial behavior.
+`rclone copy` / `copyto` run only inside a job's unpublished staging directory.
+Drive files use rclone's ID-based `backend copyid` operation. Existing final
+selections are never overwritten. Retry retains staging and lets rclone compare
+and skip already completed files. Ordinary copy does not delete staged files that
+have disappeared from the source; it is not a mirror/snapshot operation. Rclone
+may restart an interrupted file, while completed files can be reused. Older
+per-file manifests are converted into one persisted selection entry per item,
+without removing their staging. A crash between publication and its checkpoint
+is reconciled before copying again.
 
-Staging uses no-follow directory handles with a 128-directory LRU, avoiding
-repeated ancestor checks and parent creation for every file. Published permissions
-are applied through those handles while copying. Before publication, one
-validation checks staged types, sizes and identities against the manifest;
-symlinks, aliases, replaced directories and unexpected files prevent publication.
-No destination mount options or storage credentials are changed.
+The existing Drive login is passed privately to the child, using the app's OAuth
+client. It is not placed in command arguments or Git. An isolated mode-0700
+working directory and mode-0600 config hold any rclone token cache; they are
+removed after the child exits. The global rclone/recipe configuration and saved
+Google connection are not replaced. Account changes and cancellation stop the
+child before cleanup/publication. Error messages retain object/operation details
+while redacting credentials. Process configuration defaults to `/rclone`; the
+optional private `rclone` setting can choose another binary.
 
-Each completed file is flushed once after source-version verification. Long files
-still flush resumable prefixes roughly once per second. Recovery updates batch
-up to 32 completions or one second of reported progress, plus a final flush before
-publication; SQL patches only changed file records and progress fields, without
-sending the whole manifest for each tiny file. A crash before a batch checkpoint
-can repeat that batch, but never trusts uncheckpointed bytes. Cancellation
-interrupts all in-flight Drive requests and joins workers before staging cleanup.
-Transfer speed is measured across the copy phase, including per-file overhead.
+FileBeans keeps the existing mounted Samba share; it does not reconfigure mounts
+or obtain another set of SMB credentials. The service uses umask 0007, giving
+new local files/folders group access without a separate chmod traversal. Rclone
+never follows local source symlinks in this integration; skipped symlink or
+ambiguous-source warnings prevent publication. Native Google documents remain
+unsupported for download rather than being automatically exported. Drive
+uploads, Drive-destination copies, and the separate video normalizer retain their
+existing code and job formats.
 
-The development latency fixture (128 tiny files, 8 ms per Drive request) took
-about 4.01 seconds with one worker and 1.05 seconds with four (3.8x). This isolates
-concurrency using the same pipeline; it is not a real Samba bandwidth benchmark.
+Install the pinned, checksum-verified static dependency **inside development**:
 
-Temporary network failures retry with capped exponential backoff and Google's
+```bash
+dev python3 scripts/prepare-rclone.py build/tools
+```
+
+Package `build/tools/rclone` and `build/tools/rclone-README.txt` alongside the
+compiled server as required by `deploy/Dockerfile`. Its README retains rclone's
+license notice. Unit/integration tests can select this exact executable with
+`FILEBEANS_TEST_RCLONE=/home/dev/projects/fileBeans/build/tools/rclone`.
+
+Rclone performs transfer retries using its standard retry behavior. Exhausted
+copy errors are shown with details and can be retried without clearing staging.
+Other service operations retain capped exponential backoff and Google's
 Retry-After where supplied. Authorization problems wait for reconnection. Missing
 files, permission errors, unsupported items, collisions and disk exhaustion fail
 for user intervention. Cancellation removes unpublished job staging; already

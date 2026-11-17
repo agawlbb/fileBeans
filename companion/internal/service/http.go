@@ -213,7 +213,7 @@ func (s *Service) Handler() http.Handler {
 		j.Cancel = true
 		// A job that has never started has no staged data to clean up. Do not
 		// make its cancellation wait behind a running transfer.
-		if j.State == "queued" && len(j.Manifest) == 0 && j.RemoteStage == "" {
+		if j.State == "queued" && j.Engine == "" && len(j.Manifest) == 0 && j.RemoteStage == "" {
 			j.State = "cancelled"
 			j.Speed = 0
 		}
@@ -256,19 +256,12 @@ func (s *Service) Handler() http.Handler {
 				return
 			}
 			j.RemoteStage = ""
-		} else {
-			root, e := s.root(j.Request.Destination.Source)
-			if e != nil {
-				fail(w, e)
-				return
-			}
-			defer root.Close()
-			if e = root.RemoveAll(filepath.Join(".filebeans-stage", j.ID)); e != nil {
-				fail(w, e)
-				return
-			}
 		}
-		j.Manifest = nil
+		// Rclone reconciles its private staging on retry. Keep completed files rather
+		// than deleting the entire copy and downloading everything again.
+		if j.Request.Destination.Source == "drive" {
+			j.Manifest = nil
+		}
 		j.ItemsDone = 0
 		j.ItemsTotal = 0
 		j.Done = 0
@@ -492,4 +485,4 @@ func hasDrive(r CopyRequest) bool {
 	return false
 }
 
-func publicJob(j Job) Job { j.Manifest = nil; j.RemoteStage = ""; return j }
+func publicJob(j Job) Job { j.Manifest = nil; j.RclonePlan = nil; j.RemoteStage = ""; return j }

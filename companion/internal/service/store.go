@@ -23,6 +23,7 @@ type CopyRequest struct {
 	Destination Item   `json:"destination"`
 }
 type File struct {
+	DriveID   string `json:"driveId,omitempty"`
 	From      string `json:"from"`
 	To        string `json:"to"`
 	Size      int64  `json:"size"`
@@ -38,6 +39,8 @@ type File struct {
 	Attempted bool   `json:"attempted,omitempty"`
 }
 type Job struct {
+	RclonePlan   []File      `json:"rclonePlan,omitempty"`
+	Engine       string      `json:"engine,omitempty"`
 	ID           string      `json:"id"`
 	State        string      `json:"state"`
 	Request      CopyRequest `json:"request"`

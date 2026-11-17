@@ -166,7 +166,7 @@ func TestDatabaseWorkflow(t *testing.T) {
 	if count != 0 {
 		t.Fatal("refusing to modify a pre-existing fb_operations table")
 	}
-	s := &Service{db: db, config: Config{State: t.TempDir(), Token: strings.Repeat("t", 32), Roots: []Root{{Name: "vps", Path: t.TempDir()}, {Name: "samba", Path: t.TempDir()}}}}
+	s := &Service{db: db, config: Config{Rclone: testRcloneBinary(t), State: t.TempDir(), Token: strings.Repeat("t", 32), Roots: []Root{{Name: "vps", Path: t.TempDir()}, {Name: "samba", Path: t.TempDir()}}}}
 	if e = s.Migrate(); e != nil {
 		t.Fatal(e)
 	}
@@ -222,44 +222,7 @@ func TestDatabaseWorkflow(t *testing.T) {
 			t.Fatal("cancelled job published", err)
 		}
 	})
-	t.Run("cancel-interrupts-stalled-drive-read", func(t *testing.T) {
-		previous := googleHTTP
-		defer func() { googleHTTP = previous }()
-		privateJSON(filepath.Join(s.config.State, "google.json"), Google{Access: "fixture", Refresh: "fixture", Expires: time.Now().Add(time.Hour).Unix(), Connection: "drive-cancel-test"})
-		reading := make(chan struct{})
-		googleHTTP = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
-			var body io.ReadCloser = io.NopCloser(strings.NewReader(`{"id":"cancel-file","name":"cancel-video","mimeType":"video/mp4","size":"100","version":"1","capabilities":{"canDownload":true}}`))
-			if r.URL.Query().Get("alt") == "media" {
-				body = &cancelReadBody{ctx: r.Context(), started: reading}
-			}
-			return &http.Response{StatusCode: 200, Header: http.Header{}, Body: body}, nil
-		})}
-		j := submit(CopyRequest{Items: []Item{{Source: "drive", Path: "cancel-file"}}, Destination: Item{Source: "vps", Path: "/"}}, "stalled-drive-cancel-fixture")
-		ctx, stop := context.WithCancel(context.Background())
-		done := make(chan struct{})
-		defer func() { stop(); <-done }()
-		go func() { defer close(done); s.runJob(ctx, &j) }()
-		select {
-		case <-reading:
-		case <-time.After(3 * time.Second):
-			t.Fatal("download never started")
-		}
-		if result := cancelJob(j.ID); !result.Cancel {
-			t.Fatal("missing cancel acknowledgement")
-		}
-		select {
-		case <-done:
-		case <-time.After(3 * time.Second):
-			t.Fatal("cancel did not interrupt HTTP read")
-		}
-		if j.State != "cancelled" {
-			t.Fatal(j.State, j.Error)
-		}
-		if _, err := os.Stat(filepath.Join(vps, "cancel-video")); !errors.Is(err, os.ErrNotExist) {
-			t.Fatal("cancelled download published", err)
-		}
-	})
-	t.Run("small-file-performance", func(t *testing.T) { testCopyPerformance(t, s) })
+	t.Run("rclone-integration", func(t *testing.T) { testRcloneIntegration(t, s) })
 	t.Run("copy-and-idempotency", func(t *testing.T) {
 		req := CopyRequest{Items: []Item{{Source: "samba", Path: "/folder"}}, Destination: Item{Source: "vps", Path: "/"}}
 		j := submit(req, "copy-test-key-0001")
@@ -393,6 +356,7 @@ func TestDatabaseWorkflow(t *testing.T) {
 		}
 	})
 	t.Run("drive-download-runs-in-worker", func(t *testing.T) {
+		useRcloneFixture(t, s, payload, "copy")
 		previous := googleHTTP
 		defer func() { googleHTTP = previous }()
 		privateJSON(filepath.Join(s.config.State, "google.json"), Google{Access: "fixture", Refresh: "fixture", Expires: time.Now().Add(time.Hour).Unix(), Connection: "drive-test"})
@@ -418,7 +382,7 @@ func TestDatabaseWorkflow(t *testing.T) {
 		}
 	})
 
-	t.Run("changed-source-fails-without-publication", func(t *testing.T) {
+	t.Run("updated-source-is-reconciled-on-retry", func(t *testing.T) {
 		os.WriteFile(filepath.Join(share, "changing"), []byte("before"), 0600)
 		j := submit(CopyRequest{Items: []Item{{Source: "samba", Path: "changing"}}, Destination: Item{Source: "vps", Path: "/"}}, "copy-test-key-0006")
 		if e = s.discover(context.Background(), &j); e != nil {
@@ -426,13 +390,15 @@ func TestDatabaseWorkflow(t *testing.T) {
 		}
 		os.WriteFile(filepath.Join(share, "changing"), []byte("after and different"), 0600)
 		s.runJob(context.Background(), &j)
-		if j.State != "failed" {
-			t.Fatal("changed source not failed", j.State)
+		if j.State != "completed" {
+			t.Fatal(j.State, j.Error)
 		}
-		if _, e = os.Stat(filepath.Join(vps, "changing")); !errors.Is(e, os.ErrNotExist) {
-			t.Fatal("changed copy published")
+		got, err := os.ReadFile(filepath.Join(vps, "changing"))
+		if err != nil || string(got) != "after and different" {
+			t.Fatal("updated source not reconciled", err)
 		}
 	})
+
 	t.Run("missing-mount-retries-without-local-fallback", func(t *testing.T) {
 		s.config.Roots = append(s.config.Roots, Root{Name: "offline", Path: share, Mount: "/no-such-mount", MountSource: "//fixture/offline"})
 		defer func() { s.config.Roots = s.config.Roots[:2] }()
@@ -481,7 +447,7 @@ func TestDatabaseWorkflow(t *testing.T) {
 		}
 	})
 
-	t.Run("aliased-stage-names-never-publish", func(t *testing.T) {
+	t.Run("staged-hardlinks-are-replaced-independently", func(t *testing.T) {
 		os.WriteFile(filepath.Join(share, "case-one"), []byte("first file"), 0600)
 		os.WriteFile(filepath.Join(share, "case-two"), []byte("second file"), 0600)
 		j := submit(CopyRequest{Items: []Item{{Source: "samba", Path: "case-one"}, {Source: "samba", Path: "case-two"}}, Destination: Item{Source: "vps", Path: "/"}}, "copy-case-alias-test")
@@ -496,13 +462,21 @@ func TestDatabaseWorkflow(t *testing.T) {
 			t.Fatal(e)
 		}
 		s.runJob(context.Background(), &j)
-		if j.State != "failed" {
-			t.Fatal("stage alias accepted", j.State)
+		if j.State != "completed" {
+			t.Fatal(j.State, j.Error)
 		}
-		for _, name := range []string{"case-one", "case-two"} {
-			if _, e = os.Stat(filepath.Join(vps, name)); !errors.Is(e, os.ErrNotExist) {
-				t.Fatal("aliased copy was published")
-			}
+		one, err := os.ReadFile(filepath.Join(vps, "case-one"))
+		if err != nil || string(one) != "first file" {
+			t.Fatal("first alias corrupted", err)
+		}
+		two, err := os.ReadFile(filepath.Join(vps, "case-two"))
+		if err != nil || string(two) != "second file" {
+			t.Fatal("second alias corrupted", err)
+		}
+		first, _ := os.Stat(filepath.Join(vps, "case-one"))
+		second, _ := os.Stat(filepath.Join(vps, "case-two"))
+		if os.SameFile(first, second) {
+			t.Fatal("staged hardlink not replaced")
 		}
 	})
 
@@ -548,16 +522,3 @@ func TestDatabaseWorkflow(t *testing.T) {
 	t.Run("normalization-workflows", func(t *testing.T) { testNormalizationWorkflow(t, s) })
 
 }
-
-// A download that makes no progress until its HTTP context is cancelled.
-type cancelReadBody struct {
-	ctx     context.Context
-	started chan struct{}
-}
-
-func (b *cancelReadBody) Read(p []byte) (int, error) {
-	close(b.started)
-	<-b.ctx.Done()
-	return 0, b.ctx.Err()
-}
-func (b *cancelReadBody) Close() error { return nil }

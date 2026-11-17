@@ -9,6 +9,8 @@ import (
 	"sync"
 )
 
+const driveDiscoveryWorkers = 4
+
 type driveCopyNode struct {
 	file     File
 	id       string
@@ -25,10 +27,10 @@ type driveFolderResult struct {
 func (s *Service) discoverDriveTree(parent context.Context, top DriveItem, connection string, withinDrive bool) ([]File, error) {
 	ctx, cancel := context.WithCancel(parent)
 	tasks := make(chan *driveCopyNode)
-	results := make(chan driveFolderResult, copyWorkers)
+	results := make(chan driveFolderResult, driveDiscoveryWorkers)
 	var workers sync.WaitGroup
 	defer func() { cancel(); close(tasks); workers.Wait() }()
-	for i := 0; i < copyWorkers; i++ {
+	for i := 0; i < driveDiscoveryWorkers; i++ {
 		workers.Add(1)
 		go func() {
 			defer workers.Done()

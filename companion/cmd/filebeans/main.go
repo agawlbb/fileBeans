@@ -14,6 +14,7 @@ import (
 )
 
 func main() {
+	syscall.Umask(0007) // New copied files/dirs are group writable without a chmod pass.
 	path := flag.String("config", "/etc/filebeans/config.json", "private configuration path")
 	normalizer := flag.Bool("normalize-worker", false, "run the serial media normalization worker")
 	migrate := flag.Bool("migrate", false, "apply schema and exit")

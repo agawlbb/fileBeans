@@ -2,16 +2,12 @@ package service
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 )
@@ -208,7 +204,8 @@ func (s *Service) runJob(ctx context.Context, j *Job) {
 	} else if e != nil {
 		j.Error = publicError(e)
 		j.Speed = 0
-		if errors.Is(e, ErrDrivePermission) || errors.Is(e, ErrDriveAccount) || errors.Is(e, ErrUnsafe) || errors.Is(e, ErrConflict) || errors.Is(e, ErrUnsupported) || errors.Is(e, syscall.EEXIST) || errors.Is(e, syscall.ENOSPC) || errors.Is(e, syscall.EXDEV) || errors.Is(e, syscall.EBUSY) || errors.Is(e, fs.ErrPermission) || errors.Is(e, fs.ErrNotExist) {
+		var engineFailure *copyEngineError
+		if errors.As(e, &engineFailure) || errors.Is(e, ErrDrivePermission) || errors.Is(e, ErrDriveAccount) || errors.Is(e, ErrUnsafe) || errors.Is(e, ErrConflict) || errors.Is(e, ErrUnsupported) || errors.Is(e, syscall.EEXIST) || errors.Is(e, syscall.ENOSPC) || errors.Is(e, syscall.EXDEV) || errors.Is(e, syscall.EBUSY) || errors.Is(e, fs.ErrPermission) || errors.Is(e, fs.ErrNotExist) {
 			j.State = "failed"
 		} else {
 			j.State = "waiting"
@@ -237,256 +234,13 @@ func (s *Service) execute(ctx context.Context, j *Job) error {
 	if j.Request.Destination.Source == "drive" {
 		return s.executeDrive(ctx, j)
 	}
-	if len(j.Manifest) == 0 {
-		j.State = "discovering"
-		if e := s.checkpoint(j); e != nil {
-			return e
-		}
-		if e := s.discover(ctx, j); e != nil {
-			return e
-		}
-	}
-	j.State = "running"
-	j.Error = ""
-	if e := s.checkpoint(j); e != nil {
-		return e
-	}
-	dst, e := s.root(j.Request.Destination.Source)
-	if e != nil {
-		return e
-	}
-	defer dst.Close()
-	stage := filepath.Join(".filebeans-stage", j.ID)
-	if e = mkdir(dst, stage); e != nil {
-		return e
-	}
-	published := func(name string) bool {
-		for _, v := range j.Published {
-			if name == v {
-				return true
-			}
-		}
-		return false
-	}
-	if strings.HasPrefix(j.Current, "publish:") {
-		name := strings.TrimPrefix(j.Current, "publish:")
-		if !validName(name) {
-			return ErrUnsafe
-		}
-		if _, er := dst.Lstat(filepath.Join(stage, name)); errors.Is(er, fs.ErrNotExist) {
-			if _, er = dst.Lstat(filepath.Join(j.Request.Destination.Path, name)); er == nil {
-				if !published(name) {
-					j.Published = append(j.Published, name)
-				}
-				if e = s.checkpoint(j); e != nil {
-					return e
-				}
-			} else {
-				return er
-			}
-		}
-	}
-	if e = s.copyManifest(ctx, j, dst, stage); e != nil {
-		return e
-	}
-	names := map[string]bool{}
-	for _, f := range j.Manifest {
-		names[strings.Split(f.To, "/")[0]] = true
-	}
-	for name := range names {
-		if published(name) {
-			continue
-		}
-		j.Current = "publish:" + name
-		if e = s.checkpoint(j); e != nil {
-			return e
-		}
-		if e = renameExclusive(dst, filepath.Join(stage, name), filepath.Join(j.Request.Destination.Path, name)); e != nil {
-			return e
-		}
-		if e = syncDir(dst, j.Request.Destination.Path); e != nil {
-			return e
-		}
-		j.Published = append(j.Published, name)
-		if e = s.checkpoint(j); e != nil {
-			return e
-		}
-	}
-	_ = dst.RemoveAll(stage)
-	return nil
-}
-func (s *Service) copyFile(ctx context.Context, connection string, f *File, out *os.File, st fs.FileInfo, report func() error) error {
-	var e error
-	offset := min(st.Size(), f.Done)
-	f.Completed = false
-	h := sha256.New()
-	var in io.ReadCloser
-	if f.Source == "drive" {
-		// Verify the saved prefix hash locally and pin the remote version before ranges.
-		if offset > 0 {
-			if _, e = io.CopyN(h, out, offset); e != nil {
-				return e
-			}
-			if hex.EncodeToString(h.Sum(nil)) != f.Hash {
-				offset = 0
-				h.Reset()
-			}
-		}
-		meta, er := s.driveMeta(ctx, f.From, connection)
-		if er != nil {
-			return er
-		}
-		if meta.Version != f.Version {
-			return ErrConflict
-		}
-		if offset == f.Size {
-			in = io.NopCloser(strings.NewReader(""))
-		} else {
-			in, e = s.driveContent(ctx, f.From, offset, connection)
-		}
-	} else {
-		src, er := s.root(f.Source)
-		if er != nil {
-			return er
-		}
-		defer src.Close()
-		if er = safe(src, f.From); er != nil {
-			return er
-		}
-		input, er := src.Open(f.From)
-		if er != nil {
-			return er
-		}
-		info, er := input.Stat()
-		if er != nil || version(info) != f.Version {
-			input.Close()
-			return ErrConflict
-		}
-		if offset > 0 {
-			a, b := sha256.New(), sha256.New()
-			_, er = io.CopyN(a, input, offset)
-			if er == nil {
-				_, er = out.Seek(0, 0)
-			}
-			if er == nil {
-				_, er = io.CopyN(b, out, offset)
-			}
-			if er != nil || !strings.EqualFold(hex.EncodeToString(a.Sum(nil)), hex.EncodeToString(b.Sum(nil))) {
-				offset = 0
-			}
-		}
-		_, e = input.Seek(offset, 0)
-		if e != nil {
-			input.Close()
-			return e
-		}
-		in = input
-	}
-	if e != nil {
-		return e
-	}
-	defer in.Close()
-	if st.Size() != offset {
-		if e = out.Truncate(offset); e != nil {
-			return e
-		}
-	}
-	f.Done = offset
-	if offset > 0 && f.Source != "drive" {
-		if _, e = out.Seek(0, 0); e != nil {
-			return e
-		}
-		if _, e = io.CopyN(h, out, offset); e != nil {
-			return e
-		}
-	}
-	if _, e = out.Seek(offset, 0); e != nil {
-		return e
-	}
-	buf := make([]byte, max(1, min(int64(1024*1024), f.Size-offset)))
-	last := time.Now()
-	for {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		n, er := in.Read(buf)
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if n > 0 {
-			if f.Done+int64(n) > f.Size {
-				return ErrConflict
-			}
-			written, we := out.Write(buf[:n])
-			if we != nil {
-				return we
-			}
-			if written != n {
-				return io.ErrShortWrite
-			}
-			h.Write(buf[:n])
-			f.Done += int64(n)
-			if time.Since(last) >= time.Second && f.Done < f.Size {
-				if e = out.Sync(); e != nil {
-					return e
-				}
-				f.Hash = hex.EncodeToString(h.Sum(nil))
-				if e = report(); e != nil {
-					return e
-				}
-				last = time.Now()
-				if f.Source != "drive" {
-					r, re := s.root(f.Source)
-					if re != nil {
-						return re
-					}
-					r.Close()
-				}
-			}
-		}
-		if er == io.EOF {
-			break
-		}
-		if er != nil {
-			return er
-		}
-	}
-	if f.Done != f.Size {
-		return io.ErrUnexpectedEOF
-	}
-	if f.Source == "drive" {
-		meta, er := s.driveMeta(ctx, f.From, connection)
-		if er != nil {
-			return er
-		}
-		if meta.Version != f.Version {
-			return ErrConflict
-		}
-	} else {
-		r, er := s.root(f.Source)
-		if er != nil {
-			return er
-		}
-		defer r.Close()
-		info, er := r.Stat(f.From)
-		if er != nil {
-			return er
-		}
-		if version(info) != f.Version {
-			return ErrConflict
-		}
-	}
-	if e = out.Chmod(0660); e != nil {
-		return e
-	}
-	if e = out.Sync(); e != nil {
-		return e
-	}
-	f.Hash = hex.EncodeToString(h.Sum(nil))
-	f.Completed = true
-	return report()
+	return s.executeRclone(ctx, j)
 }
 func publicError(e error) string {
+	var engineFailure *copyEngineError
+	if errors.As(e, &engineFailure) {
+		return engineFailure.Error()
+	}
 	switch {
 	case errors.Is(e, ErrDriveWrite):
 		return "Google Drive needs full access. Choose Upgrade Drive Access and approve the requested permission."
@@ -519,23 +273,3 @@ func publicError(e error) string {
 	}
 }
 func decodeJob(b []byte) (Job, error) { var j Job; e := json.Unmarshal(b, &j); return j, e }
-
-// Case-insensitive shares may resolve distinct names to the same staged object.
-// Detect aliases before truncation/publication, for both files and directories.
-type stageIdentity struct {
-	device uint64
-	inode  uint64
-}
-
-func claimStage(info fs.FileInfo, path string, claimed map[stageIdentity]string) error {
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return ErrUnsafe
-	}
-	key := stageIdentity{device: uint64(stat.Dev), inode: uint64(stat.Ino)}
-	if previous, exists := claimed[key]; exists && previous != path {
-		return ErrConflict
-	}
-	claimed[key] = path
-	return nil
-}

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -49,7 +48,7 @@ func TestDriveDiscoveryOverlapsAndKeepsParentFirstOrder(t *testing.T) {
 				break
 			}
 		}
-		if n == copyWorkers {
+		if n == driveDiscoveryWorkers {
 			close(allStarted)
 		}
 		select {
@@ -83,7 +82,7 @@ func TestDriveDiscoveryOverlapsAndKeepsParentFirstOrder(t *testing.T) {
 	if !reflect.DeepEqual(paths, want) {
 		t.Fatal(paths)
 	}
-	if maximum.Load() != copyWorkers {
+	if maximum.Load() != driveDiscoveryWorkers {
 		t.Fatal("folder requests did not overlap", maximum.Load())
 	}
 }
@@ -116,12 +115,12 @@ func TestDriveDiscoveryCancellationStopsAllListings(t *testing.T) {
 	s := discoveryService(t)
 	previous := googleHTTP
 	defer func() { googleHTTP = previous }()
-	started := make(chan struct{}, copyWorkers)
+	started := make(chan struct{}, driveDiscoveryWorkers)
 	var stopped atomic.Int32
 	googleHTTP = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
 		if strings.Contains(r.URL.Query().Get("q"), "'root' in parents") {
 			children := []DriveItem{}
-			for i := 0; i < copyWorkers; i++ {
+			for i := 0; i < driveDiscoveryWorkers; i++ {
 				children = append(children, discoveryFolder(fmt.Sprintf("folder-%d", i)))
 			}
 			return jsonResponse(200, map[string]any{"files": children}), nil
@@ -138,7 +137,7 @@ func TestDriveDiscoveryCancellationStopsAllListings(t *testing.T) {
 		done <- err
 	}()
 	defer cancel()
-	for i := 0; i < copyWorkers; i++ {
+	for i := 0; i < driveDiscoveryWorkers; i++ {
 		select {
 		case <-started:
 		case <-time.After(3 * time.Second):
@@ -154,39 +153,7 @@ func TestDriveDiscoveryCancellationStopsAllListings(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("discovery did not stop")
 	}
-	if stopped.Load() != copyWorkers {
+	if stopped.Load() != driveDiscoveryWorkers {
 		t.Fatal("discovery leaked requests", stopped.Load())
-	}
-}
-
-func TestCopyValidationRejectsReplacedAndUnexpectedFiles(t *testing.T) {
-	for _, replacement := range []bool{false, true} {
-		t.Run(fmt.Sprint(replacement), func(t *testing.T) {
-			base := t.TempDir()
-			root, _ := os.OpenRoot(base)
-			defer root.Close()
-			os.Mkdir(filepath.Join(base, "stage"), 0700)
-			stage, err := newCopyStage(root, "stage")
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer stage.close()
-			file := File{To: "copied", Size: 4}
-			out, _, err := stage.open(file)
-			if err != nil {
-				t.Fatal(err)
-			}
-			out.WriteString("data")
-			out.Close()
-			if replacement {
-				os.Rename(filepath.Join(base, "stage/copied"), filepath.Join(base, "old"))
-				os.WriteFile(filepath.Join(base, "stage/copied"), []byte("fake"), 0600)
-			} else {
-				os.WriteFile(filepath.Join(base, "stage/unlisted"), nil, 0600)
-			}
-			if err := stage.validate(context.Background(), map[string]File{"copied": file}); !errors.Is(err, ErrConflict) {
-				t.Fatal("unexpected staging data accepted", err)
-			}
-		})
 	}
 }

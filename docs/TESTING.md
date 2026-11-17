@@ -289,3 +289,19 @@ including successful temporary credential cleanup. Apple build
 `e0be188e-e5cc-4be6-af00-3b63598cbca3` reports **VALID** / **IN_BETA_TESTING**.
 The companion-only deployment and final service inspection confirmed the video
 normalizer was not restarted. Device acceptance above remains manual.
+
+## Rclone copy-engine replacement — November 17, 2026
+
+VPS/Samba destination copies now run the pinned rclone executable. The custom
+per-file worker, directory cache, prefix hashes and batched manifest patcher were
+removed. Tests exercise the real rclone binary on 512 small files, empty folders,
+existing destination conflicts, staged hardlinks, corrupted/incomplete files,
+ordinary copy preservation of existing staging, and source updates between
+attempts. Subprocess fixtures cover Drive ID routing, private credential handling,
+actionable redacted errors, cancellation, and account changes without real Google
+requests. The full Go race/MariaDB suite, Go vet, and source checks passed. Drive
+upload and media-normalization regression suites also passed.
+
+The iOS request/response contract is unchanged, so existing TestFlight build 16 can
+use this backend. Local fixture timing is not a Drive/Samba performance claim;
+production measurements and transfer completion must be recorded separately.

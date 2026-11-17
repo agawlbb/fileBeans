@@ -15,6 +15,7 @@ type Root struct {
 	MountSource string `json:"mountSource,omitempty"`
 }
 type Config struct {
+	Rclone             string              `json:"rclone,omitempty"`
 	Normalization      NormalizationConfig `json:"normalization,omitempty"`
 	Listen             string              `json:"listen"`
 	DSN                string              `json:"dsn"`
@@ -35,6 +36,9 @@ func Load(path string) (Config, error) {
 	e = json.Unmarshal(b, &c)
 	if e != nil {
 		return c, e
+	}
+	if c.Rclone == "" {
+		c.Rclone = "/rclone"
 	}
 	if c.Listen == "" {
 		c.Listen = "127.0.0.1:8095"
