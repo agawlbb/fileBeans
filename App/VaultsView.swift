@@ -43,12 +43,10 @@ struct VaultsView: View {
                             options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(60)])
                     }
                     Button("Hide code") { code = "" }
-                    Text("This code contains the actual encryption key. Anyone with it can decrypt your vaults. Keep the complete encrypted folders, including hidden metadata, for independent gocryptfs recovery.")
-                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
             Section("Protected folders") {
-                if vaults.isEmpty { Text("No protected folders configured on this companion.").foregroundStyle(.secondary) }
+                if vaults.isEmpty { Text("No protected folders").foregroundStyle(.secondary) }
                 ForEach(vaults) { vault in
                     VStack(alignment: .leading, spacing: 8) {
                         Label(vault.source, systemImage: vault.state == "unlocked" ? "lock.open" : "lock")
@@ -71,10 +69,6 @@ struct VaultsView: View {
                     }
                 }.disabled(!hasKey || !vaults.contains { $0.initialized && $0.state == "locked" })
             }
-            Section {
-                Text("Unlocked folders stay accessible through the server until you lock them or restart the server. Direct access to the original Samba share shows encrypted files. Mobile caches are unchanged.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
         }
         .navigationTitle("Protected folders")
         .disabled(busy)
@@ -87,7 +81,7 @@ struct VaultsView: View {
             Button("Forget key", role: .destructive) {
                 perform { try await VaultKeyStore.remove(); code = ""; hasKey = false; savedBackup = false }
             }
-        } message: { Text("You will need your saved recovery code to use protected folders again. Server vaults and other devices are unchanged.") }
+        }
         .alert("Protected folders", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("OK") { error = nil }
         } message: { Text(error ?? "") }
@@ -96,7 +90,7 @@ struct VaultsView: View {
                 if let vault = initialize {
                     Button("Initialize vault") { perform { try await action(vault, "initialize", code: VaultKeyStore.read()) }; initialize = nil }
                 }
-            } message: { Text("The server must already have an empty encrypted-storage directory configured. Existing folders are not converted or deleted.") }
+            }
     }
     private func perform(_ operation: @escaping @MainActor () async throws -> Void) {
         busy = true
