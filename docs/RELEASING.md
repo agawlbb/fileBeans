@@ -70,10 +70,9 @@ breadcrumb heading in place of the folder title.
 
 ## Feature-branch rollout — November 17, 2026
 
-Server deployment is complete; the requested **0.1.0 (17)** TestFlight release
-is blocked by Apple's App Store Connect outage. No signed build or upload was
-performed by this attempt. The branch remains `feature/encrypted-vaults` and is
-not merged into `main`.
+**0.1.0 (17)** has been signed and uploaded successfully. Apple reports
+**VALID**; internal TestFlight distribution is still **PROCESSING** at the last
+check. Source remains on `feature/encrypted-vaults`, unmerged into `main`.
 
 - Companion source `9f342269f2a667300685dc251481a5f307ca6c25` is deployed as
   `filebeans-companion:9f34226`. Its archive checksum and relevant live checks
@@ -86,23 +85,27 @@ not merged into `main`.
   and `660a6a42a9332e69adc57b02ba29c8a3c165841d2129c5a1df02a072f6dcc609`.
   Both packaged targets have the expected identifiers, version 0.1.0, iOS 18
   minimum and iPhone/iPad support. The unsigned archive uses default build 1;
-  a future signed release must override that with the intended build number.
-- Release candidate `df87e87846a76e9bc202628028c0e121015a42b2` adds signing checks
+  the signed release overrides that with build 17.
+- Release source `df87e87846a76e9bc202628028c0e121015a42b2`, immutable tag
+  `testflight/0.1.0-17`, adds signing checks
   for the main app's private `.vaults` Keychain group; all six release-helper
   tests pass. Its application/test/project/workflow inputs match validated
   source `9f34226`.
-- [Upload attempt](https://github.com/agawlbb/fileBeans/actions/runs/44141007306)
-  requested operation `upload`, build 17, directly from the feature branch.
-  Preflight failed at `GET /v1/bundleIds` with HTTP 500 `UNEXPECTED_ERROR`,
-  before the macOS signing/upload job. Earlier preflight attempts reproduced
-  the same failure from GitHub and VM clients; certificate/build API reads also
-  returned HTTP 500. Apple's official developer status feed reported an ongoing
-  App Store Connect outage starting November 17 at 08:50 PST.
-- Retry the failed upload workflow after Apple recovers. It retains all signing
-  checks and rejects build 17 if that number has since been uploaded. No tester
-  groups, credentials, certificates or repository protections were changed.
+- [Publication](https://github.com/agawlbb/fileBeans/actions/runs/44141007306)
+  succeeded on retry directly from the feature branch: preflight, signed
+  archive/export, TestFlight upload, and temporary runner credential cleanup
+  passed. Apple build ID: `c7fe1cff-be36-47a1-8fc7-1ad825ba259b`.
+  Apple recorded the upload on November 17 at 19:53:52 UTC.
+- The [initial attempt](https://github.com/agawlbb/fileBeans/actions/runs/44141007306/attempts/1)
+  failed during Apple's outage with HTTP 500 before signing began. On the later
+  retry an intermittent `/v1/apps` HTTP 500 cleared, and the next attempt passed
+  all original signing checks; none were bypassed.
+- No tester groups, credentials, certificates or repository protections were
+  changed. The existing internal group still has access to all builds and will
+  receive this build after Apple's processing. Device acceptance for biometric key storage/import/export and vault
+  controls remains manual. The server has no vaults configured yet.
 
-## Current published release — November 16, 2026
+## Previous published release — November 16, 2026
 
 **0.1.0 (16)** is uploaded; Apple reports **VALID** / **IN_BETA_TESTING**.
 The existing internal beta group retains access to all builds.
