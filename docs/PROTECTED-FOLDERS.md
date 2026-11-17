@@ -173,8 +173,13 @@ initialized locked vault; it is deliberately not an atomic multi-vault operation
 
 - Run companion tests with `-race`, isolated VM MariaDB credentials, and
   `FILEBEANS_TEST_GOCRYPTFS` pointing to the installed standalone tool.
-- Set `FILEBEANS_TEST_FUSE=1` to run the standalone ciphertext-copy/recovery test
-  once the development environment has FUSE mount access. It uses synthetic keys.
+- Run `sh scripts/test-vault-fuse.sh` on VM-laptop for the standalone
+  ciphertext-copy/recovery test. It compiles through `dev`, then executes only
+  that synthetic test in a disposable development runtime with `/dev/fuse` and
+  `SYS_ADMIN`. The runtime has no network, credentials, source-tree mount, Docker
+  socket, or host mount propagation. Its root filesystem is read-only, its
+  temporary files use tmpfs, and its cgroup cannot use swap. The shared
+  development container keeps its existing restrictions. No image build occurs.
 - In a FUSE-capable test environment, initialize two vaults with one saved code;
   exercise read/write, filenames, thumbnails, media seeking, uploads, transfers,
   Trash and restoration on local and Samba ciphertext. Verify all hashes.
@@ -200,9 +205,12 @@ race tests pass with real gocryptfs 2.6.1 initialization/retry checks and isolat
 VM MariaDB, excluding the existing
 `TestDatabaseWorkflow/staged-hardlinks-are-replaced-independently` failure. That
 failure also reproduces with the unchanged `origin/main` rclone implementation.
-Full FUSE mounting/recovery, Quantum lifecycle integration, Samba behavior and
-Apple compilation/device tests remain required. FUSE 3.17.2 is installed in the
-development container, but `/dev/fuse` is not exposed to it; its current
-`no-new-privileges` policy also prevents the normal unprivileged mount helper.
-The VM currently has swap enabled, so actual vault startup correctly refuses
-keys under the present host policy. No host security policy was relaxed.
+The independent FUSE recovery test now passes using the isolated runtime:
+initialize, mount, write, unmount, copy ciphertext, and recover with the exported
+master-key format through standalone gocryptfs. The runtime is removed after the
+test. Full companion/Quantum lifecycle integration, Samba behavior and Apple
+compilation/device tests remain required. FUSE 3.17.2 is installed in normal
+development, but device/mount privileges are granted only to the isolated test
+runtime. The VM still has swap enabled, so actual companion vault startup
+correctly refuses keys under its present host policy. No host security policy
+was relaxed.
