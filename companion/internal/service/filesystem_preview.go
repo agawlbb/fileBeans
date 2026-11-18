@@ -81,22 +81,29 @@ func (s *Service) filesystemThumbnail(w http.ResponseWriter, r *http.Request) {
 		filesystemFail(w, ErrUnsupported)
 		return
 	}
-	cacheDir := filepath.Join(filepath.Dir(p), thumbnailDirectory)
-	if e = safe(root, cacheDir); e != nil {
+	cacheRoot, cacheDir, e := s.thumbnailCache(root, r.URL.Query().Get("source"), p)
+	if e != nil {
 		filesystemFail(w, e)
 		return
 	}
-	if e = root.MkdirAll(cacheDir, 0770); e != nil {
+	if cacheRoot != root {
+		defer cacheRoot.Close()
+	}
+	if e = safe(cacheRoot, cacheDir); e != nil {
+		filesystemFail(w, e)
+		return
+	}
+	if e = cacheRoot.MkdirAll(cacheDir, 0700); e != nil {
 		filesystemFail(w, e)
 		return
 	}
 	digest := sha256.Sum256([]byte(filepath.Base(p) + "\x00" + entry.Revision + "\x00jpeg-320-v1"))
 	cache := filepath.Join(cacheDir, hex.EncodeToString(digest[:])+".jpg")
-	if e = safe(root, cache); e != nil {
+	if e = safe(cacheRoot, cache); e != nil {
 		filesystemFail(w, e)
 		return
 	}
-	if cached, err := filesystemOpenFile(root, cache); err == nil {
+	if cached, err := filesystemOpenFile(cacheRoot, cache); err == nil {
 		defer cached.Close()
 		info, err := cached.Stat()
 		if err == nil && info.Mode().IsRegular() && info.Size() <= 2<<20 {
@@ -105,10 +112,10 @@ func (s *Service) filesystemThumbnail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	cleanupPreviewCache(root, cacheDir)
+	cleanupPreviewCache(cacheRoot, cacheDir)
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-	data, e := s.renderPreview(ctx, file, entry.Type, root, cacheDir)
+	data, e := s.renderPreview(ctx, file, entry.Type, cacheRoot, cacheDir)
 	if e != nil {
 		filesystemFail(w, ErrUnsupported)
 		return
@@ -119,19 +126,19 @@ func (s *Service) filesystemThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	temp := filepath.Join(cacheDir, "render-"+ID())
-	out, e := root.OpenFile(temp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0660)
+	out, e := cacheRoot.OpenFile(temp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0660)
 	if e != nil {
 		filesystemFail(w, e)
 		return
 	}
-	defer root.Remove(temp)
+	defer cacheRoot.Remove(temp)
 	_, e = out.Write(data)
 	ce := out.Close()
 	if e == nil {
 		e = ce
 	}
 	if e == nil {
-		e = renameExclusive(root, temp, cache)
+		e = renameExclusive(cacheRoot, temp, cache)
 	}
 	if e != nil && !os.IsExist(e) {
 		filesystemFail(w, e)
@@ -313,4 +320,48 @@ func cleanupPreviewCache(root rootFS, dir string) {
 			_ = root.Remove(filepath.Join(dir, name))
 		}
 	}
+}
+
+// Ordinary files can temporarily cache outside a watched media tree. Protected
+// files always keep their cache and renderer scratch inside their encrypted mount.
+// The caller retains the original root/lease even when cache storage is separate.
+func (s *Service) thumbnailCache(root rootFS, source, p string) (rootFS, string, error) {
+	adjacent := filepath.Join(filepath.Dir(p), thumbnailDirectory)
+	matched := false
+	for _, override := range s.config.Filesystem.ThumbnailCacheOverrides {
+		prefix, e := clean(override.Path)
+		if e != nil {
+			return nil, "", ErrUnsafe
+		}
+		if override.Source == source && (prefix == "." || within(p, prefix)) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return root, adjacent, nil
+	}
+	if guarded, ok := root.(*guardedRoot); ok {
+		full, e := guarded.path(p)
+		if e != nil {
+			return nil, "", e
+		}
+		vault, _, e := guarded.lease.Boundary(full)
+		if e != nil {
+			return nil, "", protectionError(e)
+		}
+		if vault != nil {
+			return root, adjacent, nil
+		}
+	}
+	// Legacy vault configurations also must not spill protected previews.
+	if s.vaults != nil && s.vaults.remote == nil && s.vaults.protectedSource(source) {
+		return root, adjacent, nil
+	}
+	state, e := os.OpenRoot(s.config.State)
+	if e != nil {
+		return nil, "", e
+	}
+	digest := sha256.Sum256([]byte(source + "\x00" + filepath.Dir(p)))
+	return state, filepath.Join("filesystem-thumbnails", hex.EncodeToString(digest[:])), nil
 }

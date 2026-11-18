@@ -20,10 +20,16 @@ import (
 
 const thumbnailDirectory = ".filebeans-thumbnails"
 
+type ThumbnailCacheOverride struct {
+	Source string `json:"source"`
+	Path   string `json:"path"`
+}
+
 type FilesystemConfig struct {
-	Enabled  bool   `json:"enabled"`
-	FFmpeg   string `json:"ffmpeg,omitempty"`
-	PDFToPPM string `json:"pdftoppm,omitempty"`
+	ThumbnailCacheOverrides []ThumbnailCacheOverride `json:"thumbnailCacheOverrides,omitempty"`
+	Enabled                 bool                     `json:"enabled"`
+	FFmpeg                  string                   `json:"ffmpeg,omitempty"`
+	PDFToPPM                string                   `json:"pdftoppm,omitempty"`
 }
 
 type filesystemEntry struct {

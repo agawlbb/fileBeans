@@ -70,6 +70,13 @@ func Load(path string) (Config, error) {
 	if c.GoogleClientID != "" && (!strings.HasPrefix(c.GoogleRedirect, "https://") || c.GoogleClientSecret == "") {
 		return c, errors.New("Google requires client secret and HTTPS redirect")
 	}
+	for i, override := range c.Filesystem.ThumbnailCacheOverrides {
+		p, e := clean(override.Path)
+		if override.Path == "" || e != nil || !names[override.Source] || protected(p) {
+			return c, errors.New("invalid thumbnail cache override")
+		}
+		c.Filesystem.ThumbnailCacheOverrides[i].Path = p
+	}
 	if c.Filesystem.Enabled {
 		if c.Filesystem.FFmpeg == "" {
 			c.Filesystem.FFmpeg = "/usr/bin/ffmpeg"

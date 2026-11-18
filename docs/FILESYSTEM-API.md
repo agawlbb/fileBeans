@@ -21,7 +21,8 @@ Enable only in the trial companion configuration:
 "filesystem": {
   "enabled": true,
   "ffmpeg": "/usr/bin/ffmpeg",
-  "pdftoppm": "/usr/bin/pdftoppm"
+  "pdftoppm": "/usr/bin/pdftoppm",
+  "thumbnailCacheOverrides": [{"source": "vps", "path": "/pics"}]
 }
 ```
 
@@ -58,6 +59,16 @@ exposed. There is no recursive search, continuous polling or persistent filename
 index.
 
 ## Thumbnails and protection
+
+During the long-running transcoding job, configure `thumbnailCacheOverrides`
+for its actual source name and watched `/pics` path. Ordinary thumbnails and
+renderer scratch for that subtree go into private service state under
+`filesystem-thumbnails/<source-and-directory-hash>`, outside the watched tree.
+Other folders retain adjacent caches. Protected files always retain encrypted
+adjacent caches even if they match an override. Remove the override after the
+old worker is retired; adjacent caches regenerate on demand. Originals and the
+running worker are not changed by this configuration.
+
 
 Thumbnails are generated on request into `.filebeans-thumbnails` inside the
 original file's containing folder. Cache keys cover its name, revision, fixed
@@ -130,23 +141,24 @@ Do not execute these steps without the corresponding explicit request.
    `scripts/prepare-vault-runtime.py --filesystem` inside development. This
    compiles Linux binaries and prepares the filesystem Dockerfile; it does not
    prepare or fetch Quantum. Build requested images only with the VM image-builder
-   procedure. The runtime includes FFmpeg, Poppler and pinned rclone. The normalizer
-   needs the matching source revision to exclude thumbnail caches.
+   procedure. The runtime includes FFmpeg, Poppler and pinned rclone. The running normalizer must be preserved unchanged; use the temporary cache
+   override for its watched folder instead of updating or restarting it.
 3. Request Apple build/testing from this feature branch, preserving app/domain
    identifiers and versioning. The native player needs real startup, seek,
    resume and cancellation checks on local, Samba and protected media. Exercise
    Apple Files create/edit/rename/move/copy/delete and conflict retention.
 4. Stop Quantum before enabling the trial API against the same production roots.
-   Switch the broker's consumer mode, deploy matching API/normalizer artifacts,
+   Switch the broker's consumer mode and deploy the API artifact, preserving
+   the normalizer container, configuration, mounted paths and running job,
    and retain existing HTTPS companion routing. Never run both backends as
    active writers. No SQL migration is needed for this replacement.
 5. Existing app connections reuse companion URL/token, IDs and Files domains.
    Original Quantum URLs and primary tokens remain stored for rollback. Direct
    API connections use a single URL/token. Changed URLs require an explicit
    token rather than silently forwarding credentials to a new endpoint.
-6. For rollback, stop the trial API and normalizer, restore the previous broker
+6. For rollback, stop the trial API, preserve the running normalizer, restore the previous broker
    executable/config (or set consumer mode false), restart the original
-   companion/normalizer/Quantum images and restore the previous native app build.
+   companion/Quantum images and restore the previous native app build.
    Existing data and encrypted folders remain in their existing formats. Software
    rollback does not undo file edits made during the trial. No cache deletion,
    database restore or ciphertext conversion is required.
