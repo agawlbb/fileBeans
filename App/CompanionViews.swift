@@ -69,6 +69,7 @@ struct TrashList: View {
     @State private var permanent: TrashEntry?
     @State private var emptying = false
     @State private var busy = false
+    @State private var pending: Set<String> = []
     private var visible: [TrashEntry] { entries.filter { $0.source == source && ($0.state == "retained" || $0.state == "purging") } }
     var body: some View {
         List {
@@ -77,7 +78,7 @@ struct TrashList: View {
             ForEach(visible) { entry in
                 VStack(alignment: .leading, spacing: 5) {
                     Label(entry.name, systemImage: "trash")
-                    Text("\(entry.source): /\(entry.original)").font(.caption)
+                    Text((entry.original as NSString).deletingLastPathComponent).font(.caption)
                     Text("Expires \(Date(timeIntervalSince1970: Double(entry.expires)).formatted())").font(.caption)
                     if entry.state == "retained" {
                         HStack {
@@ -86,6 +87,8 @@ struct TrashList: View {
                         }.buttonStyle(.borderless)
                     } else { Text(entry.error ?? entry.state).font(.caption) }
                 }
+                .opacity(pending.contains(entry.id) ? 0.45 : 1)
+                .overlay(alignment: .trailing) { if pending.contains(entry.id) { ProgressView() } }
             }
         }
         .disabled(busy)
@@ -99,7 +102,7 @@ struct TrashList: View {
         .confirmationDialog("Empty Trash?", isPresented: $emptying, titleVisibility: .visible) {
             Button("Empty Trash", role: .destructive) {
                 Task {
-                    busy = true; defer { busy = false }
+                    busy = true; pending = Set(visible.map(\.id)); defer { busy = false; pending = [] }
                     let client = CompanionClient(connection: connection); defer { client.close() }
                     do {
                         for entry in visible where entry.state == "retained" {
@@ -117,8 +120,10 @@ struct TrashList: View {
     }
     private func refreshKeepingError() async { let previous = error; await refresh(); if let previous { error = previous } }
     private func action(_ route: String, permanent: Bool = false) {
+        let id = route.split(separator: "/").dropFirst().first.map(String.init)
+        if let id { pending.insert(id) }
         Task {
-            busy = true; defer { busy = false }
+            busy = true; defer { busy = false; if let id { pending.remove(id) } }
             let client = CompanionClient(connection: connection); defer { client.close() }
             do { _ = try await client.request(route, method: "POST", permanent: permanent); await refresh() }
             catch { self.error = error.localizedDescription; await refreshKeepingError() }

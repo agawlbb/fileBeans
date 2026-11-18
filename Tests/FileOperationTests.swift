@@ -5,7 +5,7 @@ import XCTest
 final class FileOperationTests: XCTestCase {
     private func job(state: String = "running", name: String? = nil) throws -> CopyJob {
         var request: [String: Any] = ["items": [["source": "Samba", "path": "/Private/video.mov"]],
-            "destination": ["source": "Samba", "path": "/Documents/Target"], "operation": "move"]
+            "destination": ["source": "Samba", "path": "Documents/Target"], "operation": "move"]
         if let name { request["destinationName"] = name }
         let data = try JSONSerialization.data(withJSONObject: ["id": "transfer", "state": state,
             "total": 100, "done": 20, "speed": 1, "current": "", "request": request])
@@ -28,6 +28,19 @@ final class FileOperationTests: XCTestCase {
         XCTAssertEqual(pending.map(\.name), ["renamed.mov"])
         XCTAssertEqual(pending.map(\.path), ["/Target/renamed.mov"])
         XCTAssertTrue(activity.pending(connection: connection, source: "VPS", parent: "/Target", canonicalParent: "/Documents/Target").isEmpty)
+    }
+
+    func testServerJobsOutsideAuthenticatedScopeDoNotAppearInSameNamedFolder() throws {
+        let activity = FileActivity(), connection = UUID()
+        activity.synchronize([try job()], connection: connection)
+        XCTAssertTrue(activity.pending(connection: connection, source: "Samba", parent: "/Documents/Target", canonicalParent: "/Other/Documents/Target").isEmpty)
+    }
+
+    func testReopenedSourceRecognizesQueuedBatchMove() throws {
+        let activity = FileActivity(), connection = UUID()
+        activity.synchronize([try job()], connection: connection)
+        XCTAssertTrue(activity.busySource(connection: connection, source: "Samba", path: "/video.mov", canonicalPath: "/Private/video.mov"))
+        XCTAssertFalse(activity.busySource(connection: connection, source: "Samba", path: "/other.mov", canonicalPath: "/Private/other.mov"))
     }
     func testEntireDeleteSelectionIsPendingImmediatelyAndFailuresClearIndividually() {
         let activity = FileActivity(), connection = UUID()

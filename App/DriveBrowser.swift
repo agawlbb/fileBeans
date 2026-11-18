@@ -106,7 +106,7 @@ struct DriveBrowser: View {
         }
     }
     private func pending(_ item: DriveFile) -> Bool {
-        incoming.contains { $0.name == item.name } || activity.deleting(connection: connection.id, source: "drive", path: item.id)
+        incoming.contains { $0.name == item.name } || activity.busySource(connection: connection.id, source: "drive", path: item.id, canonicalPath: item.id)
     }
     var body: some View {
         browserWithActions
@@ -207,9 +207,9 @@ struct DriveBrowser: View {
         }
         ToolbarItemGroup(placement: .topBarTrailing) {
             if selecting {
-                BrowserSelectionControls(canCopy: !chosen.isEmpty && chosen.allSatisfy(\.canCopy),
-                                         canMove: model.writable && !chosen.isEmpty && chosen.allSatisfy(\.canMove),
-                                         canDelete: model.writable && !chosen.isEmpty && chosen.allSatisfy(\.canTrash),
+                BrowserSelectionControls(canCopy: !chosen.isEmpty && !chosen.contains(where: pending) && chosen.allSatisfy(\.canCopy),
+                                         canMove: model.writable && !chosen.isEmpty && !chosen.contains(where: pending) && chosen.allSatisfy(\.canMove),
+                                         canDelete: model.writable && !chosen.isEmpty && !chosen.contains(where: pending) && chosen.allSatisfy(\.canTrash),
                                          copy: { copying = true; choosingDestination = true },
                                          move: { copying = false; choosingDestination = true },
                                          delete: { deleting = true }, done: { selecting = false; selected.removeAll() },

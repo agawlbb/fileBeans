@@ -70,6 +70,23 @@ final class CompanionTransportTests: XCTestCase {
         return CompanionClient(connection: connection, credential: "synthetic-companion-token", configuration: config, store: store)
     }
 
+
+    func testMultipleMovesUseOneSubmissionWithEverySelectedFile() async throws {
+        var submissions = 0
+        CompanionStub.inspect = { request in
+            submissions += 1
+            XCTAssertEqual(request.url?.path, "/companion/v1/jobs")
+            let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+            XCTAssertEqual(body["operation"] as? String, "move")
+            let items = body["items"] as! [[String: Any]]
+            XCTAssertEqual(items.compactMap { $0["path"] as? String }, ["/Documents/a", "/Documents/b", "/Documents/c"])
+            return (202, Data(#"{"id":"batch","state":"queued","total":0,"done":0,"speed":0,"current":""}"#.utf8))
+        }
+        let service = try client(scope: "/Documents"); defer { service.close() }
+        _ = try await service.submit(BackgroundCopy(items: ["c","b","a"].map { CopyLocation(source: "samba", path: "/" + $0) },
+            destination: CopyLocation(source: "samba", path: "/Target"), operation: "move"))
+        XCTAssertEqual(submissions, 1)
+    }
     func testMoveSubmissionPreservesOperationNameAndSourceScope() async throws {
         CompanionStub.inspect = { request in
             let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]

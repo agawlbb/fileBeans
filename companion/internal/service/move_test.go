@@ -59,6 +59,32 @@ func testMoveIntegration(t *testing.T, s *Service) {
 			t.Fatal("private journal exposed", string(b))
 		}
 	})
+
+	t.Run("multiple-selection-one-durable-job", func(t *testing.T) {
+		request := CopyRequest{Operation: "move", Destination: Item{Source: "vps", Path: "."}}
+		for _, name := range []string{"move-many-a", "move-many-b", "move-many-c"} {
+			if e := src.WriteFile(name, []byte(name), 0600); e != nil {
+				t.Fatal(e)
+			}
+			request.Items = append(request.Items, Item{Source: "samba", Path: name})
+		}
+		j := Job{ID: ID(), State: "queued", Request: request}
+		if e := s.insert(j.ID, "copy", j.State, ID(), j); e != nil {
+			t.Fatal(e)
+		}
+		s.runJob(context.Background(), &j)
+		if j.State != "completed" || len(j.Move.Selections) != 3 {
+			t.Fatal(j.State, j.Error)
+		}
+		for _, item := range request.Items {
+			if _, e := src.Stat(item.Path); !errors.Is(e, os.ErrNotExist) {
+				t.Fatal("original remains", e)
+			}
+			if data, e := dst.ReadFile(item.Path); e != nil || string(data) != item.Path {
+				t.Fatal("destination", e)
+			}
+		}
+	})
 	t.Run("rename-target", func(t *testing.T) {
 		j := seed(t, "move-old-name", false)
 		j.Request.DestinationName = "move-new-name"

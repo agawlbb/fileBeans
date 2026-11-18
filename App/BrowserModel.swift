@@ -9,6 +9,7 @@ final class BrowserModel: ObservableObject {
     @Published var uploadName = ""
     @Published var canRetry = false
     @Published var canCreateProtectedFolder = false
+    @Published var sourceScope = "/"
     @Published var parentProtection: FolderProtection?
     private var transfer: Task<Void, Never>?
     private var pending: [(URL, StoredItem)] = []
@@ -28,6 +29,7 @@ final class BrowserModel: ObservableObject {
                 let roots = try await repository.roots()
                 guard let root = roots.first(where: { $0.source == parent.source }),
                       FilePath.contains(parent.file.path, in: root.file.path) else { throw APIError.forbidden }
+                sourceScope = try repository.store.sourceScope(connection.id, source: parent.source)
                 var refreshed = parent; refreshed.permissions = root.permissions
                 items = try await repository.children(refreshed)
                 parentProtection = repository.protectedItem(refreshed).protection
@@ -68,6 +70,7 @@ final class BrowserModel: ObservableObject {
     }
     func transfer(_ values: [StoredItem], to destination: BrowserDestination, copying: Bool) async {
         guard let repository else { return }
+        guard !values.isEmpty else { error = APIError.missing.localizedDescription; return }
         let connection = repository.connection
         let target: CopyLocation
         switch destination {
@@ -93,6 +96,30 @@ final class BrowserModel: ObservableObject {
                 activity.attach(job, ids: ids, connection: connection.id)
             } catch { activity.finish(ids); self.error = error.localizedDescription }
             return
+        }
+
+        if !copying, case .local(let parent) = destination, let companion = repository.companion {
+            do {
+                try repository.store.setVaults(await companion.vaults(), connection: connection.id)
+                try repository.requireUnlocked(parent)
+                let targetProtection = try repository.store.protection(for: parent, connection: connection.id)
+                var crossesBoundary = false
+                for item in values {
+                    try repository.requireUnlocked(item)
+                    let protection = try repository.store.protection(for: item, connection: connection.id)
+                    guard !item.isSource, item.permissions.modify, parent.permissions.create, protection?.isRoot != true else { throw APIError.forbidden }
+                    guard item.source != parent.source || !item.file.isDirectory || !FilePath.contains(parent.file.path, in: item.file.path) else { throw APIError.invalidName }
+                    crossesBoundary = crossesBoundary || item.source != parent.source || protection?.id != targetProtection?.id
+                }
+                if crossesBoundary {
+                    let capabilities = try await companion.capabilities()
+                    guard capabilities.features?.contains("protectedFolderMoves") == true else { throw APIError.incompatible }
+                    let job = try await companion.submit(BackgroundCopy(items: values.map { CopyLocation(source: $0.source, path: $0.file.path) },
+                        destination: target, operation: "move"))
+                    activity.attach(job, ids: ids, connection: connection.id)
+                    return
+                }
+            } catch { activity.finish(ids); self.error = error.localizedDescription; return }
         }
         var failures: [String] = []
         for (index,item) in values.enumerated() {

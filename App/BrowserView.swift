@@ -38,8 +38,8 @@ struct BrowserView: View {
     }
 
     private var incoming: [ActivityFile] {
-        guard let parent, let repository = model.repository else { return [] }
-        let scope = (try? repository.store.sourceScope(connection.id, source: parent.source)) ?? "/"
+        guard let parent else { return [] }
+        let scope = model.sourceScope
         let canonical = (try? FilePath.inSource(parent.file.path, scope: scope)) ?? parent.file.path
         return activity.pending(connection: connection.id, source: parent.source, parent: parent.file.path, canonicalParent: canonical)
     }
@@ -53,8 +53,10 @@ struct BrowserView: View {
         return result
     }
     private func pending(_ item: StoredItem) -> Bool {
-        incoming.contains { $0.path == item.file.path } ||
-            activity.deleting(connection: connection.id, source: item.source, path: item.file.path)
+        let scope = model.sourceScope
+        let canonical = (try? FilePath.inSource(item.file.path, scope: scope)) ?? item.file.path
+        return incoming.contains { $0.path == item.file.path } ||
+            activity.busySource(connection: connection.id, source: item.source, path: item.file.path, canonicalPath: canonical)
     }
     private func sortValue(_ item: StoredItem) -> BrowserSortValue {
         BrowserSortValue(id: item.id, name: item.file.name, folder: item.file.isDirectory,
@@ -265,9 +267,9 @@ struct BrowserView: View {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 if selecting {
                     BrowserSelectionControls(
-                        canCopy: !model.busy && !chosen.isEmpty && !chosen.contains { $0.isSource || !$0.permissions.download || protected($0) },
-                        canMove: !chosen.isEmpty && !chosen.contains { $0.isSource || !$0.permissions.modify },
-                        canDelete: !chosen.isEmpty && !chosen.contains { $0.isSource || !$0.permissions.delete },
+                        canCopy: !model.busy && !chosen.isEmpty && !chosen.contains { $0.isSource || !$0.permissions.download || protected($0) || pending($0) },
+                        canMove: !chosen.isEmpty && !chosen.contains { $0.isSource || !$0.permissions.modify || pending($0) },
+                        canDelete: !chosen.isEmpty && !chosen.contains { $0.isSource || !$0.permissions.delete || pending($0) },
                         copy: { copying = true; moving = true }, move: { copying = false; moving = true },
                         delete: { deleting = true }, done: { selecting = false; selected.removeAll() },
                         selectAll: { selected = Set(visible.filter { !$0.isSource && !protected($0) && !pending($0) }.map(\.id)) })
