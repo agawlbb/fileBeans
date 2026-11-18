@@ -94,7 +94,7 @@ struct TrashList: View {
         .disabled(busy)
         .navigationTitle("Trash")
         .toolbar { Button("Empty Trash", role: .destructive) { emptying = true }.disabled(visible.isEmpty || busy) }
-        .task { while !Task.isCancelled { await refresh(); do { try await Task.sleep(for: .seconds(3)) } catch { return } } }
+        .task { while !Task.isCancelled { await refreshKeepingError(); do { try await Task.sleep(for: .seconds(3)) } catch { return } } }
         .refreshable { await refresh() }
         .confirmationDialog("Delete permanently?", isPresented: Binding(get: { permanent != nil }, set: { if !$0 { permanent = nil } }), titleVisibility: .visible) {
             if let entry = permanent { Button("Delete Permanently", role: .destructive) { permanent = nil; action("trash/\(entry.id)/purge", permanent: true) } }

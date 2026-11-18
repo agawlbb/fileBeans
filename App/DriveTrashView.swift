@@ -8,6 +8,7 @@ struct DriveTrashView: View {
     @State private var next = ""
     @State private var error: String?
     @State private var busy = false
+    @State private var pending: Set<String> = []
     @State private var writable = false
     @State private var permanent: DriveFile?
     @State private var emptying = false
@@ -15,7 +16,6 @@ struct DriveTrashView: View {
     var body: some View {
         List {
             Picker("Drive", selection: $scope) { Text("My Drive").tag("root"); ForEach(drives) { Text($0.name).tag($0.id) } }
-            Text("Google Drive normally removes trashed items after 30 days. This includes items trashed outside fileBeans.").font(.caption).foregroundStyle(.secondary)
             if let error { Text(error).foregroundStyle(.red) }
             if files.isEmpty && !busy { Text("Trash is empty") }
             ForEach(files) { file in
@@ -26,6 +26,8 @@ struct DriveTrashView: View {
                         if writable && file.capabilities?.canDelete == true { Button("Delete Permanently", role: .destructive) { permanent = file } }
                     }.buttonStyle(.borderless)
                 }
+                .opacity(pending.contains(file.id) ? 0.45 : 1)
+                .overlay(alignment: .trailing) { if pending.contains(file.id) { ProgressView() } }
             }
             if !next.isEmpty { Button("Load More") { Task { await load(page: next) } } }
         }
@@ -41,10 +43,10 @@ struct DriveTrashView: View {
         }
         .task(id: scope) { await load() }
         .refreshable { await load() }
-        .confirmationDialog("Permanently delete this item from Google Drive? This cannot be undone.", isPresented: Binding(get: { permanent != nil }, set: { if !$0 { permanent = nil } }), titleVisibility: .visible) {
+        .confirmationDialog("Delete permanently?", isPresented: Binding(get: { permanent != nil }, set: { if !$0 { permanent = nil } }), titleVisibility: .visible) {
             if let file = permanent { Button("Delete Permanently", role: .destructive) { permanent = nil; action(DriveMutationRequest(action: "purge", fileId: file.id, version: file.version), permanent: true) } }
         }
-        .confirmationDialog("Permanently empty all trash in \(scopeName), including items deleted outside fileBeans? This cannot be undone.", isPresented: $emptying, titleVisibility: .visible) {
+        .confirmationDialog("Empty \(scopeName) Trash?", isPresented: $emptying, titleVisibility: .visible) {
             Button("Empty Trash", role: .destructive) { action(DriveMutationRequest(action: "empty", scope: scope), permanent: true) }
         }
     }
@@ -59,9 +61,10 @@ struct DriveTrashView: View {
         } catch { self.error = error.localizedDescription }
     }
     private func action(_ request: DriveMutationRequest, permanent: Bool = false) {
+        pending = request.action == "empty" ? Set(files.map(\.id)) : Set([request.fileId].compactMap { $0 })
         Task {
             busy = true
-            let client = DriveClient(connection: connection); defer { client.close(); busy = false }
+            let client = DriveClient(connection: connection); defer { client.close(); busy = false; pending = [] }
             do { try await client.mutate(request, permanent: permanent); await load() }
             catch { self.error = error.localizedDescription }
         }
