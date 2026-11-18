@@ -41,6 +41,7 @@ final class ProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFi
                 _ = try await repo.roots()
                 var item = try repo.item(itemIdentifier.rawValue)
                 guard item.permissions.download else { throw APIError.forbidden }
+                try repo.requireUnlocked(item)
                 item.file = try await repo.client.resource(source: item.source, path: item.file.path).file
                 if let requestedVersion, requestedVersion.contentVersion != item.file.version { throw APIError.conflict }
                 let url = try await repo.client.download(source: item.source, path: item.file.path)
@@ -64,6 +65,7 @@ final class ProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFi
                 _ = try await repo.roots()
                 let parent = try repo.item(itemTemplate.parentItemIdentifier.rawValue)
                 guard parent.permissions.create else { throw APIError.forbidden }
+                try repo.requireUnlocked(parent)
                 let path = try FilePath.child(itemTemplate.filename, in: parent.file.path)
                 if repo.companion != nil && CompanionClient.protected(path) { throw APIError.forbidden }
                 if itemTemplate.contentType == .folder {
@@ -89,6 +91,7 @@ final class ProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFi
                 _ = try await repo.roots()
                 var stored = try repo.item(item.itemIdentifier.rawValue)
                 guard !stored.isSource, stored.permissions.modify else { throw APIError.forbidden }
+                try repo.requireUnlocked(stored)
                 guard version.metadataVersion == ProviderItem(stored).itemVersion.metadataVersion else { throw APIError.conflict }
                 let remote = try await repo.client.resource(source: stored.source, path: stored.file.path)
                 guard version.contentVersion == remote.file.version else { throw APIError.conflict }

@@ -135,9 +135,9 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
     }
     func submit(_ copy: BackgroundCopy, key: String? = nil) async throws -> CopyJob {
         let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
-        let canonical = BackgroundCopy(items: copy.items.sorted {
+        let canonical = BackgroundCopy(items: try copy.items.map(sourceLocation).sorted {
             $0.source == $1.source ? $0.path < $1.path : $0.source < $1.source
-        }, destination: copy.destination)
+        }, destination: try sourceLocation(copy.destination))
         let body = try encoder.encode(canonical)
         let identity = Data((connection.id.uuidString + (connection.companionURL?.absoluteString ?? "")).utf8) + body
         let hash = SHA256.hash(data: identity).map { String(format: "%02x", $0) }.joined()
@@ -162,7 +162,15 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
     }
     func jobs() async throws -> [CopyJob] { try JSONDecoder().decode([CopyJob].self, from: await request("jobs")) }
     func trash(_ item: StoredItem) async throws {
-        _ = try await request("trash", method: "POST", body: JSONEncoder().encode(CopyLocation(source: item.source, path: item.file.path)), key: UUID().uuidString)
+        let location = try sourceLocation(CopyLocation(source: item.source, path: item.file.path))
+        _ = try await request("trash", method: "POST", body: JSONEncoder().encode(location), key: UUID().uuidString)
+    }
+    private func sourceLocation(_ location: CopyLocation) throws -> CopyLocation {
+        guard location.source != "drive", location.source != "upload" else { return location }
+        let scope = try SharedStore().sourceScope(connection.id, source: location.source)
+        var adjusted = location
+        adjusted.path = try FilePath.inSource(location.path, scope: scope)
+        return adjusted
     }
     func trashEntries() async throws -> [TrashEntry] { try JSONDecoder().decode([TrashEntry].self, from: await request("trash")) }
     static func protected(_ path: String) -> Bool {

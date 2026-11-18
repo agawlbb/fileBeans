@@ -32,6 +32,7 @@ type BrokerConfig struct {
 }
 
 type brokerEntry struct {
+	Initialized bool   `json:"initialized,omitempty"`
 	ID          string `json:"id"`
 	Source      string `json:"source"`
 	Path        string `json:"path"`
@@ -46,6 +47,8 @@ type brokerRegistry struct {
 }
 
 type BrokerVault struct {
+	Device      uint64 `json:"device,omitempty"`
+	Inode       uint64 `json:"inode,omitempty"`
 	ID          string `json:"id"`
 	Source      string `json:"source"`
 	Path        string `json:"path"`
@@ -68,6 +71,8 @@ type mountBroker struct {
 	mountFiles    func(string, string) error
 	unmountFiles  func(string) error
 	consumerReady time.Time
+	lockedCheck   func(brokerEntry) bool // synthetic unit tests only; nil inspects kernel mounts
+	publicPins    map[string]*os.File
 }
 
 func validateBrokerConfig(c BrokerConfig) error {
@@ -105,6 +110,10 @@ func validateBrokerConfig(c BrokerConfig) error {
 }
 
 func newMountBroker(c BrokerConfig) (*mountBroker, error) {
+	return newMountBrokerWithChecks(c, nil)
+}
+
+func newMountBrokerWithChecks(c BrokerConfig, lockedCheck func(brokerEntry) bool) (*mountBroker, error) {
 	if e := validateBrokerConfig(c); e != nil {
 		return nil, e
 	}
@@ -140,12 +149,17 @@ func newMountBroker(c BrokerConfig) (*mountBroker, error) {
 	b := &mountBroker{config: c, registry: brokerRegistry{Version: brokerProtocol}, manager: &vaultManager{
 		keyFile: filepath.Join(c.State, "vault-key-id"), lockFile: owner,
 	}}
+	b.lockedCheck = lockedCheck
+	b.publicPins = map[string]*os.File{}
 	b.mountFiles = func(from, to string) error { return unix.Mount(from, to, "", unix.MS_BIND, "") }
 	b.unmountFiles = func(path string) error { return unix.Unmount(path, 0) }
 	ok := false
 	defer func() {
 		if !ok {
 			owner.Close()
+			for _, f := range b.publicPins {
+				f.Close()
+			}
 		}
 	}()
 	gate, e := os.OpenFile(filepath.Join(c.Runtime, "gate"), os.O_CREATE|os.O_RDWR, 0640)
@@ -180,6 +194,11 @@ func newMountBroker(c BrokerConfig) (*mountBroker, error) {
 		if e = b.validateLocation(entry.Source, entry.Path, b.registry.Entries[:i]); e != nil {
 			return nil, e
 		}
+		if mounted(b.publicPath(entry), "filebeans-locked-"+entry.ID) {
+			if e = b.unmountFiles(b.publicPath(entry)); e != nil {
+				return nil, ErrVaultBusy
+			}
+		}
 		public, e := b.publicDir(entry)
 		if e != nil {
 			return nil, e
@@ -196,6 +215,9 @@ func newMountBroker(c BrokerConfig) (*mountBroker, error) {
 			return nil, e
 		}
 		b.manager.states = append(b.manager.states, &vaultState{config: v})
+		if e = b.installLockedMount(entry); e != nil {
+			return nil, e
+		}
 	}
 	if e = b.publish(); e != nil {
 		return nil, e
@@ -301,10 +323,14 @@ func (b *mountBroker) publicDir(entry brokerEntry) (*os.File, error) {
 
 func (b *mountBroker) vaultConfig(e brokerEntry) VaultConfig {
 	r, _ := b.configuredRoot(e.Source)
-	return VaultConfig{ID: e.ID, Source: e.Source, Cipher: filepath.Join(r.Path, brokerStore, e.ID),
+	v := VaultConfig{ID: e.ID, Source: e.Source, Cipher: filepath.Join(r.Path, brokerStore, e.ID),
 		Mount: filepath.Join(b.config.Runtime, "mounts", e.ID), Gocryptfs: b.config.Gocryptfs,
 		Fusermount: b.config.Fusermount, BackingMount: r.Mount, BackingSource: r.MountSource,
 		StartClient: "/bin/true", StopClient: "/bin/true"}
+	if r.Mount != "" {
+		v.forceOwner = fmt.Sprintf("%d:%d", b.config.ReaderUID, b.config.GID)
+	}
+	return v
 }
 
 func brokerFD(f *os.File) string { return fmt.Sprintf("/proc/self/fd/%d", f.Fd()) }
@@ -351,22 +377,28 @@ func (b *mountBroker) saveRegistry() error {
 }
 
 func (b *mountBroker) statuses() []BrokerVault {
-	states := b.manager.status()
+	b.manager.mu.Lock()
+	defer b.manager.mu.Unlock()
 	out := make([]BrokerVault, 0, len(b.registry.Entries))
 	for _, e := range b.registry.Entries {
-		v := BrokerVault{ID: e.ID, Source: e.Source, Path: e.Path, Name: filepath.Base(e.Path), State: "locked"}
-		if _, err := b.root(e.Source); err != nil {
+		v := BrokerVault{ID: e.ID, Source: e.Source, Path: e.Path, Name: filepath.Base(e.Path), State: "locked", Initialized: e.Initialized, Device: e.Device, Inode: e.Inode}
+		r, err := b.configuredRoot(e.Source)
+		if err != nil || r.Mount != "" && !mounted(r.Mount, r.MountSource) {
 			v.State = "error"
 			out = append(out, v)
 			continue
 		}
-		for _, state := range states {
-			if state.ID == e.ID {
-				v.State, v.Initialized = state.State, state.Initialized
+		if state := b.manager.find(e.ID); state != nil {
+			if state.fault {
+				v.State = "error"
+			} else if state.unlocked && b.manager.isMounted(state.config) {
+				v.State = "unlocked"
+			} else if state.cmd != nil || mounted(state.config.Mount, "") {
+				v.State = "error"
 			}
 		}
 		publicMounted := mounted(b.publicPath(e), "filebeans-vault-"+e.ID)
-		if v.State == "unlocked" && !publicMounted || v.State == "locked" && mounted(b.publicPath(e), "") {
+		if v.State == "unlocked" && !publicMounted || v.State == "locked" && !b.isLockedMount(e) {
 			v.State = "error"
 		}
 		out = append(out, v)
@@ -407,6 +439,11 @@ func (b *mountBroker) reserve(source, parent, name, request string) (brokerEntry
 		if entry.RequestHash == requestHash {
 			if entry.Source != source || entry.Path != path {
 				return brokerEntry{}, ErrConflict
+			}
+			if v := b.manager.find(entry.ID); v != nil && !v.unlocked {
+				if err := b.installLockedMount(entry); err != nil {
+					return brokerEntry{}, err
+				}
 			}
 			return entry, nil
 		}
@@ -487,7 +524,53 @@ func (b *mountBroker) reserve(source, parent, name, request string) (brokerEntry
 	}
 	v := b.vaultConfig(entry)
 	b.manager.states = append(b.manager.states, &vaultState{config: v})
+	if e = b.installLockedMount(entry); e != nil {
+		return brokerEntry{}, e
+	}
 	return entry, nil
+}
+
+func (b *mountBroker) isLockedMount(entry brokerEntry) bool {
+	if b.lockedCheck != nil {
+		return b.lockedCheck(entry)
+	}
+	return mounted(b.publicPath(entry), "filebeans-locked-"+entry.ID)
+}
+
+// A read-only kernel mount protects the fallback even when SMB does not honor
+// Unix chmod/ownership. The NAS still stores only the ciphertext directory.
+func (b *mountBroker) installLockedMount(entry brokerEntry) error {
+	if b.isLockedMount(entry) {
+		return nil
+	}
+	if mounted(b.publicPath(entry), "") {
+		return ErrVaultBusy
+	}
+	public := b.publicPins[entry.ID]
+	if public == nil {
+		r, err := b.configuredRoot(entry.Source)
+		if err != nil {
+			return err
+		}
+		var e error
+		public, e = brokerOpenDir(r.Path, strings.TrimPrefix(entry.Path, "/"))
+		if e != nil {
+			return e
+		}
+		var st unix.Stat_t
+		if unix.Fstat(int(public.Fd()), &st) != nil || uint64(st.Dev) != entry.Device || st.Ino != entry.Inode {
+			public.Close()
+			return ErrConflict
+		}
+		b.publicPins[entry.ID] = public
+	}
+	if e := unix.Mount("filebeans-locked-"+entry.ID, brokerFD(public), "tmpfs", unix.MS_RDONLY|unix.MS_NOSUID|unix.MS_NODEV|unix.MS_NOEXEC, "size=4096,mode=0500"); e != nil {
+		return errVault
+	}
+	if !b.isLockedMount(entry) {
+		return errVault
+	}
+	return nil
 }
 
 func (b *mountBroker) prepare(entry brokerEntry) error {
@@ -512,7 +595,7 @@ func (b *mountBroker) prepare(entry brokerEntry) error {
 	}
 	defer dir.Close()
 	var st unix.Stat_t
-	if unix.Fstat(int(dir.Fd()), &st) != nil || st.Uid != uint32(os.Geteuid()) || st.Mode&0022 != 0 {
+	if unix.Fstat(int(dir.Fd()), &st) != nil || r.Mount == "" && (st.Uid != uint32(os.Geteuid()) || st.Mode&0022 != 0) {
 		return ErrUnsafe
 	}
 	if e = unix.Mkdirat(int(dir.Fd()), entry.ID, 0700); e != nil && !errors.Is(e, os.ErrExist) {
@@ -542,18 +625,36 @@ func (b *mountBroker) open(entry brokerEntry, key []byte) error {
 		}
 		return errVault
 	}
+	if b.isLockedMount(entry) {
+		if e := b.unmountFiles(b.publicPath(entry)); e != nil {
+			return ErrVaultBusy
+		}
+	}
+	defer func() {
+		if !mounted(b.publicPath(entry), "filebeans-vault-"+entry.ID) {
+			_ = b.installLockedMount(entry)
+		}
+	}()
 	public, e := b.publicDir(entry)
 	if e != nil {
 		return e
 	}
 	defer public.Close()
-	if mounted(b.publicPath(entry), "") {
+	if mounted(b.publicPath(entry), "") && !b.isLockedMount(entry) {
 		return ErrVaultBusy
 	}
 	if e = b.prepare(entry); e != nil {
 		return e
 	}
-	_, confErr := os.Stat(filepath.Join(v.config.Cipher, "gocryptfs.conf"))
+	r, _ := b.configuredRoot(entry.Source)
+	cipherFD, e := brokerOpenDir(r.Path, filepath.Join(brokerStore, entry.ID))
+	if e != nil {
+		return e
+	}
+	defer cipherFD.Close()
+	v.config.cipherDirectory = cipherFD
+	defer func() { v.config.cipherDirectory = nil }()
+	_, confErr := os.Stat(filepath.Join(vaultCipherDirectory(v.config), "gocryptfs.conf"))
 	_, pendingErr := os.Stat(b.manager.initializationFile(entry.ID))
 	initialize := errors.Is(confErr, os.ErrNotExist) || pendingErr == nil
 	// Publish the protected boundary before any plaintext becomes visible to
@@ -565,15 +666,33 @@ func (b *mountBroker) open(entry brokerEntry, key []byte) error {
 		return fmt.Errorf("mount private filesystem: %w", e)
 	}
 	rollback := func() { _ = b.manager.lock(entry.ID) }
+	for i := range b.registry.Entries {
+		if b.registry.Entries[i].ID == entry.ID && !b.registry.Entries[i].Initialized {
+			b.registry.Entries[i].Initialized = true
+			if e = b.saveRegistry(); e != nil {
+				b.registry.Entries[i].Initialized = false
+				rollback()
+				return e
+			}
+		}
+	}
 	for _, relative := range []string{"files", "private", "private/cache", "private/tmp"} {
 		dir, err := brokerOpenDir(v.config.Mount, relative)
 		if err != nil {
 			rollback()
 			return err
 		}
-		e = unix.Fchownat(int(dir.Fd()), "", int(b.config.ReaderUID), b.config.GID, unix.AT_EMPTY_PATH|unix.AT_SYMLINK_NOFOLLOW)
+		if v.config.forceOwner == "" {
+			e = unix.Fchownat(int(dir.Fd()), "", int(b.config.ReaderUID), b.config.GID, unix.AT_EMPTY_PATH|unix.AT_SYMLINK_NOFOLLOW)
+		}
 		if e == nil {
 			e = os.Chmod(brokerFD(dir), 0770)
+		}
+		if v.config.forceOwner != "" {
+			var st unix.Stat_t
+			if unix.Fstat(int(dir.Fd()), &st) == nil && st.Mode&0770 == 0770 {
+				e = nil
+			}
 		}
 		dir.Close()
 		if e != nil {
@@ -581,13 +700,15 @@ func (b *mountBroker) open(entry brokerEntry, key []byte) error {
 			return e
 		}
 	}
-	if e = os.Chown(v.config.Mount, -1, b.config.GID); e != nil {
-		rollback()
-		return e
-	}
-	if e = os.Chmod(v.config.Mount, 0710); e != nil {
-		rollback()
-		return e
+	if v.config.forceOwner == "" {
+		if e = os.Chown(v.config.Mount, -1, b.config.GID); e != nil {
+			rollback()
+			return e
+		}
+		if e = os.Chmod(v.config.Mount, 0710); e != nil {
+			rollback()
+			return e
+		}
 	}
 	if e = b.mountFiles(filepath.Join(v.config.Mount, "files"), brokerFD(public)); e != nil {
 		rollback()
@@ -607,7 +728,7 @@ func (b *mountBroker) lock(entry brokerEntry) error {
 	if _, e := b.configuredRoot(entry.Source); e != nil {
 		return e
 	}
-	if mounted(b.publicPath(entry), "") {
+	if mounted(b.publicPath(entry), "") && !b.isLockedMount(entry) {
 		if !mounted(b.publicPath(entry), "filebeans-vault-"+entry.ID) {
 			return ErrUnsafe
 		}
@@ -616,6 +737,10 @@ func (b *mountBroker) lock(entry brokerEntry) error {
 		}
 	}
 	if e := b.manager.lock(entry.ID); e != nil {
+		_ = b.publish()
+		return e
+	}
+	if e := b.installLockedMount(entry); e != nil {
 		_ = b.publish()
 		return e
 	}
@@ -629,4 +754,8 @@ func (b *mountBroker) close() {
 		_ = b.lock(entry)
 	}
 	b.manager.close()
+	for id, f := range b.publicPins {
+		f.Close()
+		delete(b.publicPins, id)
+	}
 }

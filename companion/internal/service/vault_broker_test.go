@@ -26,13 +26,27 @@ func testBroker(t *testing.T) *mountBroker {
 	if e := os.Mkdir(root, 0700); e != nil {
 		t.Fatal(e)
 	}
-	b, e := newMountBroker(BrokerConfig{State: filepath.Join(base, "state"), Runtime: filepath.Join(base, "runtime"),
+	var lockedCheck func(brokerEntry) bool
+	if os.Getenv("FILEBEANS_TEST_FUSE") != "1" {
+		lockedCheck = func(brokerEntry) bool { return true }
+	}
+	b, e := newMountBrokerWithChecks(BrokerConfig{State: filepath.Join(base, "state"), Runtime: filepath.Join(base, "runtime"),
 		Roots: []Root{{Name: "disk", Path: root}}, Gocryptfs: "/usr/bin/gocryptfs", Fusermount: "/usr/bin/fusermount3",
-		ControlUID: uint32(os.Getuid()), ReaderUID: uint32(os.Getuid() + 1), GID: os.Getgid()})
+		ControlUID: uint32(os.Getuid()), ReaderUID: uint32(os.Getuid() + 1), GID: os.Getgid()}, lockedCheck)
 	if e != nil {
 		t.Fatal(e)
 	}
-	t.Cleanup(b.close)
+	if os.Getenv("FILEBEANS_TEST_FUSE") != "1" {
+		b.lockedCheck = func(brokerEntry) bool { return true }
+	}
+	t.Cleanup(func() {
+		b.close()
+		for _, entry := range b.registry.Entries {
+			if mounted(b.publicPath(entry), "filebeans-locked-"+entry.ID) {
+				_ = b.unmountFiles(b.publicPath(entry))
+			}
+		}
+	})
 	return b
 }
 
@@ -60,7 +74,7 @@ func TestBrokerReservationIsDurableAndIdempotent(t *testing.T) {
 		t.Fatal("raw request ID persisted")
 	}
 	b.close()
-	reopened, e := newMountBroker(b.config)
+	reopened, e := newMountBrokerWithChecks(b.config, b.lockedCheck)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -372,6 +386,9 @@ func TestBrokerRealFilesystemLifecycle(t *testing.T) {
 	root.Close()
 	if files, e := os.ReadDir(public); e != nil || len(files) != 0 {
 		t.Fatal("locked folder exposes contents", e)
+	}
+	if e = os.WriteFile(filepath.Join(public, "plaintext-fallback"), []byte("must not be written"), 0600); e == nil {
+		t.Fatal("locked mount accepted plaintext fallback writes")
 	}
 	if _, e = os.ReadFile(private); !errors.Is(e, os.ErrNotExist) {
 		t.Fatal("private cache survives outside mount", e)

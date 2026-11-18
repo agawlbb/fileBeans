@@ -95,6 +95,9 @@ func (r *guardedRoot) OpenFile(name string, flag int, mode os.FileMode) (*os.Fil
 			return nil, e
 		}
 	}
+	if flag&os.O_CREATE != 0 {
+		mode = (mode | 0060) &^ 0007
+	}
 	return r.Root.OpenFile(name, flag, mode)
 }
 func (r *guardedRoot) Stat(name string) (os.FileInfo, error) {
@@ -119,13 +122,13 @@ func (r *guardedRoot) WriteFile(name string, data []byte, mode os.FileMode) erro
 	if e := r.mutation(name, ""); e != nil {
 		return e
 	}
-	return r.Root.WriteFile(name, data, mode)
+	return r.Root.WriteFile(name, data, (mode|0060)&^0007)
 }
 func (r *guardedRoot) MkdirAll(name string, mode os.FileMode) error {
 	if e := r.check(name); e != nil {
 		return e
 	}
-	return r.Root.MkdirAll(name, mode)
+	return r.Root.MkdirAll(name, (mode|0070)&^0007)
 }
 func (r *guardedRoot) Chmod(name string, mode os.FileMode) error {
 	if e := r.mutation(name, ""); e != nil {

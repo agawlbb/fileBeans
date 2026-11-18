@@ -31,11 +31,13 @@ var ErrVaultKey = errors.New("encryption key does not match")
 var errVault = errors.New("vault operation failed; check protected-folder setup")
 
 type VaultConfig struct {
-	Path   string `json:"path,omitempty"`
-	ID     string `json:"id"`
-	Source string `json:"source"`
-	Cipher string `json:"cipher"`
-	Mount  string `json:"mount"`
+	cipherDirectory *os.File // pinned by the broker; never serialized or caller supplied
+	forceOwner      string   // broker-generated mapping for non-Unix remote filesystems
+	Path            string   `json:"path,omitempty"`
+	ID              string   `json:"id"`
+	Source          string   `json:"source"`
+	Cipher          string   `json:"cipher"`
+	Mount           string   `json:"mount"`
 	// For remote ciphertext, verify the underlying SMB mount before access.
 	BackingMount  string `json:"backingMount,omitempty"`
 	BackingSource string `json:"backingSource,omitempty"`
@@ -157,6 +159,10 @@ func newVaultManager(c Config) (*vaultManager, error) {
 		if e != nil {
 			return nil, e
 		}
+		if e = guard.RequirePrimaryGroup(); e != nil {
+			return nil, e
+		}
+		unix.Umask(0007)
 		return &vaultManager{remote: newBrokerClient(c.ProtectedRuntime, c.Roots), guard: guard}, nil
 	}
 	if len(c.Vaults) == 0 {
@@ -387,9 +393,12 @@ func (m *vaultManager) unlock(id string, key []byte, initialize bool) error {
 	if v.config.BackingMount != "" && !mounted(v.config.BackingMount, v.config.BackingSource) {
 		return ErrMount
 	}
-	resolved, e := filepath.EvalSymlinks(v.config.Cipher)
-	if e != nil || resolved != v.config.Cipher {
-		return ErrUnsafe
+	var e error
+	if v.config.cipherDirectory == nil {
+		resolved, err := filepath.EvalSymlinks(v.config.Cipher)
+		if err != nil || resolved != v.config.Cipher {
+			return ErrUnsafe
+		}
 	}
 	if e = emptyMount(v.config.Mount); e != nil {
 		return e
@@ -399,7 +408,19 @@ func (m *vaultManager) unlock(id string, key []byte, initialize bool) error {
 			return e
 		}
 	}
-	cmd := exec.Command(v.config.Gocryptfs, "-fg", "-nosyslog", "-allow_other", "-noexec", "-fsname=filebeans-vault-"+v.config.ID, "-masterkey=stdin", v.config.Cipher, v.config.Mount)
+	cipherArgument := v.config.Cipher
+	var extra []*os.File
+	if v.config.cipherDirectory != nil {
+		cipherArgument = "/proc/self/fd/3"
+		extra = []*os.File{v.config.cipherDirectory}
+	}
+	arguments := []string{"-fg", "-nosyslog", "-allow_other", "-noexec", "-fsname=filebeans-vault-" + v.config.ID, "-masterkey=stdin"}
+	if v.config.forceOwner != "" {
+		arguments = append(arguments, "-force_owner="+v.config.forceOwner)
+	}
+	arguments = append(arguments, cipherArgument, v.config.Mount)
+	cmd := exec.Command(v.config.Gocryptfs, arguments...)
+	cmd.ExtraFiles = extra
 	input := make([]byte, 65)
 	hex.Encode(input[:64], key)
 	input[64] = '\n'
@@ -441,29 +462,48 @@ func (m *vaultManager) unlock(id string, key []byte, initialize bool) error {
 		case <-time.After(30 * time.Millisecond):
 		}
 	}
-	rollback := func() { _ = vaultHook(v.config.StopClient, v.config.ID); _ = unmountVault(v); v.fault = true }
+	var plain *os.Root
+	rollback := func() {
+		if plain != nil {
+			plain.Close()
+			plain = nil
+		}
+		_ = vaultHook(v.config.StopClient, v.config.ID)
+		_ = unmountVault(v)
+		v.fault = true
+	}
 	if !vaultMounted(v.config) {
 		rollback()
 		return errVault
 	}
-	marker := filepath.Join(v.config.Mount, "private", "identity")
+	plain, e = os.OpenRoot(v.config.Mount)
+	if e != nil {
+		rollback()
+		return errVault
+	}
+	defer func() {
+		if plain != nil {
+			plain.Close()
+		}
+	}()
+	marker := filepath.Join("private", "identity")
 	if initialize {
 		for _, name := range []string{"files", "private", "private/cache", "private/tmp"} {
-			if e = os.MkdirAll(filepath.Join(v.config.Mount, name), 0700); e != nil {
+			if e = plain.MkdirAll(name, 0700); e != nil {
 				rollback()
 				return fmt.Errorf("%w: initialize directories: %v", errVault, e)
 			}
 		}
-		e = os.WriteFile(marker, []byte("fileBeans vault v1\n"+v.config.ID+"\n"), 0600)
+		e = plain.WriteFile(marker, []byte("fileBeans vault v1\n"+v.config.ID+"\n"), 0600)
 		if e == nil {
-			e = os.WriteFile(filepath.Join(v.config.Cipher, "RECOVERY.txt"), []byte(vaultRecovery), 0600)
+			e = writeVaultRecovery(v.config)
 		}
 		if e != nil {
 			rollback()
 			return fmt.Errorf("%w: write identity: %v", errVault, e)
 		}
 	}
-	b, e := os.ReadFile(marker)
+	b, e := plain.ReadFile(marker)
 	if e != nil || string(b) != "fileBeans vault v1\n"+v.config.ID+"\n" {
 		rollback()
 		return fmt.Errorf("%w: verify identity: %v", errVault, e)
@@ -514,7 +554,8 @@ func (m *vaultManager) prepareInitialization(v VaultConfig, key []byte) error {
 			return errVault
 		}
 	}
-	entries, e := os.ReadDir(v.Cipher)
+	cipher := vaultCipherDirectory(v)
+	entries, e := os.ReadDir(cipher)
 	if e != nil {
 		return e
 	}
@@ -532,14 +573,14 @@ func (m *vaultManager) prepareInitialization(v VaultConfig, key []byte) error {
 	}
 	// A mount failure must not strand a newly initialized empty vault. Retry
 	// initialization with the same key, retaining its standard config/diriv.
-	_, e = os.Stat(filepath.Join(v.Cipher, "gocryptfs.conf"))
+	_, e = os.Stat(filepath.Join(cipher, "gocryptfs.conf"))
 	if e == nil {
 		return nil
 	}
 	if !errors.Is(e, os.ErrNotExist) || len(entries) != 0 {
 		return ErrConflict
 	}
-	return initializeVaultCipher(v.Gocryptfs, v.Cipher, key)
+	return initializeVaultCipherPinned(v.Gocryptfs, v.Cipher, key, v.cipherDirectory)
 }
 func unmountVault(v *vaultState) error {
 	if mounted(v.config.Mount, "") {
@@ -756,6 +797,33 @@ func (s *Service) sensitiveRecord(b []byte) bool {
 // gocryptfs reads the discarded config password first, then the master key,
 // one line at a time from stdin. Neither secret is passed in argv or a file.
 func initializeVaultCipher(binary, directory string, key []byte) error {
+	return initializeVaultCipherPinned(binary, directory, key, nil)
+}
+
+func vaultCipherDirectory(v VaultConfig) string {
+	if v.cipherDirectory != nil {
+		return brokerFD(v.cipherDirectory)
+	}
+	return v.Cipher
+}
+
+func writeVaultRecovery(v VaultConfig) error {
+	if v.cipherDirectory == nil {
+		return os.WriteFile(filepath.Join(v.Cipher, "RECOVERY.txt"), []byte(vaultRecovery), 0600)
+	}
+	fd, e := unix.Openat(int(v.cipherDirectory.Fd()), "RECOVERY.txt", unix.O_WRONLY|unix.O_CREAT|unix.O_TRUNC|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0600)
+	if e != nil {
+		return e
+	}
+	f := os.NewFile(uintptr(fd), "RECOVERY.txt")
+	defer f.Close()
+	if _, e = f.WriteString(vaultRecovery); e != nil {
+		return e
+	}
+	return f.Sync()
+}
+
+func initializeVaultCipherPinned(binary, directory string, key []byte, pinned *os.File) error {
 	password := make([]byte, 32)
 	if _, e := rand.Read(password); e != nil {
 		return e
@@ -765,7 +833,15 @@ func initializeVaultCipher(binary, directory string, key []byte) error {
 	defer clear(input)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, binary, "-init", "-masterkey=stdin", directory)
+	argument := directory
+	var extra []*os.File
+	if pinned != nil {
+		argument = "/proc/self/fd/3"
+		extra = []*os.File{pinned}
+	}
+	cmd := exec.CommandContext(ctx, binary, "-init", "-masterkey=stdin", argument)
+	cmd.ExtraFiles = extra
+	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL}
 	cmd.Stdin = bytes.NewReader(input)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard

@@ -139,6 +139,9 @@ final class SharedStore {
         directory.appendingPathComponent("Library/Caches").appendingPathComponent(id.uuidString)
     }
     func items(_ id: UUID) throws -> [String: StoredItem] { try transaction { $0.items[id.uuidString] ?? [:] } }
+    func sourceScope(_ id: UUID, source: String) throws -> String {
+        try transaction { $0.boundaries[id.uuidString]?[source] ?? "/" }
+    }
     func revision(_ id: UUID) throws -> Int64 { try transaction { $0.revisions[id.uuidString] ?? 0 } }
     func updateScope(connection: UUID, source: String, boundary: String) throws {
         try transaction { state in
@@ -165,8 +168,10 @@ final class SharedStore {
             var result: [StoredItem] = []
             for file in files {
                 let existing = items.values.first { $0.source == source && $0.file.path == file.path && $0.isSource == sourceRoots }
-                let item = StoredItem(id: existing?.id ?? UUID().uuidString, parent: parent, source: source,
+                var item = StoredItem(id: existing?.id ?? UUID().uuidString, parent: parent, source: source,
                                       file: file, permissions: permissions, isSource: sourceRoots)
+                item.protection = Self.protection(for: item, vaults: state.protectedFolders?[key] ?? [],
+                    scope: state.boundaries[key]?[source] ?? "/")
                 items[item.id] = item
                 result.append(item)
                 if sourceRoots {

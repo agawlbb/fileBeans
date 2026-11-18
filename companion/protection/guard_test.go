@@ -67,6 +67,30 @@ func TestGuardLocksEntireOperationAndReleases(t *testing.T) {
 	}
 }
 
+func TestGuardAllowsLocalOnlyConsumerWithoutRemoteMount(t *testing.T) {
+	g, root := fixture(t)
+	s, e := g.snapshot()
+	if e != nil {
+		t.Fatal(e)
+	}
+	s.Vaults = append(s.Vaults, Vault{ID: strings.Repeat("b", 32), Source: "remote", Path: "/Private", State: "locked", Initialized: true})
+	writeSnapshot(t, g, s)
+	l, e := g.Acquire()
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer l.Close()
+	if len(l.Snapshot.Vaults) != 1 {
+		t.Fatal("consumer retained an unmounted source")
+	}
+	if e = l.Check(filepath.Join(root, "Normal"), false); e != nil {
+		t.Fatal("remote vault disabled local access", e)
+	}
+	if e = l.Check("/unconfigured/Private", false); !errors.Is(e, ErrBoundary) {
+		t.Fatal("unconfigured source was accessible", e)
+	}
+}
+
 func TestGuardSeparatesPublicAndPrivateCache(t *testing.T) {
 	g, root := fixture(t)
 	l, e := g.Acquire()

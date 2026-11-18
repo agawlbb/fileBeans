@@ -117,6 +117,13 @@ struct Resource: Decodable {
 }
 
 enum FilePath {
+    static func inSource(_ relative: String, scope: String) throws -> String {
+        for value in [relative, scope] {
+            guard !value.contains("\\"), !value.contains("\0"),
+                  !value.split(separator: "/").contains(where: { $0 == "." || $0 == ".." }) else { throw APIError.invalidName }
+        }
+        return normalized(scope + "/" + relative)
+    }
     static func normalized(_ path: String) -> String {
         "/" + path.split(separator: "/").map(String.init).joined(separator: "/")
     }

@@ -37,4 +37,16 @@ final class VaultTests: XCTestCase {
         let catalog = try JSONDecoder().decode(Catalog.self, from: Data(json.utf8))
         XCTAssertNil(catalog.protectedFolders)
     }
+    func testProtectedFolderUsesAuthenticatedSourceScope() throws {
+        let vault = ProtectedVault(id: "private", source: "disk", state: "locked", initialized: true,
+                                   path: "/Documents/Private", name: "Private")
+        let item = StoredItem(id: "folder", parent: "source", source: "disk",
+                              file: RemoteFile(name: "Private", path: "/Private", type: "directory"), permissions: Permissions())
+        XCTAssertEqual(SharedStore.protection(for: item, vaults: [vault], scope: "/Documents")?.id, "private")
+        XCTAssertTrue(SharedStore.protection(for: item, vaults: [vault], scope: "/Documents")?.isRoot == true)
+        XCTAssertNil(SharedStore.protection(for: item, vaults: [vault], scope: "/Other"))
+        XCTAssertEqual(try FilePath.inSource("/Private", scope: "/Documents"), "/Documents/Private")
+        XCTAssertEqual(try FilePath.inSource("/", scope: "/Documents"), "/Documents")
+        XCTAssertThrowsError(try FilePath.inSource("../escape", scope: "/Documents"))
+    }
 }

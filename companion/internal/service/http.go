@@ -142,6 +142,13 @@ func (s *Service) Handler() http.Handler {
 				fail(w, er)
 				return
 			}
+			if guarded, ok := root.(*guardedRoot); ok {
+				if er = guarded.check(req.Destination.Path); er != nil {
+					root.Close()
+					fail(w, er)
+					return
+				}
+			}
 			root.Close()
 		}
 		for _, item := range req.Items {
@@ -164,6 +171,13 @@ func (s *Service) Handler() http.Handler {
 				if e != nil {
 					fail(w, e)
 					return
+				}
+				if guarded, ok := root.(*guardedRoot); ok {
+					if e = guarded.check(item.Path); e != nil {
+						root.Close()
+						fail(w, e)
+						return
+					}
 				}
 				root.Close()
 			}

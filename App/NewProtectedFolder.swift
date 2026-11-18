@@ -65,9 +65,13 @@ struct NewProtectedFolder: View {
             defer { busy = false }
             do {
                 _ = try FilePath.child(draft.name, in: parent.file.path)
+                let quantum = QuantumClient(connection: connection); defer { quantum.close() }
+                guard let scope = try await quantum.scopes().first(where: { $0.name == parent.source }),
+                      scope.permissions.create else { throw APIError.forbidden }
+                let sourceParent = try FilePath.inSource(parent.file.path, scope: scope.scope)
                 let code = try await keys.authorizedCode()
                 let client = CompanionClient(connection: connection); defer { client.close() }
-                _ = try await client.createProtectedFolder(source: parent.source, parent: parent.file.path,
+                _ = try await client.createProtectedFolder(source: parent.source, parent: sourceParent,
                     name: draft.name, code: code, requestID: draft.requestID)
                 draft.finish(); keys.hide(); completed(); dismiss()
             } catch { self.error = error.localizedDescription }

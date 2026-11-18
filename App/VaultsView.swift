@@ -17,7 +17,7 @@ struct VaultsView: View {
                     HStack {
                         Label(vault.displayName, systemImage: vault.state == "unlocked" ? "lock.open" : "lock")
                         Spacer()
-                        if !vault.initialized {
+                        if !vault.initialized && vault.path == nil {
                             Button("Initialize") { initialize = vault }.disabled(!keySession.backupConfirmed)
                         } else {
                             Button(vault.state == "unlocked" || vault.state == "error" ? "Lock" : "Unlock") {
@@ -77,5 +77,9 @@ struct VaultsView: View {
     private func reload() async throws {
         let client = CompanionClient(connection: connection); defer { client.close() }
         vaults = try await client.vaults()
+        let store = try SharedStore()
+        try store.setVaults(vaults, connection: connection.id)
+        let repository = try Repository(connection: connection, store: store)
+        repository.notify()
     }
 }

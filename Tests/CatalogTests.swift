@@ -14,6 +14,22 @@ final class CatalogTests: XCTestCase {
     private func folder(_ name: String, _ path: String) -> RemoteFile {
         RemoteFile(name: name, path: path, type: "directory")
     }
+    func testProtectionChangesAdvanceAnchorWithoutRepeatedListingChurn() throws {
+        let files = [folder("Private", "/Private")]
+        let item = try store.reconcile(connection: connection, parent: "source", source: "disk", files: files, permissions: permissions)[0]
+        var vault = ProtectedVault(id: "private", source: "disk", state: "locked", initialized: true, path: "/Private")
+        let original = try store.revision(connection)
+        try store.setVaults([vault], connection: connection)
+        let locked = try store.revision(connection)
+        XCTAssertGreaterThan(locked, original)
+        XCTAssertEqual(try store.items(connection)[item.id]?.protection?.state, "locked")
+        try store.setVaults([vault], connection: connection)
+        _ = try store.reconcile(connection: connection, parent: "source", source: "disk", files: files, permissions: permissions)
+        XCTAssertEqual(try store.revision(connection), locked)
+        vault.state = "unlocked"
+        try store.setVaults([vault], connection: connection)
+        XCTAssertGreaterThan(try store.revision(connection), locked)
+    }
     func testConcurrentStoreInstancesDoNotLoseUpdates() throws {
         let directory = try XCTUnwrap(directory)
         let errorLock = NSLock()

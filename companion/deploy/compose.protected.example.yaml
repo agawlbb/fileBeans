@@ -1,0 +1,50 @@
+# Merge into the existing stack; substitute prepared feature-branch images.
+# Host broker config uses controlUID=10001, readerUID=10002, gid=10003.
+# Preserve matching absolute source/runtime paths in all three consumers.
+x-consumer: &consumer
+  userns_mode: host
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  read_only: true
+  tmpfs: [/tmp:rw,nosuid,nodev,noexec,mode=1777]
+  logging:
+    driver: none
+
+services:
+  quantum:
+    <<: *consumer
+    image: filebeans-quantum:feature-encrypted-vaults
+    user: "10002:10003"
+    environment:
+      FILEBROWSER_CONFIG: /config/config.yaml
+      FILEBEANS_VAULT_RUNTIME: /run/filebeans-vaults
+      FILEBEANS_VAULT_SOURCES: '{"vps":"/srv/filebeans/local","samba":"/srv/filebeans/samba"}'
+    volumes:
+      - /etc/filebeans/quantum.yaml:/config/config.yaml:ro
+      - /var/lib/filebeans-quantum:/home/filebrowser/data:rw
+      - /srv/filebeans/local:/srv/filebeans/local:rw,rslave
+      - /srv/filebeans/samba:/srv/filebeans/samba:rw,rslave
+      - /run/filebeans-vaults:/run/filebeans-vaults:rw,rslave
+    ports: ["127.0.0.1:8096:8096"]
+
+  companion:
+    <<: *consumer
+    image: filebeans-companion:feature-encrypted-vaults
+    user: "10001:10003"
+    volumes:
+      - /etc/filebeans/companion.json:/config/config.json:ro
+      - /var/lib/filebeans-companion:/state:rw
+      - /srv/filebeans/local:/srv/filebeans/local:rw,rslave
+      - /srv/filebeans/samba:/srv/filebeans/samba:rw,rslave
+      - /run/filebeans-vaults:/run/filebeans-vaults:rw,rslave
+    ports: ["127.0.0.1:8095:8095"]
+
+  normalizer:
+    <<: *consumer
+    image: filebeans-normalizer:feature-encrypted-vaults
+    user: "10001:10003"
+    volumes:
+      - /etc/filebeans/normalizer.json:/config/config.json:ro
+      - /var/lib/filebeans-normalizer:/state:rw
+      - /srv/filebeans/local:/srv/filebeans/local:rw,rslave
+      - /run/filebeans-vaults:/run/filebeans-vaults:rw,rslave

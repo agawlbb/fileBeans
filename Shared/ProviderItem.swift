@@ -19,15 +19,16 @@ final class ProviderItem: NSObject, NSFileProviderItem {
     var contentModificationDate: Date? { stored.file.date }
     var itemVersion: NSFileProviderItemVersion {
         let p = stored.permissions
-        let metadata = "\(stored.parent):\(stored.file.path):\(filename):\(stored.file.type):\(p.view):\(p.download):\(p.modify):\(p.create):\(p.delete)"
+        let metadata = "\(stored.parent):\(stored.file.path):\(filename):\(stored.file.type):\(p.view):\(p.download):\(p.modify):\(p.create):\(p.delete):\(stored.protection?.id ?? ""):\(stored.protection?.state ?? "")"
         return .init(contentVersion: stored.file.version, metadataVersion: Data(SHA256.hash(data: Data(metadata.utf8))))
     }
     var capabilities: NSFileProviderItemCapabilities {
+        if stored.protection?.unlocked == false { return [] }
         var result: NSFileProviderItemCapabilities = []
         if stored.permissions.download { result.formUnion([.allowsReading, .allowsEvicting]) }
         if stored.file.isDirectory && stored.permissions.view { result.formUnion([.allowsReading, .allowsContentEnumerating]) }
         if stored.file.isDirectory && stored.permissions.create { result.insert(.allowsAddingSubItems) }
-        if !stored.isSource {
+        if !stored.isSource && stored.protection?.isRoot != true {
             if stored.permissions.modify { result.formUnion([.allowsRenaming, .allowsReparenting]); if !stored.file.isDirectory { result.insert(.allowsWriting) } }
             if stored.permissions.delete { result.insert(.allowsDeleting) }
         }

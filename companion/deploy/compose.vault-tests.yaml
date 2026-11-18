@@ -20,10 +20,12 @@ services:
     environment:
       FILEBEANS_TEST_FUSE: "1"
       FILEBEANS_TEST_GOCRYPTFS: /test-tools/gocryptfs
+      FILEBEANS_TEST_QUANTUM: /test-tools/quantum.test
+      PYTHONPATH: /test-tools/python
       PATH: /test-tools:/usr/bin:/bin
     entrypoint: [/test-tools/service.test]
     command:
-      - -test.run=^(TestGocryptfsIndependentRecovery|TestBrokerRealFilesystemLifecycle)$
+      - -test.run=^(TestGocryptfsIndependentRecovery|TestBrokerRealFilesystemLifecycle|TestBrokerQuantumIntegration|TestBrokerQuantumSMBIntegration)$
       - -test.v
       - -test.timeout=90s
     cpus: 1

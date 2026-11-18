@@ -1,7 +1,7 @@
 # Experimental protected folders
 
 This feature branch adds gocryptfs vault controls to the companion and iOS app.
-It is disabled unless an administrator configures `vaults`. Nothing here installs
+Creation is enabled only with the compatible broker and patched Quantum consumer. Nothing here installs
 services, converts existing data, deploys, or enables a production vault.
 
 ## Key and recovery
@@ -45,78 +45,28 @@ command argument, shell history, environment variable, or password file. The
 standard config contains a wrapped copy of the key protected by a random,
 discarded configuration password; that password is not used for recovery.
 
-## Server setup for later testing
+## Creating and using folders
 
-This section describes the older static-root integration. The current-location
-broker implementation and its remaining Quantum work are documented in
-[VAULT-BROKER.md](VAULT-BROKER.md). Neither integration has been deployed.
+With the compatible broker and patched Quantum running, choose **+ → Add
+Protected Folder** in the current directory. Generate or import the single key,
+copy its recovery code, acknowledge the backup, and name the folder. Creation
+leaves the folder unlocked and returns to its parent. Protected folders appear
+alongside ordinary folders with a lock badge. Selecting a locked folder presents
+its actions; biometric unlock and opening the folder are separate actions.
+The connection’s Protected folders screen controls lock/unlock across folders.
 
-Use a disposable Linux test environment and synthetic files first. The current
-scratch companion image does not include FUSE/gocryptfs or client lifecycle
-utilities; it cannot run vaults as-is. The supplied example uses host systemd,
-without a Docker socket. A production packaging/deployment design must be tested
-separately before using real data.
-The existing companion systemd unit also uses `NoNewPrivileges` and filesystem
-namespacing; it must not be reused unchanged for FUSE. A suitable host unit or
-mount broker must preserve the required client mount visibility and narrowly
-scoped mount permissions. The supplied client units are integration examples.
+Creation is gated by `protectedFoldersCreate`. The broker enables this only
+while the fully integrated Quantum consumer maintains its capability heartbeat.
+A missing consumer disables creation rather than creating an ordinary folder.
+Use the existing connection; no per-folder server configuration or separate
+Quantum connection is required. An interrupted create retries its original
+request ID. Existing data is never converted or overwritten.
 
-1. Install gocryptfs (compatibility tested with 2.6.1) and FUSE 3. Provide
-   `/dev/fuse` and permission to mount, including `user_allow_other` in
-   `/etc/fuse.conf`. Companion and its isolated Quantum instance must run with
-   the same Unix identity and see the same mounts. Keep the mount namespace
-   stable; container bind mounts do not automatically propagate new FUSE mounts.
-2. Disable host swap, hibernation and kernel memory dumps before accepting real
-   keys. Startup/unlock checks `/proc/swaps`, disables process core dumps and
-   process dumpability, and fails closed if these controls cannot be applied.
-   Runtime code checks swap, not the complete host hibernation/kdump policy.
-   Do not re-enable those facilities while vaults are in use. Managed-language
-   heap copies cannot promise forensic erasure of every RAM remnant on lock;
-   active key buffers are cleared and gocryptfs exits. Keys are never intentionally
-   written to persistent server storage.
-3. Precreate an empty ciphertext directory and an empty mountpoint. Neither may
-   overlap ordinary companion roots, state, or other vaults. For Samba ciphertext,
-   configure its exact mountpoint and source from `/proc/self/mountinfo` using
-   `backingMount`/`backingSource`. Omit both for local ciphertext. The VPS performs
-   all encryption/decryption; the Samba machine stores ciphertext only.
-4. Merge `companion/deploy/vaults.example.json` into the normal private companion
-   configuration. It is a fragment, not a complete configuration. A protected
-   root must be exactly `<mount>/files`, with a unique source name matching its
-   dedicated Quantum instance. Do not serve `<mount>/private` to file clients.
-5. Use a dedicated Quantum instance per vault, keeping its database, index,
-   preview cache, logs and temporary files under `<mount>/private`. The ordinary
-   instance must not index the vault mount or its ciphertext. Example Quantum
-   configuration and systemd unit are in `companion/deploy`. Verify settings
-   against the exact Quantum version selected for the test environment.
-6. Install the example start/stop hooks as fixed administrator-owned executables
-   and explicitly allow only the configured vault IDs. Configure narrowly scoped
-   permission to control those units; the companion must not gain unrestricted
-   service-manager or mount administration. Start must wait until its clients are
-   ready; stop must wait until all streams, indexers and other filesystem clients
-   exit. Do not enable automatic restarts or boot startup of these Quantum units.
-   Additional plaintext clients, including an optional VPS Samba export, must be
-   included in the same lifecycle. Proxy access logs must omit file paths and
-   request bodies, and must not buffer uploads to ordinary persistent temp files.
-7. Keep the normalizer's configuration separate, without vault definitions or
-   protected roots. Protected content cannot be submitted for normalization.
-   A second companion process must not manage the same vaults. Startup refuses
-   stale mounts; after a crash, stop clients and unmount the stale FUSE mount
-   before restarting. Parent death kills the gocryptfs child.
-8. In the existing connection's **Protected folders** screen, generate/import
-   the master key and initialize the configured empty vault. Initialization is
-   explicit and refuses existing non-vault data. A failed first mount can be
-   retried with the same key. Do not rename vault IDs once initialized.
-9. Add the isolated Quantum HTTPS endpoint as another fileBeans connection once
-   initialized. Give it the same companion endpoint/token for transfers and
-   Trash. Unlock controls remain reachable through the original connection when
-   the isolated Quantum instance is stopped. Other authorized clients can use
-   the isolated endpoint while unlocked. Direct access to the original Samba
-   ciphertext share never provides plaintext.
-
-The companion stores only a public SHA-256 key identifier on disk to prevent
-accidentally initializing another vault with a different master key. This is not
-key material. It also records public identifiers for interrupted initializations.
-It does not automatically unlock after a restart or when a phone reconnects.
+Runtime templates, process identities and mount requirements are documented in
+[VAULT-BROKER.md](VAULT-BROKER.md), and the pinned consumer adapter in
+[../quantum/README.md](../quantum/README.md). The older `vaults.example.json`,
+`vault-quantum.example.yaml` and per-vault client units describe the legacy
+static-vault path only; they are not the current Add Protected Folder setup.
 
 ## Locking and metadata
 
@@ -127,13 +77,13 @@ and decrypt another vault even if that other mount is currently locked.
 Individual lock/unlock and a mobile Unlock All action are available. Lock cancels
 the serial copy worker, then requires all in-process filesystem activity to drain.
 If busy, the response says to retry; no lazy/forced unmount is used. A successful
-lock requires stopped external clients, a verified unmount, and an exited
-gocryptfs child. Failure remains visible and never becomes a claimed successful
+lock requires drained operation leases, verified public/private unmounts, and
+an exited gocryptfs child. Failure remains visible and never becomes a claimed successful
 lock. When the last vault closes, the active metadata key buffer is cleared.
 
 Protected roots fail closed if their expected FUSE mount disappears. The public
-`files` directory exists only inside the mount, and the underlying mountpoint is
-not writable, preventing jobs from falling back to plaintext storage. Trash and
+folder is replaced by a read-only locked placeholder, including on CIFS mounts
+with fixed permission masks, preventing fallback plaintext writes. Trash and
 publication staging remain within `files`; rclone configuration/temp/cache files
 for protected transfers go under the vault's encrypted `private/tmp` directory.
 Copies explicitly exported to ordinary storage intentionally create plaintext.
@@ -168,6 +118,7 @@ responses. No key is returned in status, errors, or capabilities.
 
 | Route | Behavior |
 | --- | --- |
+| `POST /v1/vaults` | Body `{"source":"...","parent":"/...","name":"...","key":"FBK1:..."}` with `Idempotency-Key`; creates an empty protected folder and unlocks it |
 | `GET /v1/vaults` | Public ID/source, locked/unlocked/error state and initialization status |
 | `POST /v1/vaults/{id}/initialize` | Body `{"key":"FBK1:..."}` and `X-Confirm-Permanent: yes`; initializes and unlocks a configured empty vault |
 | `POST /v1/vaults/{id}/unlock` | Body `{"key":"FBK1:..."}`; verifies the encrypted identity marker before starting clients |
@@ -182,11 +133,10 @@ initialized locked vault; it is deliberately not an atomic multi-vault operation
 
 - Run companion tests with `-race`, isolated VM MariaDB credentials, and
   `FILEBEANS_TEST_GOCRYPTFS` pointing to the installed standalone tool.
-- Run `sh scripts/test-vault-fuse.sh` on VM-laptop for the standalone
-  ciphertext-copy/recovery test. It compiles through `dev`, then executes only
-  that synthetic test in a disposable development runtime with `/dev/fuse` and
-  `SYS_ADMIN`. The runtime has no network, credentials, source-tree mount, Docker
-  socket, or host mount propagation. Its root filesystem is read-only, its
+- Run `sh scripts/test-vault-fuse.sh` on VM-laptop. It compiles through `dev`,
+  then executes the synthetic broker/Quantum and ciphertext recovery tests in a disposable development runtime with `/dev/fuse` and
+  `SYS_ADMIN`. The runtime has no external network, credentials, source-tree mount, Docker
+  socket, or host mount propagation. SMB runs on its private loopback interface. Its root filesystem is read-only, its
   temporary files use tmpfs, and its cgroup cannot use swap. The shared
   development container keeps its existing restrictions. No image build occurs.
 - In a FUSE-capable test environment, initialize two vaults with one saved code;
@@ -207,56 +157,39 @@ initialized locked vault; it is deliberately not an atomic multi-vault operation
 
 No merge, deployment, app build or release is authorized by this document.
 
-### Branch verification on November 17, 2026
+### Source verification on November 18, 2026
 
-Swift parsing/configuration and the new Keychain isolation checks pass. Companion
-race tests pass with real gocryptfs 2.6.1 initialization/retry checks and isolated
-VM MariaDB, excluding the existing
-`TestDatabaseWorkflow/staged-hardlinks-are-replaced-independently` failure. That
-failure also reproduces with the unchanged `origin/main` rclone implementation.
-The independent FUSE recovery test now passes using the isolated runtime:
-initialize, mount, write, unmount, copy ciphertext, and recover with the exported
-master-key format through standalone gocryptfs. The runtime is removed after the
-test. Full companion/Quantum lifecycle integration, Samba behavior and Apple
-compilation/device tests remain required. FUSE 3.17.2 is installed in normal
-development, but device/mount privileges are granted only to the isolated test
-runtime. The VM still has swap enabled, so actual companion vault startup
-correctly refuses keys under its present host policy. No host security policy
-was relaxed.
+The companion race suite passes with real gocryptfs initialization and isolated
+VM MariaDB, excluding the established baseline failure
+`TestDatabaseWorkflow/staged-hardlinks-are-replaced-independently`. That failure
+was also reproduced with unchanged `origin/main` rclone code. Patched Quantum
+indexing, preview, filesystem, web, user, sharing, access-rule and SQL suites pass
+with race detection.
 
-### Current-location creation: broker implemented, Quantum integration pending
+The isolated real-FUSE suite exercises broker creation/retry, two folders with
+one key, busy-reader refusal, lock/unlock, encrypted caches/history and recovery.
+Patched Quantum runs as an unprivileged user in a separate slave mount namespace.
+Local and kernel CIFS storage tests exercise upload, ranged reads, image/video
+previews, pre-cache lock checks, preview persistence, encrypted archive spools and
+resume-token checks, index filename exclusion, locked-root visibility, shared
+UID/GID file handoffs and mount propagation. Broker-created ciphertext is copied
+and recovered using only standard gocryptfs plus the saved raw master key.
+The synthetic SMB fixture uses SMB 2.0 only because of its test-server support;
+production SMB negotiation is unchanged.
 
-The app now has a protected-folder draft, API client, folder badges, and an
-unlock action before navigation. The Add Protected Folder control is gated by
-the `protectedFoldersCreate` server capability. The companion now implements
-`POST /v1/vaults` through a separate mount broker. It advertises the capability
-only while a compatible Quantum consumer registers all required protections.
-There is no Quantum adapter yet, so current-location creation remains disabled
-in normal use. The existing configured-vault initialization route remains
-supported by the app.
+Swift syntax/configuration and Keychain entitlement isolation pass. Apple
+compilation, XCTest execution, physical-device biometrics/backgrounding and
+second-device acceptance remain unexecuted. Runtime image/native PDF builds and
+production deployment are separate outstanding steps. No source-level result
+changes the currently installed app or server. The VM host still has swap
+configured; real-key startup correctly refuses it. Synthetic test-only memory
+checks do not expose a daemon bypass.
 
-The restricted broker, persistent public registry, same-location bind mount,
-idempotent creation, per-vault companion history sealing, encrypted transfer
-staging/Trash, and normalizer exclusions are implemented. Remaining server work
-is integration with the pinned Quantum server. Quantum must isolate indexes, previews,
-temporary files and filename-bearing metadata inside the encrypted mount, check
-lock state before cached responses, and drain all readers before unmounting.
-Ordinary companion operations now reject protected mountpoint/ancestor moves
-and copies; registry-aware operations on a protected folder itself remain to be
-implemented. The capability must stay disabled until Quantum integration tests
-pass. The existing scratch server image cannot supply the new runtime.
-
-New Apple test cases cover pending-key recovery after process recreation, secure
-storage failure, backup acknowledgment, authentication cancellation, stable
-creation request IDs, path boundaries, catalog compatibility and API requests.
-These are source additions, not executed Apple test results. Swift syntax and
-project checks can run on VM-laptop; compilation and XCTest execution need the
-separately authorized Apple workflow. No new app build or deployment has occurred.
-
-Broker, guard and companion tests pass with race detection, including the VM
-MariaDB suite with the previously established hard-link failure excluded. Real
-FUSE tests pass for socket creation/retry, wrong-key rejection, busy readers,
-same-key multiple folders, encrypted private caches, protected history access,
-and standalone ciphertext recovery. These synthetic tests use an isolated
-runtime; they do not establish Samba, production mount propagation, or Quantum
-integration correctness.
+Protected-folder roots cannot be renamed, moved, copied recursively or sent to
+Trash, nor can an ordinary ancestor be mutated recursively across a vault.
+Operations on their contents remain available. Protected-child pins, deep user
+scopes, persistent access rules and public child shares are refused to avoid
+ordinary database filename leakage; permissions on the public root still apply.
+Protected content cannot use OnlyOffice or the normalizer. Existing plaintext
+sources/backups/history are not retroactively erased. These are experimental
+branch limits to assess before deciding whether to keep or merge it.

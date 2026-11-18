@@ -1,9 +1,8 @@
 # Protected-folder broker implementation
 
-This is source on the experimental branch, not an installed production runtime.
-The Quantum adapter and packaging remain unfinished. No production vaults have
-been created, no deployment has occurred, and the app creation capability remains
-disabled without a compatible consumer.
+The experimental branch includes the broker, companion guards, pinned Quantum
+adapter and runtime templates. Real local/CIFS tests run the consumer in a
+separate slave mount namespace. This source has not been deployed or released.
 
 ## Process and storage layout
 
@@ -19,7 +18,7 @@ For a newly created folder, the layout is:
 | --- | --- |
 | Storage root `/.filebeans-vaults/<id>` | Standard gocryptfs ciphertext, config, diriv and recovery instructions |
 | Runtime `/mounts/<id>` | Private gocryptfs mount containing `files` and `private` |
-| Selected source-relative folder | Bind mount of `files`; empty, root-owned and non-writable to consumers when locked |
+| Selected source-relative folder | Bind mount of `files`; read-only tmpfs placeholder when locked |
 | Encrypted `private/cache`, `private/tmp` | Protected consumer state |
 | Broker state `registry.json` | Public IDs, selected folder locations, hashed request IDs and placeholder identities |
 | Runtime `status.json` | Public descriptors and mount states; no keys or child filenames |
@@ -66,47 +65,82 @@ during scans. A companion restart can reconnect to the still-running broker;
 the broker remains the owner of the mounts and derived metadata key. A broker
 or host restart does not automatically unlock folders. Stale mounts fail closed.
 
-## Quantum work remaining
+## Quantum consumer
 
 The pinned upstream source is `2c071d1e6eb48d4b88da2657885d345663a0a88b`
-(`v2.0.2-stable`). Its adapter must install request leases, path checks, protected
-preview/temp storage, persistent-index exclusion or encrypted index storage,
-filename-bearing metadata isolation, and mutation boundary checks. Lock checks
-must precede every cached response. Background consumers must follow the same
-boundaries and drain before unmounting.
+(`v2.0.2-stable`). [The adapter](../quantum/README.md) installs operation leases,
+pre-cache lock checks, encrypted preview/archive/FFmpeg temporary storage,
+persistent-index exclusion, filename-bearing metadata filtering, and mutation
+boundary checks. Protected files are listed directly without persistent indexing.
+Protected image and video entries advertise their previews to ordinary clients.
 
-Only then may it register protocol 1 with all six required consumer features.
-Registration expires after 15 seconds without a heartbeat. Merely supporting
-the protocol or opening the socket does not enable creation. No adapter has
-been registered on the VPS.
+Only the fully patched consumer registers protocol 1 with all six required
+features. Registration expires 15 seconds after its last heartbeat. Quantum
+receives public state and operation leases, never the master or metadata key.
+It runs under a different UID from the companion, with their common primary GID.
 
-## Runtime preparation remaining
+## Runtime preparation
 
-The example JSON and systemd unit are templates, not installation commands.
-Companion and Quantum must run as distinct unprivileged UIDs with the shared
-group. Storage and runtime binds must propagate host mounts into their
-namespaces with `rslave`. The runtime bind must allow encrypted private-cache
-writes; its root-owned gate, snapshot and socket permissions control access.
-The broker intentionally uses the host mount namespace. Systemd filesystem
-namespace directives must not isolate its mounts from consumers.
+Templates are source only, not installation commands:
 
-Before deployment, verify this topology with local and Samba ciphertext,
-consumer restarts, open streams, previews, uploads, transfers, Trash, and mount
-failures. Package the required tools on VM-laptop. Do not give web containers
-mount capabilities or a Docker socket. Full registry-aware protected-root
-rename/move/copy and Apple/device acceptance also remain outstanding.
+- `companion/deploy/vault-broker.example.json` and
+  `filebeans-vault-broker.service`: host root broker with allowlisted roots and
+  fixed administrator-owned executables. Keep its host mount namespace.
+- `compose.protected.example.yaml`: distinct companion/Quantum UIDs, shared GID,
+  no web-container mount capabilities or Docker socket, no persistent container
+  logs, and matching absolute paths with `rslave` storage/runtime binds.
+- `quantum-protected.example.yaml`: merge with existing authentication and
+  source permissions. Group-writable file/directory creation modes are required;
+  startup refuses incompatible modes or a consumer using the wrong primary GID.
+- Companion and normalizer configurations set `protectedRuntime` to
+  `/run/filebeans-vaults`. Companion roots match the broker names/paths. The
+  normalizer sees only its local source, and excludes protected input/output.
+- `protected-proxy.nginx.conf`: disable persistent buffering and filename-bearing
+  logs on both existing TLS proxy routes. Preserve authentication/TLS routing.
 
-## Verification
+Before installation, prepare shared host mount propagation for the configured
+source roots and runtime subtree. Verify the parent mounts are shared so dynamic
+broker mounts reach each container slave bind. Runtime binds allow writes to
+**encrypted private caches**, while gate/status/socket permissions remain owned
+and controlled by the broker. Ordinary source directories must be writable by
+the shared group; existing ownership and CIFS masks need deliberate review.
+The broker pins ciphertext directory descriptors and confines plaintext setup
+through `os.Root`. On CIFS it supplies gocryptfs a shared ownership view without
+changing the encryption format. Read-only locked stubs prevent writes through
+CIFS fallback placeholders even with fixed remote permission masks.
 
-The Go race suite passes against the isolated VM MariaDB configuration with the
-known `TestDatabaseWorkflow/staged-hardlinks-are-replaced-independently` baseline
-failure excluded. The isolated FUSE runtime passes creation/retry through the
-socket API, wrong-key rejection before reservation, two folders using one key,
-busy-file locking, private-cache persistence across lock/unlock, ciphertext-only
-storage inspection, companion guard/history checks, and standalone recovery.
+Install gocryptfs 2.6.1 and FUSE 3 on the host, including `user_allow_other`.
+Disable swap/hibernation/kernel dumps before accepting real keys; runtime checks
+reject enabled swap and disable process dumps. Do not change the VM host policy
+as part of tests. Systemd filesystem namespace directives must not isolate broker
+mounts from consumers. A broker/host restart never automatically unlocks; stale
+FUSE mounts fail closed and require controlled cleanup before startup.
 
-The synthetic runtime has no network, credentials, source mount or host mount
-propagation. Its additional ownership and UID/GID capabilities are needed for
-gocryptfs `allow_other` and the broker's ownership operations. Production memory
-policy, Samba and consumer mount propagation were not changed or validated by
-that test.
+Build preparation and requested image builds run on VM-laptop. The Quantum
+Dockerfile retains the pinned release frontend/runtime while replacing its
+backend; its native MuPDF build still needs the requested image-build check.
+Use prepared feature images for companion **and normalizer** as well. The VPS
+only receives prepared artifacts after an explicit deployment request.
+
+## Verification and acceptance
+
+Companion race/MariaDB and patched Quantum race suites pass. The isolated FUSE
+runtime checks socket creation/retry, wrong-key rejection, two folders with one
+key, busy locks, protected history/cache separation, and independent recovery.
+Local and CIFS Quantum tests cover uploads, ranged reads, image/video previews,
+pre-cache lock checks, persistent index exclusion, locked-root listings and
+cross-process mount propagation, distinct-UID file handoffs, and encrypted
+archive/resume-token checks. Actual broker ciphertext recovers with standard
+gocryptfs without the registry, database or broker.
+
+The disposable runtime has no external network, credentials, source mount,
+Docker socket or host mount propagation. Its loopback-only SMB fixture and shared
+mount subtree exist only inside its own namespace. It uses synthetic keys and a
+test-code-only memory check, leaving production checks intact.
+
+Before deciding to keep/merge: build runtime artifacts/native PDF support,
+perform Apple compilation/XCTest and physical-device acceptance, then exercise
+the explicitly requested staging deployment topology, proxy and full SQL-backed
+transfer/Trash flows. Root/ancestor mutation restrictions and metadata feature
+limits are listed in [PROTECTED-FOLDERS.md](PROTECTED-FOLDERS.md). No main merge,
+production deployment or app release is performed by this implementation.

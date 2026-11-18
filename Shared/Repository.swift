@@ -28,7 +28,6 @@ final class Repository {
         }
     }
     func roots() async throws -> [StoredItem] {
-        await refreshProtection()
         let scopes = try await client.scopes().filter { $0.permissions.view }
         var result: [StoredItem] = []
         for scope in scopes {
@@ -51,6 +50,7 @@ final class Repository {
                 }
             }
         }
+        await refreshProtection()
         return result.map(protectedItem)
     }
     func children(_ parent: StoredItem?) async throws -> [StoredItem] {
@@ -70,8 +70,9 @@ final class Repository {
     }
     func protectedItem(_ value: StoredItem) -> StoredItem {
         var item = value
-        if companion != nil, let vaults = try? store.vaults(connection.id) {
-            item.protection = SharedStore.protection(for: item, vaults: vaults)
+        if companion != nil {
+            do { item.protection = try store.protection(for: item, connection: connection.id) }
+            catch { if var protection = item.protection { protection.state = "unknown"; item.protection = protection } }
         }
         if companion != nil && CompanionClient.protected(item.file.path) {
             item.permissions.create = false; item.permissions.modify = false; item.permissions.delete = false

@@ -273,22 +273,7 @@ func RunVaultBroker(ctx context.Context, configPath string) error {
 	}
 	server := &http.Server{Handler: b.handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second,
 		WriteTimeout: 60 * time.Second, IdleTimeout: 10 * time.Second, MaxHeaderBytes: 4096,
-		ConnContext: func(ctx context.Context, conn net.Conn) context.Context {
-			uc, ok := conn.(*net.UnixConn)
-			if !ok {
-				return ctx
-			}
-			raw, err := uc.SyscallConn()
-			if err != nil {
-				return ctx
-			}
-			var peer *unix.Ucred
-			_ = raw.Control(func(fd uintptr) { peer, _ = unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED) })
-			if peer == nil {
-				return ctx
-			}
-			return context.WithValue(ctx, brokerPeer{}, peer.Uid)
-		}}
+		ConnContext: brokerPeerContext}
 	done := make(chan struct{})
 	go func() {
 		select {
@@ -327,4 +312,21 @@ func brokerTrustedExecutable(path string, executable bool) error {
 		}
 	}
 	return nil
+}
+
+func brokerPeerContext(ctx context.Context, conn net.Conn) context.Context {
+	uc, ok := conn.(*net.UnixConn)
+	if !ok {
+		return ctx
+	}
+	raw, e := uc.SyscallConn()
+	if e != nil {
+		return ctx
+	}
+	var peer *unix.Ucred
+	_ = raw.Control(func(fd uintptr) { peer, _ = unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED) })
+	if peer == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, brokerPeer{}, peer.Uid)
 }

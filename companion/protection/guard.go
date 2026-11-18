@@ -27,6 +27,8 @@ var ErrHidden = errors.New("private storage is inaccessible")
 var ErrBusy = errors.New("protected folders are changing state")
 
 type Vault struct {
+	Device      uint64 `json:"device,omitempty"`
+	Inode       uint64 `json:"inode,omitempty"`
 	ID          string `json:"id"`
 	Source      string `json:"source"`
 	Path        string `json:"path"`
@@ -108,8 +110,8 @@ func (g *Guard) snapshot() (Snapshot, error) {
 	for _, v := range s.Vaults {
 		root, ok := g.roots[v.Source]
 		id, e := hex.DecodeString(v.ID)
-		if e != nil || len(id) != 16 || strings.ToLower(v.ID) != v.ID || !ok || ids[v.ID] || !strings.HasPrefix(v.Path, "/") ||
-			filepath.Clean(v.Path) != v.Path || v.Path == "/" || !within(filepath.Join(root, v.Path), root) {
+		if e != nil || len(id) != 16 || strings.ToLower(v.ID) != v.ID || v.Source == "" || ids[v.ID] || !strings.HasPrefix(v.Path, "/") ||
+			filepath.Clean(v.Path) != v.Path || v.Path == "/" || ok && !within(filepath.Join(root, v.Path), root) {
 			return Snapshot{}, ErrUnavailable
 		}
 		if v.State != "locked" && v.State != "unlocked" && v.State != "error" {
@@ -122,6 +124,15 @@ func (g *Guard) snapshot() (Snapshot, error) {
 		}
 		ids[v.ID] = true
 	}
+	// A local-only consumer (the normalizer) need not mount unrelated remote
+	// sources. Its path confinement still rejects everything outside its roots.
+	visible := make([]Vault, 0, len(s.Vaults))
+	for _, v := range s.Vaults {
+		if _, ok := g.roots[v.Source]; ok {
+			visible = append(visible, v)
+		}
+	}
+	s.Vaults = visible
 	return s, nil
 }
 
@@ -142,6 +153,21 @@ func (g *Guard) Acquire() (*Lease, error) {
 		return nil, e
 	}
 	return &Lease{guard: g, file: f, Snapshot: s}, nil
+}
+
+// Both consumers create files, so their primary group must match the broker's
+// group rather than merely being present in supplementary groups.
+func (g *Guard) RequirePrimaryGroup() error {
+	f, e := g.trustedFile("gate")
+	if e != nil {
+		return e
+	}
+	defer f.Close()
+	var st unix.Stat_t
+	if unix.Fstat(int(f.Fd()), &st) != nil || st.Gid != uint32(os.Getegid()) {
+		return ErrUnavailable
+	}
+	return nil
 }
 
 func (l *Lease) Close() error {
@@ -180,6 +206,16 @@ func (l *Lease) classify(path string) (*Vault, bool, error) {
 	if sourceRoot == "" {
 		return nil, false, ErrBoundary
 	}
+	// A locked placeholder deliberately denies traversal to readers. Classify
+	// known locked paths before touching the filesystem so callers receive the
+	// lock state rather than an incidental permission error.
+	for i := range l.Snapshot.Vaults {
+		v := &l.Snapshot.Vaults[i]
+		public := filepath.Join(l.guard.roots[v.Source], v.Path)
+		if within(path, public) && (v.State != "unlocked" || !l.guard.mounted(public, "filebeans-vault-"+v.ID)) {
+			return v, false, nil
+		}
+	}
 	// Check the resolved location too. Uploads may target a nonexistent child;
 	// resolve its nearest existing parent before accepting the lexical path.
 	ancestor := path
@@ -201,6 +237,9 @@ func (l *Lease) classify(path string) (*Vault, bool, error) {
 			}
 			for _, v := range l.Snapshot.Vaults {
 				public := filepath.Join(l.guard.roots[v.Source], v.Path)
+				if v.Device != 0 && v.Inode != 0 && uint64(ancestorStat.Dev) == v.Device && ancestorStat.Ino == v.Inode && !within(path, public) {
+					return nil, false, ErrBoundary
+				}
 				var vaultStat unix.Stat_t
 				if unix.Stat(public, &vaultStat) == nil && vaultStat.Dev != sourceStat.Dev && ancestorStat.Dev == vaultStat.Dev && !within(path, public) {
 					return nil, false, ErrBoundary
@@ -299,6 +338,12 @@ func (l *Lease) CacheDirectory(path string) (string, error) {
 		return "", nil
 	}
 	return filepath.Join(l.guard.runtime, "mounts", v.ID, "private"), nil
+}
+
+// Boundary reports membership without granting access to file contents. It is
+// used for public folder badges and deciding where metadata may be persisted.
+func (l *Lease) Boundary(path string) (*Vault, bool, error) {
+	return l.classify(path)
 }
 
 // Indexable is consulted per filesystem entry, including background scans. A

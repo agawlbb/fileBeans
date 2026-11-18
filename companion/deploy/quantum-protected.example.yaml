@@ -1,0 +1,16 @@
+# Merge with the existing authentication and source permissions configuration.
+http:
+  listen: 0.0.0.0
+  port: 8096
+server:
+  cacheDir: /home/filebrowser/data/cache
+  database:
+    path: /home/filebrowser/data/database.sqlite
+  filesystem:
+    createFilePermission: "660"
+    createDirectoryPermission: "770"
+  sources:
+    - name: vps
+      path: /srv/filebeans/local
+    - name: samba
+      path: /srv/filebeans/samba
