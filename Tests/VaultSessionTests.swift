@@ -52,8 +52,23 @@ final class VaultSessionTests: XCTestCase {
         XCTAssertNil(session.error)
         XCTAssertTrue(session.hasKey)
         XCTAssertEqual(saved, canonical)
+        XCTAssertTrue(session.backupConfirmed)
         XCTAssertEqual(session.code, canonical)
         XCTAssertTrue(session.importCode.isEmpty)
+    }
+
+
+    func testPendingBackupDoesNotBlockUnlockWithAnExistingKey() async throws {
+        let code = try VaultRecoveryCode.encode(Data(repeating: 0x42, count: 32))
+        defaults.set(true, forKey: "vault.pendingBackup.v1")
+        var reads = 0
+        let session = VaultKeySession(defaults: defaults, containsKey: { true },
+            saveKey: { _ in }, readKey: { reads += 1; return code }, removeKey: {})
+        XCTAssertFalse(session.backupConfirmed)
+        let restored = try await session.authorizedCode(requireBackup: false)
+        XCTAssertEqual(restored, code)
+        XCTAssertEqual(reads, 1)
+        do { _ = try await session.authorizedCode(); XCTFail("Creation must still require backup acknowledgment") } catch {}
     }
 
     func testFailedSecureStorageNeverDisplaysGeneratedKey() async {

@@ -20,7 +20,7 @@ const Protocol = 1
 
 // The Quantum adapter may register only after installing every corresponding
 // hook. Protocol compatibility alone must never enable protected-folder creation.
-var ConsumerFeatures = []string{"requestLeases", "pathGuard", "encryptedPreviews", "indexIsolation", "metadataIsolation", "mutationBoundaries"}
+var ConsumerFeatures = []string{"requestLeases", "pathGuard", "encryptedPreviews", "indexIsolation", "metadataIsolation", "mutationBoundaries", "eventLeaseScopes"}
 
 var ErrUnavailable = errors.New("protected-folder service unavailable")
 var ErrLocked = errors.New("protected folder is locked")

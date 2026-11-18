@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -61,6 +62,7 @@ func (b *mountBroker) handler() http.Handler {
 		// companion's OS identity may receive it over this local socket.
 		reply(w, 200, map[string][]byte{"key": b.manager.metadataKey})
 	})
+	mux.HandleFunc("GET /v1/protection", func(w http.ResponseWriter, r *http.Request) { reply(w, 200, b.protectionStatus()) })
 	mux.HandleFunc("GET /v1/vaults", func(w http.ResponseWriter, r *http.Request) { reply(w, 200, b.statuses()) })
 	mux.HandleFunc("GET /v1/ready", func(w http.ResponseWriter, r *http.Request) {
 		reply(w, 200, map[string]any{"version": brokerProtocol, "ready": time.Since(b.consumerReady) < 15*time.Second})
@@ -120,6 +122,14 @@ func (b *mountBroker) handler() http.Handler {
 			return
 		}
 		defer gate.Close()
+		if e = b.activateLocations(key); e != nil {
+			fail(w, e)
+			return
+		}
+		if e = b.unlockAll(key); e != nil {
+			fail(w, e)
+			return
+		}
 		entry, e := b.reserve(req.Source, req.Parent, req.Name, keyHeader(r))
 		if e != nil {
 			fail(w, e)
@@ -208,9 +218,15 @@ func (b *mountBroker) handler() http.Handler {
 			fail(w, ErrAuthorization)
 			return
 		}
+		r.Body = http.MaxBytesReader(w, r.Body, 4096)
+		isGlobal := strings.HasPrefix(r.URL.Path, "/v1/protection/")
+		isLegacy := strings.HasPrefix(r.URL.Path, "/v1/vaults/") && protectionAction(r.URL.Path) != ""
+		if r.Method == "POST" && (isGlobal || isLegacy) {
+			b.globalProtection(w, r)
+			return
+		}
 		b.mu.Lock()
 		defer b.mu.Unlock()
-		r.Body = http.MaxBytesReader(w, r.Body, 4096)
 		mux.ServeHTTP(w, r)
 	})
 }
@@ -236,6 +252,11 @@ func RunVaultBroker(ctx context.Context, configPath string) error {
 	}
 	if c.ControlUID == 0 || c.ReaderUID == 0 || c.GID == 0 {
 		return ErrUnsafe
+	}
+	for _, backup := range c.LocationBackups {
+		if e = brokerTrustedExecutable(backup, false); e != nil {
+			return e
+		}
 	}
 	for _, executable := range []string{c.Gocryptfs, c.Fusermount} {
 		if e = brokerTrustedExecutable(executable, true); e != nil {

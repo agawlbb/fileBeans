@@ -88,8 +88,9 @@ func (w *vaultIdleWatch) expired(now time.Time) bool {
 // Called under the broker mutex, just like manual mount transitions.
 func (b *mountBroker) pollIdleVaults(watches map[string]*vaultIdleWatch, now time.Time) {
 	open := map[string]bool{}
-	for _, v := range b.statuses() {
-		if v.State != "unlocked" {
+	for _, v := range b.registry.Entries {
+		state := b.manager.find(v.ID)
+		if state == nil || (!state.unlocked && !mounted(state.config.Mount, "")) {
 			continue
 		}
 		open[v.ID] = true
@@ -121,21 +122,40 @@ func (b *mountBroker) pollIdleVaults(watches map[string]*vaultIdleWatch, now tim
 		if err == nil {
 			_ = w.drain(now)
 		}
-		// If monitoring fails, still enforce the last known deadline. The
-		// exclusive gate and normal unmount protect ongoing client operations.
-		if w.expired(now) {
-			gate, err := b.exclusive()
-			if err != nil {
-				continue
-			}
-			err = b.lock(entry)
-			_ = gate.Close()
+	}
+	// Protection is one session: activity in any protected folder keeps all
+	// folders open. An idle session closes all of them under a single gate.
+	latest := time.Time{}
+	for id, w := range watches {
+		if open[id] && w.last.After(latest) {
+			latest = w.last
+		}
+	}
+	if len(open) > 0 && !latest.IsZero() && now.Sub(latest) >= vaultIdleTimeout {
+		if gate, err := b.exclusive(); err == nil {
+			err = b.lockAll()
+			gate.Close()
 			if err == nil {
-				w.close()
-				delete(watches, v.ID)
+				for id, w := range watches {
+					w.close()
+					delete(watches, id)
+				}
 			}
 		}
 	}
+	if len(open) == 0 && b.registry.Version == privateRegistryVersion {
+		pending := false
+		for _, e := range b.registry.Entries {
+			pending = pending || !e.Parked
+		}
+		if pending {
+			if gate, err := b.exclusive(); err == nil {
+				_ = b.lockAll()
+				gate.Close()
+			}
+		}
+	}
+
 	for id, w := range watches {
 		if !open[id] {
 			w.close()

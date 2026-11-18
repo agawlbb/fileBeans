@@ -21,30 +21,34 @@ const brokerStore = ".filebeans-vaults"
 const brokerProtocol = 1
 
 type BrokerConfig struct {
-	State      string `json:"state"`
-	Runtime    string `json:"runtime"`
-	Roots      []Root `json:"roots"`
-	Gocryptfs  string `json:"gocryptfs"`
-	Fusermount string `json:"fusermount"`
-	ControlUID uint32 `json:"controlUID"`
-	ReaderUID  uint32 `json:"readerUID"`
-	GID        int    `json:"gid"`
+	LocationBackups []string `json:"locationBackups,omitempty"`
+	State           string   `json:"state"`
+	Runtime         string   `json:"runtime"`
+	Roots           []Root   `json:"roots"`
+	Gocryptfs       string   `json:"gocryptfs"`
+	Fusermount      string   `json:"fusermount"`
+	ControlUID      uint32   `json:"controlUID"`
+	ReaderUID       uint32   `json:"readerUID"`
+	GID             int      `json:"gid"`
 }
 
 type brokerEntry struct {
-	Trashed       int64    `json:"trashed,omitempty"`
-	OriginalPath  string   `json:"originalPath,omitempty"`
-	PreviousPaths []string `json:"previousPaths,omitempty"`
-	NextPath      string   `json:"nextPath,omitempty"`
-	NextTrashed   int64    `json:"nextTrashed,omitempty"`
-	Purging       bool     `json:"purging,omitempty"`
-	Initialized   bool     `json:"initialized,omitempty"`
-	ID            string   `json:"id"`
-	Source        string   `json:"source"`
-	Path          string   `json:"path"`
-	RequestHash   string   `json:"requestHash"`
-	Device        uint64   `json:"device"`
-	Inode         uint64   `json:"inode"`
+	Location      *sealedLocation `json:"location,omitempty"`
+	Parked        bool            `json:"parked,omitempty"`
+	Parking       bool            `json:"parking,omitempty"`
+	Trashed       int64           `json:"trashed,omitempty"`
+	OriginalPath  string          `json:"originalPath,omitempty"`
+	PreviousPaths []string        `json:"previousPaths,omitempty"`
+	NextPath      string          `json:"nextPath,omitempty"`
+	NextTrashed   int64           `json:"nextTrashed,omitempty"`
+	Purging       bool            `json:"purging,omitempty"`
+	Initialized   bool            `json:"initialized,omitempty"`
+	ID            string          `json:"id"`
+	Source        string          `json:"source"`
+	Path          string          `json:"path"`
+	RequestHash   string          `json:"requestHash"`
+	Device        uint64          `json:"device"`
+	Inode         uint64          `json:"inode"`
 }
 
 type brokerRegistry struct {
@@ -72,10 +76,12 @@ type brokerSnapshot struct {
 }
 
 type mountBroker struct {
-	mu       sync.Mutex
-	config   BrokerConfig
-	registry brokerRegistry
-	manager  *vaultManager
+	locationKey           []byte
+	privateLocationsSaved map[string]bool
+	mu                    sync.Mutex
+	config                BrokerConfig
+	registry              brokerRegistry
+	manager               *vaultManager
 	// Injected only by unit tests. The daemon always uses Linux mounts.
 	mountFiles    func(string, string) error
 	unmountFiles  func(string) error
@@ -185,11 +191,21 @@ func newMountBrokerWithChecks(c BrokerConfig, lockedCheck func(brokerEntry) bool
 	}
 	data, e := os.ReadFile(filepath.Join(c.State, "registry.json"))
 	if e == nil {
-		if e = json.Unmarshal(data, &b.registry); e != nil || b.registry.Version != brokerProtocol {
+		if e = json.Unmarshal(data, &b.registry); e != nil || (b.registry.Version != brokerProtocol && b.registry.Version != privateRegistryVersion) {
 			return nil, ErrUnsafe
 		}
 	} else if !errors.Is(e, os.ErrNotExist) {
 		return nil, e
+	}
+	if b.registry.Version == privateRegistryVersion {
+		if e = b.recoverPrivateRegistry(); e != nil {
+			return nil, e
+		}
+		if e = b.publish(); e != nil {
+			return nil, e
+		}
+		ok = true
+		return b, nil
 	}
 	if e = b.recoverPublicChanges(); e != nil {
 		return nil, e
@@ -331,6 +347,9 @@ func (b *mountBroker) validateLocation(source, path string, entries []brokerEntr
 }
 
 func (b *mountBroker) publicPath(e brokerEntry) string {
+	if e.Parked || e.Path == "" {
+		return b.markerPath(e)
+	}
 	r, _ := b.configuredRoot(e.Source)
 	return filepath.Join(r.Path, strings.TrimPrefix(e.Path, "/"))
 }
@@ -340,7 +359,8 @@ func (b *mountBroker) publicDir(entry brokerEntry) (*os.File, error) {
 	if e != nil {
 		return nil, e
 	}
-	f, e := brokerOpenDir(r.Path, strings.TrimPrefix(entry.Path, "/"))
+	relative, _ := filepath.Rel(r.Path, b.publicPath(entry))
+	f, e := brokerOpenDir(r.Path, relative)
 	if e != nil {
 		return nil, e
 	}
@@ -404,7 +424,11 @@ func brokerAtomicJSON(path string, value any, mode os.FileMode, gid int) error {
 }
 
 func (b *mountBroker) saveRegistry() error {
-	return brokerAtomicJSON(filepath.Join(b.config.State, "registry.json"), b.registry, 0600, b.config.GID)
+	value, err := b.registryForStorage()
+	if err != nil {
+		return err
+	}
+	return brokerAtomicJSON(filepath.Join(b.config.State, "registry.json"), value, 0600, b.config.GID)
 }
 
 func (b *mountBroker) statuses() []BrokerVault {
@@ -419,6 +443,10 @@ func (b *mountBroker) statuses() []BrokerVault {
 		r, err := b.configuredRoot(e.Source)
 		if err != nil || r.Mount != "" && !mounted(r.Mount, r.MountSource) {
 			v.State = "error"
+			v.Path = ""
+			v.Name = ""
+			v.OriginalPath = ""
+			v.PreviousPaths = nil
 			out = append(out, v)
 			continue
 		}
@@ -431,9 +459,18 @@ func (b *mountBroker) statuses() []BrokerVault {
 				v.State = "error"
 			}
 		}
-		publicMounted := mounted(b.publicPath(e), "filebeans-vault-"+e.ID)
-		if e.Trashed == 0 && (v.State == "unlocked" && !publicMounted || v.State == "locked" && !b.isLockedMount(e)) {
+		if e.Parked && e.Trashed == 0 && v.State == "unlocked" {
 			v.State = "error"
+		}
+		publicMounted := mounted(b.publicPath(e), "filebeans-vault-"+e.ID)
+		if e.Trashed == 0 && !e.Parked && (v.State == "unlocked" && !publicMounted || v.State == "locked" && !b.isLockedMount(e)) {
+			v.State = "error"
+		}
+		if v.State != "unlocked" {
+			v.Path = ""
+			v.Name = ""
+			v.OriginalPath = ""
+			v.PreviousPaths = nil
 		}
 		out = append(out, v)
 	}
@@ -444,8 +481,26 @@ func (b *mountBroker) publish() error {
 	vaults := b.statuses()
 	active := vaults[:0]
 	for _, v := range vaults {
-		if v.Trashed == 0 {
+		if v.Trashed == 0 && v.State == "unlocked" && v.Path != "" {
 			active = append(active, v)
+		}
+	}
+	// If a network outage delays parking, retain a RAM-only deny boundary so
+	// no consumer can write plaintext into the temporarily unmounted marker.
+	if b.registry.Version == privateRegistryVersion {
+		for _, e := range b.registry.Entries {
+			if !e.Parked && e.Path != "" && e.Trashed == 0 {
+				found := false
+				for _, v := range active {
+					if v.ID == e.ID {
+						found = true
+						break
+					}
+				}
+				if !found {
+					active = append(active, BrokerVault{ID: e.ID, Source: e.Source, Path: e.Path, State: "locked", Initialized: e.Initialized, Device: e.Device, Inode: e.Inode})
+				}
+			}
 		}
 	}
 	return brokerAtomicJSON(filepath.Join(b.config.Runtime, "status.json"), brokerSnapshot{brokerProtocol, active}, 0640, b.config.GID)
@@ -565,6 +620,13 @@ func (b *mountBroker) reserve(source, parent, name, request string) (brokerEntry
 	}
 	v := b.vaultConfig(entry)
 	b.manager.states = append(b.manager.states, &vaultState{config: v})
+	if b.registry.Version == privateRegistryVersion {
+		index := len(b.registry.Entries) - 1
+		if e = b.parkPublic(&b.registry.Entries[index]); e != nil {
+			return brokerEntry{}, e
+		}
+		return b.registry.Entries[index], nil
+	}
 	if e = b.installLockedMount(entry); e != nil {
 		return brokerEntry{}, e
 	}
@@ -650,6 +712,15 @@ func (b *mountBroker) prepare(entry brokerEntry) error {
 }
 
 func (b *mountBroker) open(entry brokerEntry, key []byte) error {
+	if err := b.activateLocations(key); err != nil {
+		return err
+	}
+	for _, candidate := range b.registry.Entries {
+		if candidate.ID == entry.ID {
+			entry = candidate
+			break
+		}
+	}
 	if len(key) != 32 {
 		return ErrUnsafe
 	}
@@ -672,7 +743,7 @@ func (b *mountBroker) open(entry brokerEntry, key []byte) error {
 		}
 	}
 	defer func() {
-		if entry.Trashed == 0 && !mounted(b.publicPath(entry), "filebeans-vault-"+entry.ID) {
+		if b.registry.Version == brokerProtocol && entry.Trashed == 0 && !mounted(b.publicPath(entry), "filebeans-vault-"+entry.ID) {
 			_ = b.installLockedMount(entry)
 		}
 	}()
@@ -680,7 +751,7 @@ func (b *mountBroker) open(entry brokerEntry, key []byte) error {
 	if e != nil {
 		return e
 	}
-	defer public.Close()
+	defer func() { public.Close() }()
 	if mounted(b.publicPath(entry), "") && !b.isLockedMount(entry) {
 		return ErrVaultBusy
 	}
@@ -752,6 +823,22 @@ func (b *mountBroker) open(entry brokerEntry, key []byte) error {
 		}
 	}
 	if entry.Trashed == 0 {
+		for i := range b.registry.Entries {
+			if b.registry.Entries[i].ID == entry.ID {
+				if e = b.unparkPublic(&b.registry.Entries[i]); e != nil {
+					rollback()
+					return e
+				}
+				entry = b.registry.Entries[i]
+				break
+			}
+		}
+		public.Close()
+		public, e = b.publicDir(entry)
+		if e != nil {
+			rollback()
+			return e
+		}
 		if e = b.mountFiles(filepath.Join(v.config.Mount, "files"), brokerFD(public)); e != nil {
 			rollback()
 			return fmt.Errorf("%w: public bind: %v", errVault, e)
@@ -766,6 +853,12 @@ func (b *mountBroker) open(entry brokerEntry, key []byte) error {
 }
 
 func (b *mountBroker) lock(entry brokerEntry) error {
+	for _, current := range b.registry.Entries {
+		if current.ID == entry.ID {
+			entry = current
+			break
+		}
+	}
 	// Locking must remain possible when remote ciphertext storage goes offline.
 	// Kernel mount identities, not backing-store availability, govern unmounting.
 	if _, e := b.configuredRoot(entry.Source); e != nil {
@@ -779,17 +872,40 @@ func (b *mountBroker) lock(entry brokerEntry) error {
 			return ErrVaultBusy
 		}
 	}
-	if e := b.manager.lock(entry.ID); e != nil {
-		_ = b.publish()
-		return e
+	var parkErr error
+	if b.registry.Version == privateRegistryVersion {
+		for i := range b.registry.Entries {
+			if b.registry.Entries[i].ID == entry.ID {
+				if b.registry.Entries[i].Path == "" && !b.registry.Entries[i].Parked {
+					parkErr = b.recoverClosedMarker(&b.registry.Entries[i])
+				} else {
+					parkErr = b.parkPublic(&b.registry.Entries[i])
+				}
+				entry = b.registry.Entries[i]
+				break
+			}
+		}
 	}
-	if entry.Trashed == 0 {
+	// Closing the private mount must still be attempted if storage goes
+	// offline before the empty public marker can be parked.
+	if err := b.manager.lock(entry.ID); err != nil {
+		_ = b.publish()
+		return err
+	}
+	if parkErr != nil {
+		_ = b.publish()
+		b.forgetClosedLocations()
+		return parkErr
+	}
+	if b.registry.Version == brokerProtocol && entry.Trashed == 0 {
 		if e := b.installLockedMount(entry); e != nil {
 			_ = b.publish()
 			return e
 		}
 	}
-	return b.publish()
+	err := b.publish()
+	b.forgetClosedLocations()
+	return err
 }
 
 func (b *mountBroker) close() {

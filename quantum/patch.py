@@ -306,3 +306,23 @@ edit("internal/web/resource.go", "func patchAction(ctx context.Context, params p
     if vaultErr != nil {return vaultErr}
     defer vaultLease.Close()
 """)
+
+# Event connections release the topology gate between actual reads/deliveries.
+edit("internal/web/fileWatcher.go",
+     "func sendFileWatchUpdate(username, realPath, path, source string, lines int, mimeType string, isDir bool) {",
+     """func sendFileWatchUpdate(username, realPath, path, source string, lines int, mimeType string, isDir bool) {
+    lease, err := vaultbridge.Read(realPath, false)
+    if err != nil { return }
+    defer lease.Close()
+""")
+# File-watch payloads belong only to their dedicated, epoch-checked connection.
+edit("internal/web/httpEvents.go",
+     '\t\t\tif err := msgr.SendEvent(msg.EventType, msg.Message); err != nil {',
+     '\t\t\tif vaultbridge.Enabled() && msg.EventType == "fileWatch" { continue }\n\t\t\tif err := msgr.SendEvent(msg.EventType, msg.Message); err != nil {',
+     count=2)
+
+# Do not expire a protected archive token merely because its encrypted spool
+# filesystem is temporarily unmounted.
+edit("internal/web/archive.go",
+     '\t\tif _, err = os.Stat(tmpPath); err != nil {',
+     '\t\tif vaultbridge.Enabled() { if err := vaultbridge.PrivateSpoolReadable(tmpPath); err != nil { return http.StatusConflict,err } }\n\t\tif _, err = os.Stat(tmpPath); err != nil {')

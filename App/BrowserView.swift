@@ -28,6 +28,7 @@ struct BrowserView: View {
     @State private var movie: Movie?
     @State private var photos: [PhotosPickerItem] = []
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.folderBreadcrumbs) private var trail
     private var visible: [StoredItem] {
         displayedItems.filter {
             (connection.companionURL == nil || $0.file.path != "/Trash") &&
@@ -81,6 +82,9 @@ struct BrowserView: View {
                 }
                 photos = []
             }
+        }
+        .onChange(of: model.parentProtection?.unlocked) { _, unlocked in
+            if unlocked == false { trail.showSources() }
         }
         .quickLookPreview($preview)
         .onChange(of: preview) { previous, current in
@@ -228,7 +232,7 @@ struct BrowserView: View {
             if model.busy && visible.isEmpty { ProgressView() }
             else if let protection = model.parentProtection, !protection.unlocked, let item = parent {
                 ContentUnavailableView {
-                    Label(item.file.name, systemImage: "lock.fill")
+                    Label("Protected folders", systemImage: "lock.fill")
                 } actions: {
                     Button("Unlock") {
                         var lockedItem = item; lockedItem.protection = protection
@@ -345,7 +349,7 @@ struct BrowserView: View {
         Task {
             await model.perform {
                 let client = CompanionClient(connection: connection); defer { client.close() }
-                let code = action == "unlock" ? try await VaultKeySession.shared.authorizedCode() : nil
+                let code = action == "unlock" ? try await VaultKeySession.shared.authorizedCode(requireBackup: false) : nil
                 try await client.vaultAction(id: protection.id, action: action, code: code)
                 await reload()
             }

@@ -85,7 +85,7 @@ func TestBrokerReservationIsDurableAndIdempotent(t *testing.T) {
 		t.Fatal("restart lost reservation", e)
 	}
 	status := reopened.statuses()
-	if len(status) != 1 || status[0].State != "locked" || status[0].Path != "/Private" {
+	if len(status) != 1 || status[0].State != "locked" || status[0].Path != "" {
 		t.Fatalf("bad status: %+v", status)
 	}
 }
@@ -380,12 +380,12 @@ func TestBrokerRealFilesystemLifecycle(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, e = root.Open("Private/secret-name.txt"); !errors.Is(e, ErrVaultLocked) {
+	if _, e = root.Open("Private/secret-name.txt"); !errors.Is(e, ErrVaultLocked) && !errors.Is(e, os.ErrNotExist) {
 		root.Close()
 		t.Fatal("locked path opened", e)
 	}
 	root.Close()
-	if files, e := os.ReadDir(public); e != nil || len(files) != 0 {
+	if _, e := os.ReadDir(public); !errors.Is(e, os.ErrNotExist) {
 		t.Fatal("locked folder exposes contents", e)
 	}
 	if e = os.WriteFile(filepath.Join(public, "plaintext-fallback"), []byte("must not be written"), 0600); e == nil {

@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"filebeans/companion/protection"
@@ -193,6 +194,10 @@ func HTTP(next http.Handler) http.Handler {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" && (strings.HasSuffix(r.URL.Path, "/api/events") || strings.HasSuffix(r.URL.Path, "/api/tools/file-watcher/sse")) {
+			eventHTTP(next, w, r)
+			return
+		}
 		l, e := Acquire()
 		if e != nil {
 			http.Error(w, "Protected-folder service unavailable", 503)
@@ -284,4 +289,79 @@ func Start(ctx context.Context) error {
 // Conflict identifies protected-boundary failures without exposing paths.
 func Conflict(err error) bool {
 	return errors.Is(err, protection.ErrBoundary) || errors.Is(err, protection.ErrLocked) || errors.Is(err, protection.ErrBusy) || errors.Is(err, protection.ErrHidden)
+}
+
+// An idle event connection must not own a mount lease. Per-file watcher reads
+// have their own leases; delivery closes on any protection/topology change.
+type eventWriter struct {
+	http.ResponseWriter
+	epoch [32]byte
+}
+
+func (w *eventWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+func (w *eventWriter) Write(data []byte) (int, error) {
+	l, err := Acquire()
+	if err != nil {
+		return 0, err
+	}
+	if l != nil {
+		defer l.Close()
+	}
+	status, err := os.ReadFile(filepath.Join(runtimeDir, "status.json"))
+	if err != nil || sha256.Sum256(status) != w.epoch {
+		return 0, protection.ErrLocked
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	// A stalled event receiver must not pin a filesystem lease indefinitely.
+	_ = http.NewResponseController(w.ResponseWriter).SetWriteDeadline(time.Now().Add(250 * time.Millisecond))
+	return w.ResponseWriter.Write(data)
+}
+func (w *eventWriter) WriteHeader(code int) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.ResponseWriter.WriteHeader(code)
+}
+func (w *eventWriter) Flush() { _ = http.NewResponseController(w.ResponseWriter).Flush() }
+func eventHTTP(next http.Handler, w http.ResponseWriter, r *http.Request) {
+	l, err := Acquire()
+	if err != nil {
+		http.Error(w, "Protected-folder service unavailable", 503)
+		return
+	}
+	status, err := os.ReadFile(filepath.Join(runtimeDir, "status.json"))
+	if l != nil {
+		l.Close()
+	}
+	if err != nil {
+		http.Error(w, "Protected-folder service unavailable", 503)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	next.ServeHTTP(&eventWriter{ResponseWriter: w, epoch: sha256.Sum256(status)}, r)
+}
+
+// Tokens retain private spool paths across lock/unlock. A locked spool is
+// temporarily unavailable, not an expired/deleted ordinary cache file.
+func PrivateSpoolReadable(path string) error {
+	prefix := filepath.Join(runtimeDir, "mounts") + string(os.PathSeparator)
+	if !strings.HasPrefix(path, prefix) {
+		return nil
+	}
+	parts := strings.Split(strings.TrimPrefix(path, prefix), string(os.PathSeparator))
+	if len(parts) < 3 || parts[1] != "private" {
+		return protection.ErrHidden
+	}
+	l, err := Acquire()
+	if err != nil {
+		return err
+	}
+	if l == nil {
+		return nil
+	}
+	defer l.Close()
+	for _, v := range l.Snapshot.Vaults {
+		if v.ID == parts[0] && v.State == "unlocked" {
+			return l.Check(filepath.Join(sourceRoot(l, v.Source), v.Path), false)
+		}
+	}
+	return protection.ErrLocked
 }

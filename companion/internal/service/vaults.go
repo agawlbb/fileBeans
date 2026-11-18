@@ -719,6 +719,31 @@ func (s *Service) vaultRoutes(mux *http.ServeMux) {
 				fail(w, ErrUnsafe)
 				return
 			}
+			if s.vaults.remote != nil && action != "initialize" {
+				var input struct {
+					Key string `json:"key"`
+				}
+				if action == "unlock" {
+					if err := body(r, &input); err != nil {
+						fail(w, err)
+						return
+					}
+				}
+				defer func() { input.Key = "" }()
+				var result protectionStatus
+				if err := s.vaults.remote.request("POST", "protection/"+action, input, "", &result); err != nil {
+					fail(w, err)
+					return
+				}
+				if action == "unlock" {
+					if err := s.migrateVaultRecords(); err != nil {
+						fail(w, err)
+						return
+					}
+				}
+				reply(w, 200, s.vaults.status())
+				return
+			}
 			// Cancel workers first. The caller retries after their current I/O has
 			// drained; TryLock avoids holding an HTTP connection indefinitely.
 			if action == "lock" {

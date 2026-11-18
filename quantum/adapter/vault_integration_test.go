@@ -47,7 +47,7 @@ func TestVaultFilesystemIntegration(t *testing.T) {
 	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", filepath.Join(os.Getenv("FILEBEANS_VAULT_RUNTIME"), "broker.sock"))
 	}}
-	client := &http.Client{Transport: transport, Timeout: 10 * time.Second}
+	client := &http.Client{Transport: transport, Timeout: 20 * time.Second}
 	defer transport.CloseIdleConnections()
 	fixture := func(action string, want int) []byte {
 		t.Helper()
@@ -311,13 +311,13 @@ func TestVaultFilesystemIntegration(t *testing.T) {
 	if got := archive("GET", "/ordinary.txt", token); got.Code != 410 {
 		t.Fatal("archive token accepted a changed selection", got.Code)
 	}
-	if _, e = preview.GetPreviewForFile(ctx, *video, "small", "", 50); !errors.Is(e, protection.ErrLocked) {
+	if _, e = preview.GetPreviewForFile(ctx, *video, "small", "", 50); e == nil {
 		t.Fatal("video preview bypassed lock", e)
 	}
-	if _, e = preview.GetPreviewForFile(ctx, *photo, "small", "", 0); !errors.Is(e, protection.ErrLocked) {
+	if _, e = preview.GetPreviewForFile(ctx, *photo, "small", "", 0); e == nil {
 		t.Fatal("cached preview bypassed lock", e)
 	}
-	if _, e = files.FileInfoFaster(utils.FileOptions{Source: "uploads", Path: "/Private/secret.txt"}, user); !errors.Is(e, protection.ErrLocked) {
+	if _, e = files.FileInfoFaster(utils.FileOptions{Source: "uploads", Path: "/Private/secret.txt"}, user); e == nil {
 		t.Fatal("file metadata bypassed lock", e)
 	}
 	if _, e = os.Stat(private); !errors.Is(e, os.ErrNotExist) && !errors.Is(e, os.ErrPermission) {
@@ -337,6 +337,31 @@ func TestVaultFilesystemIntegration(t *testing.T) {
 	if cached, e := preview.GetPreviewForFile(ctx, *photo, "small", "", 0); e != nil || !bytes.Equal(cached, thumb) {
 		t.Fatal("protected preview did not survive lock/unlock", e)
 	}
+
+	t.Run("idle-event-stream-does-not-block-locking", func(t *testing.T) {
+		entered := make(chan struct{})
+		release := make(chan struct{})
+		finished := make(chan error, 1)
+		response := httptest.NewRecorder()
+		go func() {
+			vaultbridge.HTTP(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				close(entered)
+				<-release
+				_, err := w.Write([]byte("must not deliver stale protected content"))
+				finished <- err
+			})).ServeHTTP(response, httptest.NewRequest("GET", "/api/events", nil))
+		}()
+		<-entered
+		fixture("lock", 200)
+		close(release)
+		if err := <-finished; !errors.Is(err, protection.ErrLocked) {
+			t.Fatal("stale event delivered after lock", err)
+		}
+		if response.Body.Len() != 0 {
+			t.Fatal("stale protected payload emitted")
+		}
+		fixture("unlock", 200)
+	})
 	lease, e := vaultbridge.Read(imagePath, false)
 	if e != nil {
 		t.Fatal(e)

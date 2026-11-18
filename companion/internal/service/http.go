@@ -503,6 +503,7 @@ func (s *Service) Handler() http.Handler {
 	s.driveRoutes(mux)
 	s.normalizationRoutes(mux)
 	s.vaultRoutes(mux)
+	s.protectionRoutes(mux)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -520,7 +521,7 @@ func (s *Service) Handler() http.Handler {
 			reply(w, 401, map[string]string{"error": "Authentication required"})
 			return
 		}
-		if !strings.HasPrefix(r.URL.Path, "/v1/vaults") {
+		if !strings.HasPrefix(r.URL.Path, "/v1/vaults") && !strings.HasPrefix(r.URL.Path, "/v1/protection") {
 			s.vaultGate.RLock()
 			defer s.vaultGate.RUnlock()
 		}

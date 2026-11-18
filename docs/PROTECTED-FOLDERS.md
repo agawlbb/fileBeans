@@ -1,6 +1,6 @@
 # Experimental protected folders
 
-This feature branch adds gocryptfs vault controls to the companion and iOS app.
+fileBeans uses gocryptfs vault controls in the companion and iOS app.
 Creation is enabled only with the compatible broker and patched Quantum consumer. Nothing here installs
 services, converts existing data, deploys, or enables a production vault.
 
@@ -49,9 +49,9 @@ discarded configuration password; that password is not used for recovery.
 
 ## Automatic locking
 
-The server mount broker locks each protected folder after one hour without
-public file access or changes. Reads, file opens, writes, and filesystem
-mutations restart that folder's timer. Status requests, directory listings, and
+The server mount broker locks all protected folders together after one hour
+without public file access or changes in any protected folder. Reads, file opens,
+writes, and filesystem mutations restart the shared inactivity period. Status requests, directory listings, and
 private cache writes do not. The broker checks every five seconds. Active
 operation leases or busy mounts defer locking; the next check retries without
 cancelling transfers or forcing unmounts.
@@ -89,19 +89,27 @@ static-vault path only; they are not the current Add Protected Folder setup.
 
 Folders remain unlocked when the phone disconnects, until manually locked or
 the server's one-hour inactivity timer expires.
-Because all vaults share a master key, protection against server root requires
-all vaults locked. While any vault is open, root could capture the shared key
-and decrypt another vault even if that other mount is currently locked.
-Individual lock/unlock and a mobile Unlock All action are available. Lock cancels
-the serial copy worker, then requires all in-process filesystem activity to drain.
-If busy, the response says to retry; no lazy/forced unmount is used. A successful
-lock requires drained operation leases, verified public/private unmounts, and
-an exited gocryptfs child. Failure remains visible and never becomes a claimed successful
-lock. When the last vault closes, the active metadata key buffer is cleared.
+Protection is one server-wide session per connection. The Protected folders
+screen contains key controls and a single Lock/Unlock control, without folder
+names or a folder list. Imported keys can unlock immediately; backup acknowledgment
+is required only before creating a folder with a newly generated key.
+Manual transitions wait up to ten seconds for filesystem leases to drain, without
+holding the broker request mutex. Idle event subscriptions do not retain leases;
+actual watcher reads and event delivery are checked separately. Active transfers
+can still defer locking. Normal unmounts, closed private mounts and exited
+children are required before reporting success; there are no forced/lazy unmounts.
+The location and metadata key buffers are cleared after the session closes.
 
-Protected roots fail closed if their expected FUSE mount disappears. The public
-folder is replaced by a read-only locked placeholder, including on CIFS mounts
-with fixed permission masks, preventing fallback plaintext writes. Protected Trash
+Registry version 2 stores root names, paths, previous paths and pending relocation
+paths in authenticated AES-256-GCM ciphertext, using a domain-separated key derived
+from the same master key. While locked, public API descriptors contain opaque
+IDs/source aliases and state, without names or paths. Named public mountpoint
+directories are moved to opaque markers under `.filebeans-vaults` when locked and
+returned to their intended locations on unlock. Ciphertext remains in its existing
+opaque storage directory. Startup recovers marker identity before serving clients.
+An incomplete mount/marker cleanup remains an error rather than a successful lock.
+
+Protected Trash
 payloads live under `private/trash/<id>`, outside the browsable `files` tree.
 Publication staging remains under the hidden staging directory; rclone configuration/temp/cache files
 for protected transfers go under the vault's encrypted `private/tmp` directory.
@@ -140,13 +148,41 @@ responses. No key is returned in status, errors, or capabilities.
 | `POST /v1/vaults` | Body `{"source":"...","parent":"/...","name":"...","key":"FBK1:..."}` with `Idempotency-Key`; creates an empty protected folder and unlocks it |
 | `GET /v1/vaults` | Public ID/source, locked/unlocked/error state and initialization status |
 | `POST /v1/vaults/{id}/initialize` | Body `{"key":"FBK1:..."}` and `X-Confirm-Permanent: yes`; initializes and unlocks a configured empty vault |
-| `POST /v1/vaults/{id}/unlock` | Body `{"key":"FBK1:..."}`; verifies the encrypted identity marker before starting clients |
-| `POST /v1/vaults/{id}/lock` | No key required; stops clients and unmounts |
+| `GET /v1/protection` | Aggregate state only: `locked`, `unlocked`, or `error` |
+| `POST /v1/protection/unlock` | Body `{"key":"FBK1:..."}`; authenticates locations and unlocks all initialized folders |
+| `POST /v1/protection/lock` | Locks all folders and clears session keys after verified closure |
+| `POST /v1/vaults/{id}/unlock` | Compatibility route for the same global unlock operation |
+| `POST /v1/vaults/{id}/lock` | Compatibility route for the same global lock operation |
 
-Mutation responses return the updated vault list. Busy/locked operations return
-409; mount/setup failures return 503. Use HTTPS with request-body logging and
-disk buffering disabled on the reverse proxy. Unlock All calls unlock for each
-initialized locked vault; it is deliberately not an atomic multi-vault operation.
+Global transition responses return aggregate state only. Busy/locked operations
+return 409; mount/setup failures return 503. Use HTTPS with request-body logging
+and disk buffering disabled on the reverse proxy. An unlock failure attempts to
+close all folders again; cleanup failures remain visible as errors.
+
+## Location privacy migration
+
+Deploy the matching broker, companion and patched Quantum together. The Quantum
+consumer now requires `eventLeaseScopes`; an older consumer cannot enable unlock
+or creation. Existing registry version 1 can start locked, but converting its
+plaintext locations requires the first authenticated unlock with the existing
+key. No new key is needed. Do not claim existing locations are encrypted before
+that migration completes.
+
+Before that first unlock, inventory retained registry snapshots using
+`scripts/inventory-vault-location-backups.py` with explicit trusted deployment and
+state directories. Configure their absolute paths in the broker's
+`locationBackups` array. Only root-owned files beneath trusted parents are
+accepted. On authenticated unlock these snapshots are atomically rewritten with
+encrypted location fields, preserving their recovery data. A failure blocks the
+unlock. External backups, filesystem history and old logs require separate
+handling; this does not promise forensic erasure of historical plaintext.
+
+Each unlocked vault also writes its root location to `private/location.json`
+inside gocryptfs. Independent recovery with ciphertext and the saved key therefore
+recovers both file contents and the root location without the registry or VPS.
+Older broker versions cannot read registry version 2. Preserve the current broker
+and encrypted state when planning a rollback; do not substitute a legacy binary
+against migrated production state.
 
 ## Acceptance before keeping or merging
 
@@ -308,3 +344,17 @@ entries without filesystem reconciliation. Recovery and expiry run in regular
 maintenance. The app requests its source explicitly and shows loading or request
 errors separately from an empty result. Multi-selection actions use a bottom
 toolbar, and the full shaded Trash row is a navigation hit target.
+
+### Global protection and location privacy fixes — November 18, 2026
+
+Source changes fix idle SSE leases blocking transitions, imported-key unlock,
+iPad sidebar navigation and locked root-name disclosure. The screen uses aggregate
+state without enumerating roots. One global inactivity deadline locks all folders.
+
+The companion race suite and vet pass, with the documented unrelated baseline
+hardlink case excluded. The full isolated FUSE suite passes on local/CIFS storage,
+including encrypted registry/restart recovery, shared inactivity, idle event
+streams, folder lifecycle operations and independent gocryptfs recovery. Swift
+syntax/configuration checks pass; the new Swift tests have not been compiled or
+run on macOS. An explicitly requested Apple build is still required. These fixes
+have not been deployed or released; release 21 predates them.

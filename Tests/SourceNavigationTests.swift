@@ -5,6 +5,7 @@ import SwiftUI
 @MainActor
 private final class NavigationFixture: ObservableObject {
     @Published var path: [SourceDestination] = []
+    @Published var selected: SourceDestination?
     var loaded: [String] = []
     var loadFinished: XCTestExpectation?
     var cancelled: XCTestExpectation?
@@ -25,10 +26,10 @@ private final class NavigationFixture: ObservableObject {
 
 private struct NavigationHarness: View {
     @ObservedObject var fixture: NavigationFixture
-    @State private var selected: SourceDestination?
+    var compact = true
     @State private var visibility: NavigationSplitViewVisibility = .all
     var body: some View {
-        SourceNavigation(compact: true, path: $fixture.path, selected: $selected,
+        SourceNavigation(compact: compact, path: $fixture.path, selected: $fixture.selected,
                          columnVisibility: $visibility, sidebar: Text("Sources")) { source in
             Text(source.name).task { await fixture.load(source) }
         }
@@ -43,6 +44,36 @@ final class SourceNavigationTests: XCTestCase {
 
     func testBackThenSameSourceLoadsAgain() async {
         await checkReopening(names: ["VPS", "VPS", "VPS"])
+    }
+
+    func testIPadCanLeaveProtectionThroughSidebarSelection() async {
+        let fixture = NavigationFixture()
+        let controller = UIHostingController(rootView: NavigationHarness(fixture: fixture, compact: false))
+        controller.traitOverrides.horizontalSizeClass = .regular
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 1024, height: 768))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        let connection = Connection(name: "Synthetic", url: URL(string: "https://example.invalid")!)
+        let source = StoredItem(id: "samba", parent: "root", source: "Samba",
+            file: RemoteFile(name: "Samba", path: "/", type: "directory"), permissions: Permissions(), isSource: true)
+        let destinations = [
+            SourceDestination(connection: connection, kind: .protection),
+            SourceDestination(connection: connection, kind: .local(source)),
+            SourceDestination(connection: connection, kind: .protection),
+            SourceDestination(connection: connection, kind: .transfers)
+        ]
+        for destination in destinations {
+            let loaded = expectation(description: destination.name + " loads after sidebar selection")
+            fixture.loadFinished = loaded
+            fixture.selected = destination
+            await fulfillment(of: [loaded], timeout: 5)
+        }
+        XCTAssertEqual(fixture.loaded, ["Protected folders", "Samba", "Protected folders", "Transfers"])
+        let cancelled = expectation(description: "Sources exits protection detail without restarting")
+        fixture.cancelled = cancelled
+        fixture.selected = nil
+        await fulfillment(of: [cancelled], timeout: 5)
     }
 
     private func checkReopening(names: [String]) async {

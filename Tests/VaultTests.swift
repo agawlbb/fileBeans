@@ -37,6 +37,15 @@ final class VaultTests: XCTestCase {
         }
         XCTAssertThrowsError(try VaultRecoveryCode.encode(Data(count: 31)))
     }
+
+    func testGlobalStatusHasNoFolderListAndLockedOpaqueLocationsDoNotCoverSourceRoot() throws {
+        let status = try JSONDecoder().decode(ProtectionStatus.self, from: Data(#"{"state":"locked"}"#.utf8))
+        XCTAssertEqual(status.state, "locked")
+        let opaque = ProtectedVault(id: "opaque", source: "disk", state: "locked", initialized: true, path: "")
+        XCTAssertFalse(opaque.contains(source: "disk", path: "/"))
+        XCTAssertFalse(opaque.contains(source: "disk", path: "/Ordinary/file"))
+    }
+
     func testVaultStatusDoesNotRequireKeyMaterial() throws {
         let json = #"[{"id":"archive","source":"Protected","state":"locked","initialized":true}]"#
         let vault = try JSONDecoder().decode([ProtectedVault].self, from: Data(json.utf8))[0]

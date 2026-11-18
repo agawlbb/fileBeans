@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SourceDestination: Identifiable, Hashable {
-    enum Kind: Hashable { case local(StoredItem), drive, driveFolder(String, String), transfers }
+    enum Kind: Hashable { case local(StoredItem), drive, driveFolder(String, String), transfers, protection }
     let connection: Connection
     let kind: Kind
     var id: String {
@@ -10,6 +10,7 @@ struct SourceDestination: Identifiable, Hashable {
         case .drive: return connection.id.uuidString + ":drive"
         case .driveFolder(let id, _): return connection.id.uuidString + ":drive:" + id
         case .transfers: return connection.id.uuidString + ":transfers"
+        case .protection: return connection.id.uuidString + ":protection"
         }
     }
     var name: String {
@@ -18,6 +19,7 @@ struct SourceDestination: Identifiable, Hashable {
         case .drive: return "Google Drive"
         case .driveFolder(_, let name): return name
         case .transfers: return "Transfers"
+        case .protection: return "Protected folders"
         }
     }
     @MainActor @ViewBuilder var destination: some View {
@@ -26,6 +28,7 @@ struct SourceDestination: Identifiable, Hashable {
         case .drive: DriveBrowser(connection: connection)
         case .driveFolder(let id, let name): DriveBrowser(connection: connection, folder: id, title: name)
         case .transfers: TransferList(connection: connection)
+        case .protection: VaultsView(connection: connection)
         }
     }
 }
@@ -170,9 +173,7 @@ struct SourcesView: View {
                 }
             }
             if connection.companionURL != nil {
-                NavigationLink {
-                    VaultsView(connection: connection)
-                } label: {
+                sourceLink(SourceDestination(connection: connection, kind: .protection)) {
                     Label(connections.connections.count > 1 ? "Protected folders — " + connection.name : "Protected folders", systemImage: "lock.shield")
                 }
                 sourceLink(SourceDestination(connection: connection, kind: .transfers)) {

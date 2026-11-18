@@ -10,7 +10,8 @@ struct ProtectedVault: Codable, Identifiable, Hashable {
     var name: String? = nil
     var displayName: String { name ?? path.map { ($0 as NSString).lastPathComponent } ?? source }
     func contains(source: String, path: String) -> Bool {
-        (trashed ?? 0) == 0 && self.source == source && FilePath.contains(path, in: self.path ?? "/")
+        guard let boundary = self.path, !boundary.isEmpty else { return false }
+        return (trashed ?? 0) == 0 && self.source == source && FilePath.contains(path, in: boundary)
     }
 }
 
@@ -43,6 +44,12 @@ extension CompanionClient {
 }
 
 extension SharedStore {
+    func markProtectionLocked(connection: UUID) throws {
+        let known = try vaults(connection).map { value -> ProtectedVault in
+            var locked = value; locked.state = "locked"; return locked
+        }
+        try setVaults(known, connection: connection)
+    }
     func vaults(_ connection: UUID) throws -> [ProtectedVault] {
         try transaction { $0.protectedFolders?[connection.uuidString] ?? [] }
     }
@@ -50,6 +57,16 @@ extension SharedStore {
         try transaction { catalog in
             let previous = catalog.items[connection.uuidString]
             if catalog.protectedFolders == nil { catalog.protectedFolders = [:] }
+            // The server deliberately withholds locked locations. Keep existing
+            // device-local identity mappings solely to hide cached locked rows.
+            let prior = catalog.protectedFolders?[connection.uuidString] ?? []
+            let vaults = vaults.map { incoming -> ProtectedVault in
+                var value = incoming
+                if (value.path ?? "").isEmpty, let known = prior.first(where: { $0.id == value.id }) {
+                    value.path = known.path; value.name = known.name
+                }
+                return value
+            }
             catalog.protectedFolders?[connection.uuidString] = vaults
             for (id, var item) in catalog.items[connection.uuidString] ?? [:] {
                 item.protection = Self.protection(for: item, vaults: vaults,

@@ -28,18 +28,19 @@ final class VaultKeySession: ObservableObject {
     }
 
     func generate() async {
-        await store { try VaultRecoveryCode.generate() }
+        await store(imported: false) { try VaultRecoveryCode.generate() }
     }
-    func importKey() async { await store { self.importCode } }
-    private func store(_ make: () throws -> String) async {
+    func importKey() async { await store(imported: true) { self.importCode } }
+    private func store(imported: Bool, _ make: () throws -> String) async {
         busy = true; defer { busy = false }
         do {
             guard !hasKey else { throw VaultRecoveryCode.failure("A key is already stored.") }
             let value = try VaultRecoveryCode.encode(VaultRecoveryCode.decode(make()))
             defaults.set(true, forKey: Self.pendingBackup)
             try await saveKey(value)
+            if imported { defaults.set(false, forKey: Self.pendingBackup) }
             hasKey = true; code = try VaultRecoveryCode.encode(VaultRecoveryCode.decode(value))
-            importCode = ""; backupConfirmed = false; copied = false
+            importCode = ""; backupConfirmed = imported; copied = false
         } catch { self.error = error.localizedDescription }
     }
     func reveal() async {
@@ -65,8 +66,8 @@ final class VaultKeySession: ObservableObject {
             defaults.removeObject(forKey: Self.pendingBackup)
         } catch { self.error = error.localizedDescription }
     }
-    func authorizedCode() async throws -> String {
-        guard hasKey, backupConfirmed else { throw VaultRecoveryCode.failure("Save your recovery code first.") }
+    func authorizedCode(requireBackup: Bool = true) async throws -> String {
+        guard hasKey, (!requireBackup || backupConfirmed) else { throw VaultRecoveryCode.failure("Save your recovery code first.") }
         return try await readKey()
     }
 }

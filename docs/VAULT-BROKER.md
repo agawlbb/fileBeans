@@ -52,7 +52,8 @@ register its supported integration features. The filesystem master key is never
 returned through the socket.
 
 The shared `protection` package holds a read lock on a root-owned runtime gate
-for the full operation. Mount transitions require an exclusive nonblocking lock.
+for the full operation. Mount transitions acquire an exclusive lock, with manual transitions waiting up to
+ten seconds outside the broker request mutex.
 Active readers return busy rather than being silently disconnected by a
 successful lock. Normal unmounts are checked; force and lazy unmounts are not
 used. Missing mounts reject access before cache selection or ordinary-path
@@ -75,8 +76,8 @@ persistent-index exclusion, filename-bearing metadata filtering, and mutation
 boundary checks. Protected files are listed directly without persistent indexing.
 Protected image and video entries advertise their previews to ordinary clients.
 
-Only the fully patched consumer registers protocol 1 with all six required
-features. Registration expires 15 seconds after its last heartbeat. Quantum
+Only the fully patched consumer registers protocol 1 with all required
+features, including `eventLeaseScopes`,. Registration expires 15 seconds after its last heartbeat. Quantum
 receives public state and operation leases, never the master or metadata key.
 It runs under a different UID from the companion, with their common primary GID.
 
@@ -107,8 +108,10 @@ and controlled by the broker. Ordinary source directories must be writable by
 the shared group; existing ownership and CIFS masks need deliberate review.
 The broker pins ciphertext directory descriptors and confines plaintext setup
 through `os.Root`. On CIFS it supplies gocryptfs a shared ownership view without
-changing the encryption format. Read-only locked stubs prevent writes through
-CIFS fallback placeholders even with fixed remote permission masks.
+changing the encryption format. Version 2 moves closed public markers into opaque storage and encrypts their
+locations; named markers are restored only during authenticated unlock. See
+[location privacy migration](PROTECTED-FOLDERS.md#location-privacy-migration) for
+first-unlock conversion, historical registry snapshots and rollback constraints.
 
 Install gocryptfs 2.6.1 and FUSE 3 on the host, including `user_allow_other`.
 Disable swap/hibernation/kernel dumps before accepting real keys; runtime checks

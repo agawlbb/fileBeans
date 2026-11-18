@@ -67,6 +67,9 @@ func (b *mountBroker) movePublic(entry *brokerEntry) error {
 		entry.PreviousPaths = append(entry.PreviousPaths, entry.Path)
 	}
 	entry.Path, entry.Trashed = entry.NextPath, entry.NextTrashed
+	if b.registry.Version == privateRegistryVersion {
+		entry.Parked = entry.Trashed > 0
+	}
 	entry.NextPath, entry.NextTrashed = "", 0
 	return nil
 }

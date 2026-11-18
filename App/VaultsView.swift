@@ -1,85 +1,73 @@
 import SwiftUI
 
+struct ProtectionStatus: Decodable, Equatable {
+    let state: String
+}
+
 struct VaultsView: View {
     let connection: Connection
-    @State private var vaults: [ProtectedVault] = []
+    @State private var status: ProtectionStatus?
     @State private var busy = false
+    @State private var revision = 0
     @State private var error: String?
-    @State private var initialize: ProtectedVault?
     @ObservedObject private var keySession = VaultKeySession.shared
 
+    private var locking: Bool { status?.state == "unlocked" || status?.state == "error" }
     var body: some View {
         List {
             VaultKeyControls(session: keySession)
             Section("Protected folders") {
-                if vaults.isEmpty { Text("No protected folders").foregroundStyle(.secondary) }
-                ForEach(vaults) { vault in
-                    HStack {
-                        Label(vault.displayName, systemImage: vault.state == "unlocked" ? "lock.open" : "lock")
-                        Spacer()
-                        if !vault.initialized && vault.path == nil {
-                            Button("Initialize") { initialize = vault }.disabled(!keySession.backupConfirmed)
-                        } else {
-                            Button(vault.state == "unlocked" || vault.state == "error" ? "Lock" : "Unlock") {
-                                perform {
-                                    let client = CompanionClient(connection: connection); defer { client.close() }
-                                    let locking = vault.state == "unlocked" || vault.state == "error"
-                                    let code = locking ? nil : try await keySession.authorizedCode()
-                                    try await client.vaultAction(id: vault.id, action: locking ? "lock" : "unlock", code: code)
-                                    try await reload()
-                                }
-                            }.disabled(vault.state != "unlocked" && vault.state != "error" && !keySession.backupConfirmed)
-                        }
-                    }
-                }
-                Button("Unlock all") {
-                    perform {
-                        let code = try await keySession.authorizedCode()
-                        let client = CompanionClient(connection: connection); defer { client.close() }
-                        for vault in vaults where vault.initialized && vault.state == "locked" {
-                            try await client.vaultAction(id: vault.id, action: "unlock", code: code)
-                        }
-                        try await reload()
-                    }
-                }.disabled(!keySession.backupConfirmed || !vaults.contains { $0.initialized && $0.state == "locked" })
+                if let status {
+                    Button(locking ? "Lock" : "Unlock") { changeProtection() }
+                        .disabled(busy || (!locking && !keySession.hasKey))
+                    if busy { ProgressView() }
+                    if status.state == "error" { Text("Protection needs attention").foregroundStyle(.red) }
+                } else if let error { Text(error).foregroundStyle(.red) }
+                else { ProgressView() }
             }
         }
         .navigationTitle("Protected folders")
-        .disabled(busy)
-        .overlay { if busy { ProgressView() } }
-        .task { perform { try await reload() } }
-        .refreshable { do { try await reload() } catch { self.error = error.localizedDescription } }
-        .confirmationDialog("Initialize protected folder?", isPresented: Binding(
-            get: { initialize != nil }, set: { if !$0 { initialize = nil } }), titleVisibility: .visible) {
-            if let vault = initialize {
-                Button("Initialize") {
-                    initialize = nil
-                    perform {
-                        let code = try await keySession.authorizedCode()
-                        let client = CompanionClient(connection: connection); defer { client.close() }
-                        try await client.vaultAction(id: vault.id, action: "initialize", code: code)
-                        try await reload()
-                    }
-                }
+        .task(id: connection.id) {
+            while !Task.isCancelled {
+                if !busy { await refresh() }
+                do { try await Task.sleep(for: .seconds(5)) } catch { return }
             }
         }
-        .alert("Protected folders", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+        .refreshable { await refresh() }
+        .alert("Protected folders", isPresented: Binding(get: { error != nil && status != nil }, set: { if !$0 { error = nil } })) {
             Button("OK") { error = nil }
         } message: { Text(error ?? "") }
     }
-    private func perform(_ operation: @escaping @MainActor () async throws -> Void) {
-        busy = true
-        Task { @MainActor in
-            defer { busy = false }
-            do { try await operation() } catch { self.error = error.localizedDescription }
+    private func refresh() async {
+        let requestedRevision = revision
+        let client = CompanionClient(connection: connection); defer { client.close() }
+        do {
+            let value = try JSONDecoder().decode(ProtectionStatus.self, from: await client.request("protection"))
+            guard !Task.isCancelled, !busy, requestedRevision == revision else { return }
+            status = value; error = nil
+        } catch {
+            guard !Task.isCancelled, !busy, requestedRevision == revision else { return }
+            self.error = error.localizedDescription
         }
     }
-    private func reload() async throws {
-        let client = CompanionClient(connection: connection); defer { client.close() }
-        vaults = try await client.vaults()
-        let store = try SharedStore()
-        try store.setVaults(vaults, connection: connection.id)
-        let repository = try Repository(connection: connection, store: store)
-        repository.notify()
+    private func changeProtection() {
+        guard !busy else { return }
+        let action = locking ? "lock" : "unlock"
+        busy = true
+        revision += 1
+        Task { @MainActor in
+            defer { busy = false }
+            let client = CompanionClient(connection: connection); defer { client.close() }
+            do {
+                let code = action == "unlock" ? try await keySession.authorizedCode(requireBackup: false) : nil
+                let body = try code.map { try JSONEncoder().encode(["key": $0]) }
+                status = try JSONDecoder().decode(ProtectionStatus.self,
+                    from: await client.request("protection/" + action, method: "POST", body: body))
+                let store = try SharedStore()
+                if status?.state == "locked" { try store.markProtectionLocked(connection: connection.id) }
+                try Repository(connection: connection, store: store).notify()
+                error = nil
+            } catch { self.error = error.localizedDescription }
+        }
     }
 }

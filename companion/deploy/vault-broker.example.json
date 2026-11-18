@@ -1,5 +1,6 @@
 {
   "state": "/var/lib/filebeans-vaults",
+  "locationBackups": [],
   "runtime": "/run/filebeans-vaults",
   "gocryptfs": "/usr/local/bin/gocryptfs",
   "fusermount": "/usr/bin/fusermount3",
