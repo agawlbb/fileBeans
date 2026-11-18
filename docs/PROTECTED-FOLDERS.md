@@ -179,8 +179,8 @@ production SMB negotiation is unchanged.
 
 Swift syntax/configuration and Keychain entitlement isolation pass. Apple
 compilation, XCTest execution, physical-device biometrics/backgrounding and
-second-device acceptance remain unexecuted. Runtime image/native PDF builds and
-production deployment are separate outstanding steps. No source-level result
+second-device acceptance remain unexecuted. Runtime image builds, native PDF/text rendering tests, and restricted image
+execution now pass. Production deployment remains outstanding. No source-level result
 changes the currently installed app or server. The VM host still has swap
 configured; real-key startup correctly refuses it. Synthetic test-only memory
 checks do not expose a daemon bypass.

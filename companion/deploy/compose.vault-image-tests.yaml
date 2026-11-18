@@ -1,0 +1,35 @@
+# Run prepared images only; no credentials, sources, mounts or external network.
+x-isolated: &isolated
+  network_mode: none
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs: ["/tmp:rw,nosuid,nodev,noexec,size=32m,mode=1777"]
+  cpus: 1
+  mem_limit: 256m
+  memswap_limit: 256m
+  pids_limit: 32
+  logging:
+    driver: none
+
+services:
+  quantum:
+    <<: *isolated
+    image: ${FILEBEANS_QUANTUM_IMAGE:?Set prepared Quantum image}
+    user: "10002:10003"
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - /home/filebrowser/filebrowser version && ffmpeg -version && ffprobe -version
+  companion:
+    <<: *isolated
+    image: ${FILEBEANS_COMPANION_IMAGE:?Set prepared companion image}
+    user: "10001:10003"
+    entrypoint: [/filebeans]
+    command: [-h]
+  normalizer:
+    <<: *isolated
+    image: ${FILEBEANS_NORMALIZER_IMAGE:?Set prepared normalizer image}
+    user: "10001:10003"
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - /filebeans -h && ffmpeg -version && ffprobe -version

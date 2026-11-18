@@ -168,9 +168,8 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
     private func sourceLocation(_ location: CopyLocation) throws -> CopyLocation {
         guard location.source != "drive", location.source != "upload" else { return location }
         let scope = try SharedStore().sourceScope(connection.id, source: location.source)
-        var adjusted = location
-        adjusted.path = try FilePath.inSource(location.path, scope: scope)
-        return adjusted
+        return CopyLocation(source: location.source,
+                            path: try FilePath.inSource(location.path, scope: scope), name: location.name)
     }
     func trashEntries() async throws -> [TrashEntry] { try JSONDecoder().decode([TrashEntry].self, from: await request("trash")) }
     static func protected(_ path: String) -> Bool {

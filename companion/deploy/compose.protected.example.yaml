@@ -6,7 +6,7 @@ x-consumer: &consumer
   cap_drop: [ALL]
   security_opt: [no-new-privileges:true]
   read_only: true
-  tmpfs: [/tmp:rw,nosuid,nodev,noexec,mode=1777]
+  tmpfs: ["/tmp:rw,nosuid,nodev,noexec,mode=1777"]
   logging:
     driver: none
 

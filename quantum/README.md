@@ -35,7 +35,7 @@ logs are suppressed in this mode. Protected OnlyOffice conversion is disabled.
 Archive selections cannot span multiple vaults; resume tokens bind their
 selection and principal. Proxy buffering/log settings remain administrator setup.
 
-`Dockerfile` is an unbuilt runtime recipe. It builds the patched backend with
+`Dockerfile` builds the patched backend with
 the upstream native PDF tags and retains matching frontend/FFmpeg/runtime assets
 from immutable image digest
 `sha256:de2b4c4d18485ea202ab2cdada5bd25d8f0b8ed071712c8216a67194c31285ae`.
@@ -51,6 +51,6 @@ in the project `.venv` for the loopback SMB fixture. Required tools are gocryptf
 The suite includes independent ciphertext recovery and does not use real keys.
 
 See [runtime setup](../docs/VAULT-BROKER.md) and
-[behavior and acceptance limits](../docs/PROTECTED-FOLDERS.md). No deployment,
-native-PDF image verification, Apple build or release has been performed for
-this source change.
+[behavior and acceptance limits](../docs/PROTECTED-FOLDERS.md). Quantum image compilation, native PDF/text rendering and isolated image
+execution passed on November 18, 2026. No deployment or release has occurred.
+Apple workflow results are recorded in the protected-folder documentation.

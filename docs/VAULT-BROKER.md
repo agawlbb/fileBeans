@@ -118,7 +118,7 @@ FUSE mounts fail closed and require controlled cleanup before startup.
 
 Build preparation and requested image builds run on VM-laptop. The Quantum
 Dockerfile retains the pinned release frontend/runtime while replacing its
-backend; its native MuPDF build still needs the requested image-build check.
+backend; its native MuPDF build and PDF/text rendering checks now pass.
 Use prepared feature images for companion **and normalizer** as well. The VPS
 only receives prepared artifacts after an explicit deployment request.
 
@@ -138,9 +138,38 @@ Docker socket or host mount propagation. Its loopback-only SMB fixture and share
 mount subtree exist only inside its own namespace. It uses synthetic keys and a
 test-code-only memory check, leaving production checks intact.
 
-Before deciding to keep/merge: build runtime artifacts/native PDF support,
-perform Apple compilation/XCTest and physical-device acceptance, then exercise
+Runtime artifacts/native PDF compilation and isolated image execution pass.
+Before deciding to keep/merge: complete Apple compilation/XCTest and physical-device
+acceptance, then exercise
 the explicitly requested staging deployment topology, proxy and full SQL-backed
 transfer/Trash flows. Root/ancestor mutation restrictions and metadata feature
 limits are listed in [PROTECTED-FOLDERS.md](PROTECTED-FOLDERS.md). No main merge,
 production deployment or app release is performed by this implementation.
+
+## Prepared runtime artifacts (November 18, 2026)
+
+`python3 scripts/prepare-vault-runtime.py`, run through `dev`, prepares static
+companion/broker binaries, tested gocryptfs, matching companion/normalizer image
+contexts, and an SHA-256 manifest under `.build/vault-runtime/<revision>`.
+It refuses to overwrite existing artifacts. The pinned rclone archive can be
+cached under `.build/dependencies/rclone-v1.76.0-linux-amd64.zip`; its checksum is
+validated even when downloaded through GitHub rather than the upstream mirror.
+For example, run `gh release download v1.76.0 --repo rclone/rclone --pattern
+rclone-v1.76.0-linux-amd64.zip --dir .build/dependencies` inside development.
+
+The VM image builder exported these local, undeployed images:
+
+| Component | Image tag | Image config digest |
+| --- | --- | --- |
+| Quantum | `filebeans-quantum:32eee70-vaults` | `sha256:1b4f947892b4f10b9d2064480ef26efb04b784614b5dcb2a01194508adf373a0` |
+| Companion | `filebeans-companion:2747b84-vaults` | `sha256:0f5de6f7d7c14880806e17be91a65cbbbb9cf99f3e6fd2c1d537432f95f81be6` |
+| Normalizer | `filebeans-normalizer:2747b84-vaults` | `sha256:0de8e00754c8114cf1b6e34453150ccef66a996a7a608a2066e2f3b0b9196c0e` |
+
+Archives and checksum metadata are under ignored `.build/images`. The tags have
+different preparation commits, but the feature implementation is the same
+`e2eab58` source; subsequent commits add packaging and build tests only.
+`sh scripts/test-vault-images.sh QUANTUM.tar COMPANION.tar NORMALIZER.tar`
+verifies archive checksums, loads images locally and runs disposable version/help
+and FFmpeg checks. All three passed as the intended unprivileged UIDs with a
+read-only root, no capabilities, no network and no source/credential/data mounts.
+This is artifact execution verification, not a production-topology acceptance.
