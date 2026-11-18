@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io/fs"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -41,12 +40,18 @@ func (s *Service) trash(item Item, key string) (Trash, error) {
 	now := time.Now().Unix()
 	t = Trash{ID: ID(), Source: item.Source, Original: p, Name: filepath.Base(p), Deleted: now, Expires: now + 10*24*3600, State: "trashing"}
 	if v := s.vaults.pathVault(item.Source, p); v != nil && v.Path != "" {
-		t.Storage = filepath.Join(strings.TrimPrefix(v.Path, "/"), "Trash", t.ID)
+		t.Vault = v.ID
+		t.Storage = filepath.Join("trash", t.ID)
 	}
 	if e = s.insert(t.ID, "trash", t.State, key, t); e != nil {
 		return t, e
 	}
-	if e = retainTrashFile(r, t); e != nil {
+	a, e := s.accessTrash(t)
+	if e != nil {
+		return t, e
+	}
+	defer a.close()
+	if e = retainTrashAccess(a, t); e != nil {
 		return t, e
 	}
 	t.State = "retained"
@@ -61,47 +66,56 @@ func (s *Service) restore(id string) error {
 	if t.State != "retained" {
 		return ErrConflict
 	}
-	r, e := s.root(t.Source)
+	if e := s.migrateProtectedTrash(&t); e != nil {
+		return e
+	}
+	a, e := s.accessTrash(t)
 	if e != nil {
 		return e
 	}
-	defer r.Close()
-	if e = safe(r, t.Original); e != nil {
+	defer a.close()
+	r := a.files
+	original := a.original
+	if e = safe(r, original); e != nil {
 		return e
 	}
-	if _, e = r.Lstat(t.Original); e == nil {
+	if _, e = r.Lstat(original); e == nil {
 		return ErrConflict
 	} else if !errors.Is(e, fs.ErrNotExist) {
 		return e
 	}
-	if e = mkdir(r, filepath.Dir(t.Original)); e != nil {
+	if e = mkdir(r, filepath.Dir(original)); e != nil {
 		return e
 	}
 	t.State = "restoring"
 	if e = s.save(t.ID, "trash", t.State, t); e != nil {
 		return e
 	}
-	if e = renameExclusive(r, trashPath(t), t.Original); e != nil {
+	if e = renameRoots(a.bin, trashPath(t), r, original); e != nil {
 		t.State = "retained"
 		t.Error = publicError(e)
 		_ = s.save(t.ID, "trash", t.State, t)
 		return e
 	}
-	if e = syncDir(r, filepath.Dir(t.Original)); e != nil {
+	if e = syncDir(r, filepath.Dir(original)); e != nil {
 		return e
 	}
 	t.State = "restored"
 	if e = s.save(t.ID, "trash", t.State, t); e != nil {
 		return e
 	}
-	return r.RemoveAll(trashDirectory(t))
+	return a.bin.RemoveAll(trashDirectory(t))
 }
 func (s *Service) purge(t *Trash) error {
-	r, e := s.root(t.Source)
+	if e := s.migrateProtectedTrash(t); e != nil {
+		return e
+	}
+	a, e := s.accessTrash(*t)
 	if e != nil {
 		return e
 	}
-	defer r.Close()
+	defer a.close()
+	r := a.bin
 	if e = safe(r, trashDirectory(*t)); e != nil {
 		return e
 	}
@@ -131,17 +145,20 @@ func (s *Service) reconcileTrash() {
 		if t.State == "purged" || t.State == "restored" || t.State == "missing" {
 			continue
 		}
-		r, e := s.root(t.Source)
+		if e := s.migrateProtectedTrash(&t); e != nil {
+			continue
+		}
+		a, e := s.accessTrash(t)
 		if e != nil {
 			continue
 		}
-		if e = safe(r, trashPath(t)); e != nil {
-			r.Close()
+		if e = safe(a.bin, trashPath(t)); e != nil {
+			a.close()
 			continue
 		}
-		_, oldErr := r.Lstat(t.Original)
-		_, trashErr := r.Lstat(trashPath(t))
-		r.Close()
+		_, oldErr := a.files.Lstat(a.original)
+		_, trashErr := a.bin.Lstat(trashPath(t))
+		a.close()
 		switch t.State {
 		case "trashing":
 			if trashErr == nil {
@@ -173,6 +190,19 @@ func (s *Service) reconcileTrash() {
 			_ = s.purge(&t)
 		}
 	}
+	for _, v := range s.vaults.configs() {
+		if v.Path == "" {
+			continue
+		}
+		descriptor := Trash{Source: v.Source, Vault: v.ID, Original: filepath.Join(v.Path, ".trash-cleanup")}
+		a, e := s.accessTrash(descriptor)
+		if e != nil {
+			continue
+		}
+		_ = removeEmptyTrashRoot(a.files)
+		a.close()
+	}
+
 }
 
 // retainTrashFile is the filesystem half of the journaled delete operation.

@@ -51,6 +51,7 @@ struct BrowserItemCell<Thumbnail: View>: View {
     let selected: Bool
     let thumbnail: Thumbnail
     var protection: FolderProtection? = nil
+    var pending: Bool = false
     var body: some View {
         let layout = large ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))
         layout {
@@ -72,6 +73,8 @@ struct BrowserItemCell<Thumbnail: View>: View {
             if selecting { Image(systemName: selected ? "checkmark.circle.fill" : "circle").foregroundStyle(.tint) }
         }
         .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+        .opacity(pending ? 0.45 : 1)
+        .overlay(alignment: .topTrailing) { if pending { ProgressView().controlSize(.small) } }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityValue(protection?.accessibility ?? "")
@@ -83,12 +86,14 @@ struct BrowserViewOptions: View {
     let select: () -> Void
     let refresh: () -> Void
     var body: some View {
-        Menu {
+        HStack {
+            Button("Select", action: select).labelStyle(.titleOnly)
+            Menu {
             Button(grid ? "List" : "Grid", systemImage: grid ? "list.bullet" : "square.grid.2x2") { grid.toggle() }
             Picker("Sort", selection: $sortOrder) { Text("Name").tag("name"); Text("Modified").tag("modified"); Text("Size").tag("size") }
-            Button("Select", systemImage: "checkmark.circle", action: select)
             Button("Refresh", systemImage: "arrow.clockwise", action: refresh)
         } label: { Label("View Options", systemImage: "ellipsis.circle") }
+        }
     }
 }
 struct BrowserSelectionControls: View {
@@ -99,12 +104,14 @@ struct BrowserSelectionControls: View {
     let move: () -> Void
     let delete: () -> Void
     let done: () -> Void
+    var selectAll: (() -> Void)? = nil
     var body: some View {
         HStack {
+            if let selectAll { Button("Select All", systemImage: "checkmark.circle", action: selectAll) }
             Button("Copy", systemImage: "doc.on.doc", action: copy).disabled(!canCopy)
             Button("Move", systemImage: "folder", action: move).disabled(!canMove)
             Button("Delete", systemImage: "trash", role: .destructive, action: delete).disabled(!canDelete)
-            Button("Done", action: done)
+            Button("Done", action: done).labelStyle(.titleOnly)
         }.labelStyle(.iconOnly)
     }
 }

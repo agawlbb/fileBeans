@@ -27,6 +27,7 @@ struct CopyJob: Decodable, Identifiable {
         let items: [CopyLocation]
         let destination: CopyLocation
         let operation: String?
+        let destinationName: String?
     }
     let id: String
     let state: String

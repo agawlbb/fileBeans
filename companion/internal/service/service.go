@@ -129,7 +129,7 @@ func (s *Service) maintenance(ctx context.Context) {
 		for _, root := range s.config.Roots {
 			if r, e := s.root(root.Name); e == nil {
 				_ = mkdir(r, "Trash")
-				_ = r.Chmod("Trash", 0750)
+				_ = accessibleDirectory(r, "Trash")
 				r.Close()
 			}
 		}

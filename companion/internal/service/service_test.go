@@ -348,6 +348,7 @@ func TestDatabaseWorkflow(t *testing.T) {
 			t.Fatal(j.State)
 		}
 	})
+	t.Run("private-trash", func(t *testing.T) { testPrivateTrash(t, s) })
 	t.Run("trash-api-files-and-folders", func(t *testing.T) { testTrashAPI(t, s) })
 	t.Run("trash-restore-retention", func(t *testing.T) {
 		os.WriteFile(filepath.Join(vps, "original"), []byte("original"), 0600)

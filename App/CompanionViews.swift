@@ -69,7 +69,7 @@ struct TrashList: View {
     @State private var permanent: TrashEntry?
     @State private var emptying = false
     @State private var busy = false
-    private var visible: [TrashEntry] { entries.filter { $0.source == source } }
+    private var visible: [TrashEntry] { entries.filter { $0.source == source && ($0.state == "retained" || $0.state == "purging") } }
     var body: some View {
         List {
             if let error { Text(error).foregroundStyle(.red) }
@@ -91,12 +91,12 @@ struct TrashList: View {
         .disabled(busy)
         .navigationTitle("Trash")
         .toolbar { Button("Empty Trash", role: .destructive) { emptying = true }.disabled(visible.isEmpty || busy) }
-        .task { await refresh() }
+        .task { while !Task.isCancelled { await refresh(); do { try await Task.sleep(for: .seconds(3)) } catch { return } } }
         .refreshable { await refresh() }
-        .confirmationDialog("Permanently delete this item? This cannot be undone.", isPresented: Binding(get: { permanent != nil }, set: { if !$0 { permanent = nil } }), titleVisibility: .visible) {
+        .confirmationDialog("Delete permanently?", isPresented: Binding(get: { permanent != nil }, set: { if !$0 { permanent = nil } }), titleVisibility: .visible) {
             if let entry = permanent { Button("Delete Permanently", role: .destructive) { permanent = nil; action("trash/\(entry.id)/purge", permanent: true) } }
         }
-        .confirmationDialog("Permanently delete all items shown in Trash? This cannot be undone.", isPresented: $emptying, titleVisibility: .visible) {
+        .confirmationDialog("Empty Trash?", isPresented: $emptying, titleVisibility: .visible) {
             Button("Empty Trash", role: .destructive) {
                 Task {
                     busy = true; defer { busy = false }

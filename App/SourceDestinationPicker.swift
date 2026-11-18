@@ -6,6 +6,7 @@ enum BrowserDestination: Identifiable {
     var id: String {
         switch self { case .local(let item): return "local:" + item.id; case .drive(let item): return "drive:" + item.id }
     }
+    var isFolder: Bool { switch self { case .local(let item): return item.file.isDirectory; case .drive(let item): return item.folder } }
     var name: String { switch self { case .local(let item): return item.file.name; case .drive(let item): return item.name } }
 }
 enum DestinationMode {
@@ -43,10 +44,11 @@ struct SourceDestinationPicker: View {
         List {
             if let error { Text(error).foregroundStyle(.red) }
             ForEach(folders) { child in
-                NavigationLink {
+                if child.isFolder { NavigationLink {
                     SourceDestinationPicker(connection: connection, mode: mode, excludedLocal: excludedLocal,
                                             excludedDrive: excludedDrive, folder: child, choose: choose)
                 } label: { Label(child.name, systemImage: "folder") }
+                } else { Label(child.name, systemImage: "doc").foregroundStyle(.secondary) }
             }
             if !next.isEmpty { Button("Load More") { Task { await load(page: next) } } }
         }
@@ -54,7 +56,7 @@ struct SourceDestinationPicker: View {
         .safeAreaInset(edge: .bottom) {
             if let target {
                 Button(mode.copying ? "Copy Here" : "Move Here") { choose(target) }
-                    .buttonStyle(.borderedProminent).padding().disabled(!canChoose || loading)
+                    .buttonStyle(.borderedProminent).padding().disabled(!canChoose || loading || error != nil)
             }
         }
         .overlay { if loading { ProgressView() } }
@@ -69,7 +71,7 @@ struct SourceDestinationPicker: View {
                 let client = DriveClient(connection: connection); defer { client.close() }
                 resolvedDrive = try await client.file(item.id)
                 let list = try await client.list(folder: item.id, page: page)
-                result = list.files.filter { $0.folder && !excludedDrive.contains($0.id) }.map(BrowserDestination.drive)
+                result = list.files.filter { !excludedDrive.contains($0.id) }.map(BrowserDestination.drive)
                 next = list.nextPageToken ?? ""
                 if item.id == "root", page.isEmpty {
                     var drivePage = ""
@@ -96,10 +98,10 @@ struct SourceDestinationPicker: View {
             }
             if page.isEmpty { folders = result } else { folders += result.filter { child in !folders.contains { $0.id == child.id } } }
             error = nil
-        } catch { self.error = error.localizedDescription }
+        } catch { folders = []; self.error = error.localizedDescription }
     }
     private func allowedLocal(_ item: StoredItem) -> Bool {
-        guard item.file.isDirectory else { return false }
+        guard item.protection?.unlocked != false else { return false }
         if case .localMove(let source) = mode, let source, item.source != source { return false }
         if connection.companionURL != nil && CompanionClient.protected(item.file.path) { return false }
         return !excludedLocal.contains { selected in

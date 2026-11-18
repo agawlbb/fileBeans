@@ -182,7 +182,7 @@ final class SharedStore {
                 }
             }
             let live = Set(result.map(\.id))
-            let removed = items.values.filter { $0.parent == parent && $0.source == source && !live.contains($0.id) }
+            let removed = items.values.filter { $0.parent == parent && $0.source == source && $0.protection?.unlocked != false && !live.contains($0.id) }
             for item in removed {
                 items = items.filter {
                     live.contains($0.key) || ($0.key != item.id && !($0.value.source == item.source && FilePath.contains($0.value.file.path, in: item.file.path)))

@@ -324,8 +324,8 @@ func TestVaultFilesystemIntegration(t *testing.T) {
 		t.Fatal("private cache readable after lock", e)
 	}
 	listing = request("GET", "/api/resources?source=uploads&path=/", nil, nil)
-	if listing.Code != 200 || !bytes.Contains(listing.Body.Bytes(), []byte("Private")) {
-		t.Fatal("locked folder disappeared", listing.Body.String())
+	if listing.Code != 200 || bytes.Contains(listing.Body.Bytes(), []byte("Private")) {
+		t.Fatal("locked folder remains visible", listing.Body.String())
 	}
 	fixture("unlock", 200)
 	if got := archive("GET", "/Private/secret.txt", token); got.Code != 200 || !bytes.Contains(got.Body.Bytes(), []byte("secret.txt")) {

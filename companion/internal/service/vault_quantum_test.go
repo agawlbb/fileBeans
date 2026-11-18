@@ -299,6 +299,55 @@ func TestVaultSharedWriterHelper(t *testing.T) {
 			})
 		}
 	}
+
+	t.Run("private-trash-outside-public-folder", func(t *testing.T) {
+		var id string
+		for _, v := range lease.Snapshot.Vaults {
+			if v.Path == "/Private" {
+				id = v.ID
+			}
+		}
+		if id == "" {
+			t.Fatal("fixture vault missing")
+		}
+		roots := []Root{{Name: "uploads", Path: path}}
+		service := &Service{config: Config{Roots: roots}, vaults: &vaultManager{guard: g, remote: newBrokerClient(os.Getenv("FILEBEANS_VAULT_RUNTIME"), roots)}}
+		original := "Private/private-delete"
+		if e := r.WriteFile(original, []byte("private bin"), 0660); e != nil {
+			t.Fatal(e)
+		}
+		entry := Trash{ID: ID(), Source: "uploads", Original: original, Name: "private-delete", Vault: id}
+		entry.Storage = filepath.Join("trash", entry.ID)
+		a, e := service.accessTrash(entry)
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer a.close()
+		if e = retainTrashAccess(a, entry); e != nil {
+			t.Fatal(e)
+		}
+		if _, e = r.Stat(original); !errors.Is(e, os.ErrNotExist) {
+			t.Fatal("original remains", e)
+		}
+		if data, e := a.bin.ReadFile(trashPath(entry)); e != nil || string(data) != "private bin" {
+			t.Fatal(e)
+		}
+		if e = renameRoots(a.bin, trashPath(entry), a.files, a.original); e != nil {
+			t.Fatal("private restore", e)
+		}
+		if e = a.bin.RemoveAll(trashDirectory(entry)); e != nil {
+			t.Fatal(e)
+		}
+		if e = retainTrashAccess(a, entry); e != nil {
+			t.Fatal(e)
+		}
+		if e = a.bin.RemoveAll(trashDirectory(entry)); e != nil {
+			t.Fatal(e)
+		}
+		if e = removeEmptyTrashRoot(r); e != nil && !errors.Is(e, os.ErrNotExist) {
+			t.Fatal(e)
+		}
+	})
 	copyCommand := exec.Command("/test-tools/rclone", "--config", "/dev/null", "--local-no-set-modtime", "copyto",
 		filepath.Join(path, "Private/secret.txt"), filepath.Join(path, "Private/shared/rclone-copy.txt"))
 	if output, err := copyCommand.CombinedOutput(); err != nil {

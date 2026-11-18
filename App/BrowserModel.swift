@@ -22,6 +22,7 @@ final class BrowserModel: ObservableObject {
             if let companion = repository.companion {
                 canCreateProtectedFolder = (try? await companion.capabilities().features?.contains("protectedFoldersCreate")) == true
             }
+            let transferJobs = try? await repository.companion?.jobs()
             if let parent {
                 // Refresh access before each listing, including after token replacement.
                 let roots = try await repository.roots()
@@ -31,6 +32,9 @@ final class BrowserModel: ObservableObject {
                 items = try await repository.children(refreshed)
                 parentProtection = repository.protectedItem(refreshed).protection
             } else { items = try await repository.roots() }
+            if let jobs = transferJobs {
+                FileActivity.shared.synchronize(jobs, connection: connection.id)
+            }
             error = nil
         } catch {
             // SwiftUI cancels the listing task when navigating away.
@@ -47,6 +51,60 @@ final class BrowserModel: ObservableObject {
     func perform(_ operation: () async throws -> Void) async -> Bool {
         busy = true; defer { busy = false }
         do { try await operation(); return true } catch { self.error = error.localizedDescription; return false }
+    }
+
+    func delete(_ values: [StoredItem], connection: Connection, parent: StoredItem?) async {
+        guard let repository else { return }
+        let activity = FileActivity.shared
+        let ids = activity.begin(values.map { ActivityFile(source: $0.source, path: $0.file.path, name: $0.file.name, folder: $0.file.isDirectory) },
+                                 connection: connection.id, operation: "delete")
+        var failures: [String] = []
+        for (index,item) in values.enumerated() {
+            do { try await repository.delete(item); items.removeAll { $0.id == item.id } }
+            catch { failures.append(item.file.name + ": " + error.localizedDescription) }
+            activity.finish([ids[index]])
+        }
+        if !failures.isEmpty { error = failures.joined(separator: "\n") }
+    }
+    func transfer(_ values: [StoredItem], to destination: BrowserDestination, copying: Bool) async {
+        guard let repository else { return }
+        let connection = repository.connection
+        let target: CopyLocation
+        switch destination {
+        case .local(let parent): target = CopyLocation(source: parent.source, path: parent.file.path)
+        case .drive(let parent): target = CopyLocation(source: "drive", path: parent.id, name: parent.name)
+        }
+        let activity = FileActivity.shared
+        let ids = activity.begin(values.map { ActivityFile(source: $0.source, path: $0.file.path, name: $0.file.name, folder: $0.file.isDirectory) },
+            connection: connection.id, operation: copying ? "copy" : "move", destination: target)
+        if copying, let companion = repository.companion {
+            do {
+                guard values.allSatisfy({ !$0.isSource && $0.permissions.download }), !values.isEmpty else { throw APIError.forbidden }
+                if case .local(let parent) = destination {
+                    guard parent.permissions.create else { throw APIError.forbidden }
+                    for item in values {
+                        let targetPath = try FilePath.child(item.file.name, in: parent.file.path)
+                        guard item.source != parent.source || (!FilePath.contains(parent.file.path, in: item.file.path) && targetPath != item.file.path) else { throw APIError.conflict }
+                        try repository.requireUnlocked(item)
+                        guard item.protection?.isRoot != true else { throw APIError.forbidden }
+                    }
+                }
+                let job = try await companion.submit(BackgroundCopy(items: values.map { CopyLocation(source: $0.source, path: $0.file.path) }, destination: target))
+                activity.attach(job, ids: ids, connection: connection.id)
+            } catch { activity.finish(ids); self.error = error.localizedDescription }
+            return
+        }
+        var failures: [String] = []
+        for (index,item) in values.enumerated() {
+            do {
+                guard case .local(let parent) = destination else { throw APIError.forbidden }
+                if copying { try await repository.copy(item,to:parent) }
+                else { try await repository.move(item,to:parent,name:item.file.name) }
+                items.removeAll { !copying && $0.id == item.id }
+            } catch { failures.append(item.file.name + ": " + error.localizedDescription) }
+            activity.finish([ids[index]])
+        }
+        if !failures.isEmpty { error = failures.joined(separator: "\n") }
     }
     func enqueue(urls: [URL], parent: StoredItem, scoped: Bool = true) {
         do {

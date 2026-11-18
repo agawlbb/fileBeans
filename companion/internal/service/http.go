@@ -363,7 +363,7 @@ func (s *Service) Handler() http.Handler {
 				fail(w, e)
 				return
 			}
-			if t.State != "purged" && t.State != "restored" {
+			if t.State == "retained" || t.State == "purging" {
 				out = append(out, t)
 			}
 		}

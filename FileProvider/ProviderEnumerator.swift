@@ -10,7 +10,7 @@ final class ProviderEnumerator: NSObject, NSFileProviderEnumerator {
     private func snapshot() async throws -> [StoredItem] {
         if identifier == .workingSet {
             try await repository.refreshKnownFolders()
-            return Array(try repository.store.items(repository.connection.id).values)
+            return Array(try repository.store.items(repository.connection.id).values).filter { $0.protection?.unlocked != false }
         }
         return try await repository.children(identifier == .rootContainer ? nil : repository.item(identifier.rawValue))
     }
@@ -35,10 +35,10 @@ final class ProviderEnumerator: NSObject, NSFileProviderEnumerator {
                 let (items, deleted, revision) = try repository.store.transaction { state in
                     let key = repository.connection.id.uuidString
                     let current = state.items[key] ?? [:]
-                    let items = current.values.filter { identifier == .workingSet || $0.parent == parent }
+                    let items = current.values.filter { $0.protection?.unlocked != false && (identifier == .workingSet || $0.parent == parent) }
                     let deleted = Set((state.deleted[key] ?? [:]).values.filter {
-                        $0.revision > since && (identifier == .workingSet ? current[$0.id] == nil :
-                            $0.parent == parent && current[$0.id]?.parent != parent)
+                        $0.revision > since && (identifier == .workingSet ? (current[$0.id] == nil || current[$0.id]?.protection?.unlocked == false) :
+                            $0.parent == parent && (current[$0.id]?.parent != parent || current[$0.id]?.protection?.unlocked == false))
                     }.map { NSFileProviderItemIdentifier($0.id) })
                     return (Array(items), Array(deleted), state.revisions[key] ?? 0)
                 }

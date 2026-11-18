@@ -111,6 +111,24 @@ func Hidden(path string) bool {
 			return true
 		}
 	}
+	var roots map[string]string
+	_ = json.Unmarshal([]byte(os.Getenv("FILEBEANS_VAULT_SOURCES")), &roots)
+	for _, root := range roots {
+		if path == filepath.Join(root, "Trash") || strings.HasPrefix(path, filepath.Join(root, "Trash")+string(os.PathSeparator)) {
+			return true
+		}
+	}
+	l, e := Acquire()
+	if e == nil && l != nil {
+		defer l.Close()
+		v, _, err := l.Boundary(path)
+		if err == nil && v != nil {
+			trash := filepath.Join(roots[v.Source], v.Path, "Trash")
+			if path == trash || strings.HasPrefix(path, trash+string(os.PathSeparator)) {
+				return true
+			}
+		}
+	}
 	return false
 }
 
@@ -131,7 +149,7 @@ func Viewable(path string, isDir bool) bool {
 		return false
 	}
 	if v != nil && isDir && filepath.Clean(path) == filepath.Join(sourceRoot(l, v.Source), v.Path) {
-		return true
+		return v.State == "unlocked" && l.Check(path, false) == nil
 	}
 	return l.Check(path, false) == nil
 }

@@ -50,6 +50,14 @@ extension SharedStore {
                     scope: catalog.boundaries[connection.uuidString]?[item.source] ?? "/")
                 catalog.items[connection.uuidString]?[id] = item
             }
+            let hidden = (catalog.items[connection.uuidString] ?? [:]).values.filter { $0.protection?.unlocked == false && previous?[$0.id]?.protection?.unlocked != false }
+            if !hidden.isEmpty {
+                catalog.revisions[connection.uuidString, default: 0] += 1
+                for item in hidden {
+                    catalog.deleted[connection.uuidString, default: [:]][item.id + ":" + item.parent] = Tombstone(
+                        id: item.id, parent: item.parent, revision: catalog.revisions[connection.uuidString]!)
+                }
+            }
             if previous != catalog.items[connection.uuidString] { catalog.revisions[connection.uuidString, default: 0] += 1 }
         }
     }

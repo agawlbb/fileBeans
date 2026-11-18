@@ -65,15 +65,17 @@ type Job struct {
 	ItemsDone    int         `json:"itemsDone,omitempty"`
 }
 type Trash struct {
-	Storage  string `json:"storage,omitempty"`
-	ID       string `json:"id"`
-	Source   string `json:"source"`
-	Original string `json:"original"`
-	Name     string `json:"name"`
-	Deleted  int64  `json:"deleted"`
-	Expires  int64  `json:"expires"`
-	State    string `json:"state"`
-	Error    string `json:"error,omitempty"`
+	Vault         string `json:"vault,omitempty"`
+	LegacyStorage string `json:"legacyStorage,omitempty"`
+	Storage       string `json:"storage,omitempty"`
+	ID            string `json:"id"`
+	Source        string `json:"source"`
+	Original      string `json:"original"`
+	Name          string `json:"name"`
+	Deleted       int64  `json:"deleted"`
+	Expires       int64  `json:"expires"`
+	State         string `json:"state"`
+	Error         string `json:"error,omitempty"`
 }
 
 func openDB(dsn string) (*sql.DB, error) {

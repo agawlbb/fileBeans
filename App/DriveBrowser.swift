@@ -29,6 +29,7 @@ final class DriveBrowserModel: ObservableObject {
             normalizationEnabled = capabilities.normalizationEnabled == true
             modern = capabilities.features?.contains("driveWrite") == true
             guard connected else { files = []; next = ""; current = nil; return }
+            let transferJobs = try? await client.transport.jobs()
             var loaded: [DriveFile] = []
             if folder == "__drives" {
                 let result = try await client.drives(page: page)
@@ -49,6 +50,7 @@ final class DriveBrowserModel: ObservableObject {
             }
             if page.isEmpty { files = loaded; if !refreshLoaded { pages = 1 } }
             else { let known = Set(files.map(\.id)); files += loaded.filter { !known.contains($0.id) }; pages += 1 }
+            if let jobs = transferJobs { FileActivity.shared.synchronize(jobs, connection: connection.id) }
             error = nil
         } catch {
             guard !Task.isCancelled, !(error is CancellationError),
@@ -67,6 +69,7 @@ struct DriveBrowser: View {
     var folder = "root"
     var title = "Google Drive"
     @StateObject private var model = DriveBrowserModel()
+    @ObservedObject private var activity = FileActivity.shared
     @AppStorage("gridView") private var grid = false
     @AppStorage("sortOrder") private var sortOrder = "name"
     @State private var search = ""
@@ -90,8 +93,20 @@ struct DriveBrowser: View {
     private var queue: DriveUploadQueue { DriveUploadQueue.shared(connection: connection) }
     private var chosen: [DriveFile] { model.files.filter { selected.contains($0.id) } }
     private var visible: [DriveFile] {
-        model.files.filter { search.isEmpty || $0.name.localizedStandardContains(search) }
+        displayedFiles.filter { search.isEmpty || $0.name.localizedStandardContains(search) }
             .sorted { BrowserOrdering.precedes($0.sortValue, $1.sortValue, order: sortOrder) }
+    }
+
+    private var incoming: [ActivityFile] {
+        activity.pending(connection: connection.id, source: "drive", parent: folder, canonicalParent: folder)
+    }
+    private var displayedFiles: [DriveFile] {
+        model.files + incoming.filter { incoming in !model.files.contains { $0.name == incoming.name } }.map {
+            DriveFile(id: $0.path, name: $0.name, mimeType: $0.folder ? "application/vnd.google-apps.folder" : "application/octet-stream")
+        }
+    }
+    private func pending(_ item: DriveFile) -> Bool {
+        incoming.contains { $0.name == item.name } || activity.deleting(connection: connection.id, source: "drive", path: item.id)
     }
     var body: some View {
         browserWithActions
@@ -147,9 +162,10 @@ struct DriveBrowser: View {
                 var finished = Set((try? await client.transport.jobs())?.filter { $0.state == "completed" }.map(\.id) ?? [])
                 while !Task.isCancelled {
                     do { try await Task.sleep(for: .seconds(5)) } catch { return }
-                    let jobs = (try? await client.transport.jobs()) ?? []
+                    guard let jobs = try? await client.transport.jobs() else { continue }
                     let current = Set(jobs.filter { $0.state == "completed" }.map(\.id))
                     if current != finished { finished = current; await reload(refreshLoaded: true) }
+                    activity.synchronize(jobs, connection: connection.id)
                 }
             }
     }
@@ -196,7 +212,8 @@ struct DriveBrowser: View {
                                          canDelete: model.writable && !chosen.isEmpty && chosen.allSatisfy(\.canTrash),
                                          copy: { copying = true; choosingDestination = true },
                                          move: { copying = false; choosingDestination = true },
-                                         delete: { deleting = true }, done: { selecting = false; selected.removeAll() })
+                                         delete: { deleting = true }, done: { selecting = false; selected.removeAll() },
+                                         selectAll: { selected = Set(visible.filter { !pending($0) && $0.sourceRoot != true }.map(\.id)) })
                     .disabled(model.busy)
             } else {
                 BrowserViewOptions(grid: $grid, sortOrder: $sortOrder, select: { selecting = true }, refresh: { Task { await reload(refreshLoaded: true) } })
@@ -219,9 +236,9 @@ struct DriveBrowser: View {
     private var browserWithAlerts: some View {
         browser
             .sheet(isPresented: $configuring) { ConnectionEditor(connection: connection) {} }
-            .alert("Google Drive", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
-                Button("OK") { model.error = nil }
-            } message: { Text(model.error ?? "") }
+            .alert("Google Drive", isPresented: Binding(get: { model.error != nil || activity.errors[connection.id] != nil }, set: { if !$0 { model.error = nil; activity.errors[connection.id] = nil } })) {
+                Button("OK") { model.error = nil; activity.errors[connection.id] = nil }
+            } message: { Text(model.error ?? activity.errors[connection.id] ?? "") }
             .alert("Rename", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
                 TextField("Name", text: $proposedName)
                 Button("Cancel", role: .cancel) { renaming = nil }
@@ -238,13 +255,21 @@ struct DriveBrowser: View {
     }
     private var browserWithConfirmations: some View {
         browserWithAlerts
-            .confirmationDialog("Move \(chosen.count) item(s) to Google Drive Trash? Google retains trash for 30 days.", isPresented: $deleting, titleVisibility: .visible) {
+            .confirmationDialog("Delete \(chosen.count) items?", isPresented: $deleting, titleVisibility: .visible) {
                 Button("Move to Trash", role: .destructive) {
                     let items = chosen
                     Task {
                         guard let client = model.client else { return }
-                        let success = await model.perform { for item in items { try await client.mutate(DriveMutationRequest(action: "trash", fileId: item.id, version: item.version)) } }
-                        if success { selected.removeAll(); selecting = false; await reload(refreshLoaded: true) }
+                        let ids = activity.begin(items.map { ActivityFile(source: "drive", path: $0.id, name: $0.name, folder: $0.folder) },
+                                                 connection: connection.id, operation: "delete")
+                        var failures: [String] = []
+                        for (i,item) in items.enumerated() {
+                            do { try await client.mutate(DriveMutationRequest(action: "trash", fileId: item.id, version: item.version)); model.files.removeAll { $0.id == item.id } }
+                            catch { failures.append(item.name + ": " + error.localizedDescription) }
+                            activity.finish([ids[i]])
+                        }
+                        selected.removeAll(); selecting = false; await reload(refreshLoaded: true)
+                        if !failures.isEmpty { model.error = failures.joined(separator: "\n") }
                     }
                 }
             }
@@ -275,20 +300,30 @@ struct DriveBrowser: View {
                         let items = chosen; let isCopy = copying; choosingDestination = false
                         Task {
                             guard let client = model.client else { return }
-                            let success = await model.perform {
-                                if isCopy {
-                                    let target: CopyLocation
-                                    switch destination { case .local(let item): target = CopyLocation(source: item.source, path: item.file.path)
-                                    case .drive(let item): target = CopyLocation(source: "drive", path: item.id, name: item.name) }
-                                    if target.source != "drive" && items.contains(where: \.nativeDocument) {
-                                        throw NSError(domain: "fileBeans.Drive", code: 1, userInfo: [NSLocalizedDescriptionKey: "Google-native documents and shortcuts cannot be exported to server storage in this version."])
-                                    }
-                                    _ = try await client.transport.submit(BackgroundCopy(items: items.map { CopyLocation(source: "drive", path: $0.id, name: $0.name) }, destination: target))
-                                } else if case .drive(let folder) = destination {
-                                    for item in items { try await client.mutate(DriveMutationRequest(action: "move", fileId: item.id, parent: folder.id, version: item.version)) }
+                            let target: CopyLocation
+                            switch destination { case .local(let item): target = CopyLocation(source: item.source, path: item.file.path)
+                            case .drive(let item): target = CopyLocation(source: "drive", path: item.id, name: item.name) }
+                            let ids = activity.begin(items.map { ActivityFile(source: "drive", path: $0.id, name: $0.name, folder: $0.folder) },
+                                connection: connection.id, operation: isCopy ? "copy" : "move", destination: target)
+                            var failures: [String] = []
+                            if isCopy {
+                                do {
+                                    guard target.source == "drive" || !items.contains(where: \.nativeDocument) else { throw APIError.forbidden }
+                                    let job = try await client.transport.submit(BackgroundCopy(items: items.map { CopyLocation(source: "drive", path: $0.id, name: $0.name) }, destination: target))
+                                    activity.attach(job, ids: ids, connection: connection.id)
+                                } catch { activity.finish(ids); failures.append(error.localizedDescription) }
+                            } else {
+                                for (i,item) in items.enumerated() {
+                                    do {
+                                        guard case .drive(let folder) = destination else { throw APIError.forbidden }
+                                        try await client.mutate(DriveMutationRequest(action: "move", fileId: item.id, parent: folder.id, version: item.version))
+                                        model.files.removeAll { $0.id == item.id }
+                                    } catch { failures.append(item.name + ": " + error.localizedDescription) }
+                                    activity.finish([ids[i]])
                                 }
                             }
-                            if success { selected.removeAll(); selecting = false; await reload(refreshLoaded: true) }
+                            selected.removeAll(); selecting = false; await reload(refreshLoaded: true)
+                            if !failures.isEmpty { model.error = failures.joined(separator: "\n") }
                         }
                     }.toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { choosingDestination = false } } }
                 }
@@ -314,12 +349,12 @@ struct DriveBrowser: View {
             if model.writable && item.canMove { Button("Move", systemImage: "folder") { selected = [item.id]; copying = false; choosingDestination = true } }
             if !item.folder { Button("Open", systemImage: "arrow.up.right.square") { open(item) } }
             if model.writable && item.canTrash { Button("Delete", systemImage: "trash", role: .destructive) { selected = [item.id]; deleting = true } }
-        }.disabled(model.busy)
+        }.disabled(model.busy || pending(item))
     }
     private func cell(_ item: DriveFile, large: Bool) -> some View {
         BrowserItemCell(name: item.name, size: item.size.flatMap(Int64.init), folder: item.folder, large: large,
                         selecting: selecting, selected: selected.contains(item.id),
-                        thumbnail: DriveThumbnailView(connection: connection, item: item, enabled: model.modern))
+                        thumbnail: DriveThumbnailView(connection: connection, item: item, enabled: model.modern && !item.id.hasPrefix("pending:")), pending: pending(item))
     }
     private func reload(page: String = "", refreshLoaded: Bool = false) async { await model.load(connection: connection, folder: folder, page: page, refreshLoaded: refreshLoaded) }
     private func connect() {

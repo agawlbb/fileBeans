@@ -59,7 +59,17 @@ final class Repository {
         await refreshProtection()
         try requireUnlocked(parent)
         let resource = try await client.resource(source: parent.source, path: parent.file.path)
-        let files = resource.children.filter { companion == nil || !FilePath.contains($0.path, in: "/.filebeans-stage") }
+        let vaults = try store.vaults(connection.id)
+        let scope = try store.sourceScope(connection.id, source: parent.source)
+        let files = resource.children.filter { file in
+            guard companion != nil else { return true }
+            if CompanionClient.protected(file.path) { return false }
+            let candidate = StoredItem(id: "", parent: parent.id, source: parent.source, file: file, permissions: parent.permissions)
+            let protection = SharedStore.protection(for: candidate, vaults: vaults, scope: scope)
+            if protection?.unlocked == false { return false }
+            let canonical = (try? FilePath.inSource(file.path, scope: scope)) ?? file.path
+            return !vaults.contains { $0.source == parent.source && FilePath.contains(canonical, in: ($0.path ?? "/") + "/Trash") }
+        }
         var permissions = parent.permissions
         if companion != nil && CompanionClient.protected(parent.file.path) {
             permissions.create = false; permissions.modify = false; permissions.delete = false
@@ -87,7 +97,7 @@ final class Repository {
         _ = try await roots()
         let ids = try store.transaction { $0.enumerated[connection.id.uuidString] ?? [] }
         for id in ids {
-            if let parent = try store.items(connection.id)[id] { _ = try await children(parent) }
+            if let parent = try store.items(connection.id)[id], parent.protection?.unlocked != false { _ = try await children(parent) }
         }
     }
     func notify(_ parent: String = "root") {

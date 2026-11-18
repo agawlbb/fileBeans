@@ -8,6 +8,7 @@ struct BrowserView: View {
     let connection: Connection
     let parent: StoredItem?
     @StateObject private var model = BrowserModel()
+    @ObservedObject private var activity = FileActivity.shared
     @State private var search = ""
     @AppStorage("gridView") private var grid = false
     @AppStorage("sortOrder") private var sortOrder = "name"
@@ -28,12 +29,32 @@ struct BrowserView: View {
     @State private var photos: [PhotosPickerItem] = []
     @Environment(\.scenePhase) private var scenePhase
     private var visible: [StoredItem] {
-        model.items.filter {
+        displayedItems.filter {
             (connection.companionURL == nil || $0.file.path != "/Trash") &&
             (search.isEmpty || $0.file.name.localizedStandardContains(search))
         }.sorted {
             BrowserOrdering.precedes(sortValue($0), sortValue($1), order: sortOrder)
         }
+    }
+
+    private var incoming: [ActivityFile] {
+        guard let parent, let repository = model.repository else { return [] }
+        let scope = (try? repository.store.sourceScope(connection.id, source: parent.source)) ?? "/"
+        let canonical = (try? FilePath.inSource(parent.file.path, scope: scope)) ?? parent.file.path
+        return activity.pending(connection: connection.id, source: parent.source, parent: parent.file.path, canonicalParent: canonical)
+    }
+    private var displayedItems: [StoredItem] {
+        var result = model.items.filter { $0.protection?.unlocked != false }
+        guard let parent, model.parentProtection?.unlocked != false else { return result }
+        for file in incoming where !result.contains(where: { $0.file.path == file.path }) {
+            result.append(StoredItem(id: "pending:" + file.path, parent: parent.id, source: parent.source,
+                file: RemoteFile(name: file.name, path: file.path, type: file.folder ? "directory" : "application/octet-stream"), permissions: Permissions()))
+        }
+        return result
+    }
+    private func pending(_ item: StoredItem) -> Bool {
+        incoming.contains { $0.path == item.file.path } ||
+            activity.deleting(connection: connection.id, source: item.source, path: item.file.path)
     }
     private func sortValue(_ item: StoredItem) -> BrowserSortValue {
         BrowserSortValue(id: item.id, name: item.file.name, folder: item.file.isDirectory,
@@ -111,7 +132,6 @@ struct BrowserView: View {
         if parent == nil {
             if connection.companionURL != nil {
                 NavigationLink { TransferList(connection: connection) } label: { Label("Transfers", systemImage: "arrow.left.arrow.right") }
-                Text("Deletion protection: 10 days").font(.caption).foregroundStyle(.secondary)
             }
         }
     }
@@ -147,10 +167,10 @@ struct BrowserView: View {
     }
     private var browserWithAlerts: some View {
         browserContent
-        .alert("fileBeans", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
-            Button("OK") { model.error = nil }
+        .alert("fileBeans", isPresented: Binding(get: { model.error != nil || activity.errors[connection.id] != nil }, set: { if !$0 { model.error = nil; activity.errors[connection.id] = nil } })) {
+            Button("OK") { model.error = nil; activity.errors[connection.id] = nil }
             Button("Refresh") { Task { await reload() } }
-        } message: { Text(model.error ?? "") }
+        } message: { Text(model.error ?? activity.errors[connection.id] ?? "") }
         .alert("Rename", isPresented: Binding(get: { renameItem != nil }, set: { if !$0 { renameItem = nil } })) {
             TextField("Name", text: $proposedName)
             Button("Cancel", role: .cancel) { renameItem = nil }
@@ -171,12 +191,13 @@ struct BrowserView: View {
     }
     private var browserWithActions: some View {
         browserWithAlerts
-        .confirmationDialog(connection.companionURL == nil ? "Delete \(chosen.count) item(s)?" : "Move \(chosen.count) item(s) to Trash for 10 days?", isPresented: $deleting, titleVisibility: .visible) {
+        .confirmationDialog("Delete \(chosen.count) items?", isPresented: $deleting, titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
                 let items = chosen
                 Task {
-                    let succeeded = await model.perform { for item in items { try await model.repository?.delete(item) } }
-                    if succeeded { selected.removeAll(); selecting = false; await reload() }
+                    await model.delete(items, connection: connection, parent: parent)
+                    selected.removeAll(); selecting = false
+                    await reloadPreservingError()
                 }
             }
         }
@@ -192,17 +213,9 @@ struct BrowserView: View {
                         Task {
                             copyInProgress = isCopy
                             defer { copyInProgress = false }
-                            let succeeded = await model.perform {
-                                switch destination {
-                                case .local(let folder):
-                                    if isCopy { try await repository.copy(items, to: folder) }
-                                    else { for item in items { try await repository.move(item, to: folder, name: item.file.name) } }
-                                case .drive(let folder):
-                                    guard isCopy, let companion = repository.companion else { throw APIError.forbidden }
-                                    _ = try await companion.submit(BackgroundCopy(items: items.map { CopyLocation(source: $0.source, path: $0.file.path) }, destination: CopyLocation(source: "drive", path: folder.id, name: folder.name)))
-                                }
-                            }
-                            if succeeded { selected.removeAll(); selecting = false; await reload() }
+                            await model.transfer(items, to: destination, copying: isCopy)
+                            selected.removeAll(); selecting = false
+                            await reloadPreservingError()
                         }
                     }.toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { moving = false } } }
                 }
@@ -221,7 +234,7 @@ struct BrowserView: View {
                     }
                 }
             }
-            else if model.items.filter({ connection.companionURL == nil || $0.file.path != "/Trash" }).isEmpty && model.error == nil && parent != nil {
+            else if displayedItems.isEmpty && model.error == nil && parent != nil {
                 ContentUnavailableView("No files", systemImage: "folder")
             } else if parent == nil && sources.isEmpty || parent != nil && !model.items.isEmpty && visible.isEmpty {
                 ContentUnavailableView.search(text: search)
@@ -256,7 +269,8 @@ struct BrowserView: View {
                         canMove: !chosen.isEmpty && !chosen.contains { $0.isSource || !$0.permissions.modify },
                         canDelete: !chosen.isEmpty && !chosen.contains { $0.isSource || !$0.permissions.delete },
                         copy: { copying = true; moving = true }, move: { copying = false; moving = true },
-                        delete: { deleting = true }, done: { selecting = false; selected.removeAll() })
+                        delete: { deleting = true }, done: { selecting = false; selected.removeAll() },
+                        selectAll: { selected = Set(visible.filter { !$0.isSource && !protected($0) && !pending($0) }.map(\.id)) })
                 } else {
                     BrowserViewOptions(grid: $grid, sortOrder: $sortOrder, select: { selecting = true }, refresh: { Task { await reload() } })
                     if let parent, parent.permissions.create, model.parentProtection?.unlocked != false {
@@ -289,6 +303,7 @@ struct BrowserView: View {
                 } label: { cell(item, large: large) }.buttonStyle(.plain)
             }
         }
+        .disabled(pending(item))
         .contextMenu {
             if let protection = item.protection, protection.isRoot {
                 Button(protection.unlocked ? "Lock" : "Unlock", systemImage: protection.symbol) {
@@ -314,7 +329,7 @@ struct BrowserView: View {
     private func cell(_ item: StoredItem, large: Bool) -> some View {
         BrowserItemCell(name: item.file.name, size: item.file.size, folder: item.file.isDirectory,
                         large: large, selecting: selecting, selected: selected.contains(item.id),
-                        thumbnail: ThumbnailView(item: item, client: model.repository?.client), protection: item.protection)
+                        thumbnail: ThumbnailView(item: item, client: model.repository?.client), protection: item.protection, pending: pending(item))
     }
     private func changeLock(_ item: StoredItem, action: String) {
         guard let protection = item.protection else { return }
@@ -330,6 +345,7 @@ struct BrowserView: View {
     private func protected(_ item: StoredItem) -> Bool {
         item.protection?.isRoot == true || connection.companionURL != nil && CompanionClient.protected(item.file.path)
     }
+    private func reloadPreservingError() async { let error = model.error; await reload(); if let error { model.error = error } }
     private func reload() async { await model.load(connection: connection, parent: parent) }
     private func open(_ item: StoredItem) {
         guard let client = model.repository?.client else { return }
