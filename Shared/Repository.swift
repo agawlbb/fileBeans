@@ -63,12 +63,10 @@ final class Repository {
         let scope = try store.sourceScope(connection.id, source: parent.source)
         let files = resource.children.filter { file in
             guard companion != nil else { return true }
-            if CompanionClient.protected(file.path) { return false }
             let candidate = StoredItem(id: "", parent: parent.id, source: parent.source, file: file, permissions: parent.permissions)
             let protection = SharedStore.protection(for: candidate, vaults: vaults, scope: scope)
             if protection?.unlocked == false { return false }
-            let canonical = (try? FilePath.inSource(file.path, scope: scope)) ?? file.path
-            return !vaults.contains { $0.source == parent.source && FilePath.contains(canonical, in: ($0.path ?? "/") + "/Trash") }
+            return !SharedStore.isSystemEntry(candidate, vaults: vaults, scope: scope)
         }
         var permissions = parent.permissions
         if companion != nil && CompanionClient.protected(parent.file.path) {

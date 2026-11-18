@@ -49,6 +49,12 @@ extension SharedStore {
                 item.protection = Self.protection(for: item, vaults: vaults,
                     scope: catalog.boundaries[connection.uuidString]?[item.source] ?? "/")
                 catalog.items[connection.uuidString]?[id] = item
+                let scope = catalog.boundaries[connection.uuidString]?[item.source] ?? "/"
+                if Self.isSystemEntry(item, vaults: vaults, scope: scope) {
+                    catalog.items[connection.uuidString]?.removeValue(forKey: id)
+                    catalog.deleted[connection.uuidString, default: [:]][id + ":" + item.parent] = Tombstone(
+                        id: id, parent: item.parent, revision: catalog.revisions[connection.uuidString, default: 0] + 1)
+                }
             }
             let hidden = (catalog.items[connection.uuidString] ?? [:]).values.filter { $0.protection?.unlocked == false && previous?[$0.id]?.protection?.unlocked != false }
             if !hidden.isEmpty {
@@ -66,6 +72,13 @@ extension SharedStore {
             Self.protection(for: item, vaults: catalog.protectedFolders?[connection.uuidString] ?? [],
                 scope: catalog.boundaries[connection.uuidString]?[item.source] ?? "/")
         }
+    }
+
+    static func isSystemEntry(_ item: StoredItem, vaults: [ProtectedVault], scope: String) -> Bool {
+        guard let canonical = try? FilePath.inSource(item.file.path, scope: scope) else { return true }
+        if FilePath.contains(canonical, in: "/Trash") { return true }
+        if canonical.split(separator: "/").contains(where: { $0 == ".filebeans-stage" || $0 == ".filebeans-vaults" }) { return true }
+        return vaults.contains { $0.source == item.source && FilePath.contains(canonical, in: FilePath.normalized(($0.path ?? "/") + "/Trash")) }
     }
     static func protection(for item: StoredItem, vaults: [ProtectedVault], scope: String = "/") -> FolderProtection? {
         guard let path = try? FilePath.inSource(item.file.path, scope: scope),

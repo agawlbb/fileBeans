@@ -63,6 +63,24 @@ final class FileOperationTests: XCTestCase {
         XCTAssertNotNil(activity.errors[connection])
         XCTAssertTrue(activity.pending(connection: connection, source: "Samba", parent: "/Target", canonicalParent: "/Documents/Target").isEmpty)
     }
+
+    func testLegacyTrashCacheIsRemovedWithoutRemovingNormalFiles() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = SharedStore(directory: directory), connection = UUID()
+        let permissions = Permissions(view: true, download: true)
+        let files = [RemoteFile(name: "Trash", path: "/Private/Trash", type: "directory"),
+                     RemoteFile(name: "real.mov", path: "/Private/real.mov", type: "video/quicktime")]
+        let cached = try store.reconcile(connection: connection, parent: "private", source: "Samba", files: files, permissions: permissions)
+        _ = try store.reconcile(connection: connection, parent: cached[0].id, source: "Samba",
+            files: [RemoteFile(name: "old-id", path: "/Private/Trash/old-id", type: "directory")], permissions: permissions)
+        try store.setVaults([ProtectedVault(id: "vault", source: "Samba", state: "unlocked", initialized: true, path: "/Private")], connection: connection)
+        let current = try store.items(connection)
+        XCTAssertNil(current[cached[0].id])
+        XCTAssertEqual(current.values.map { $0.file.name }, ["real.mov"])
+        let file = StoredItem(id: "normal", parent: "docs", source: "Samba", file: RemoteFile(name: "Trash", path: "/Trash", type: "directory"), permissions: permissions)
+        XCTAssertFalse(SharedStore.isSystemEntry(file, vaults: [], scope: "/Documents"))
+    }
     func testHiddenLockedCatalogEntriesKeepTheirIDsAcrossUnlock() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
