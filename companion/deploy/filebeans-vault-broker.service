@@ -10,6 +10,8 @@ Group=filebeans-vaults
 UMask=0077
 RuntimeDirectory=filebeans-vaults
 RuntimeDirectoryMode=0750
+# Consumers bind this directory; preserve its inode across broker restarts.
+RuntimeDirectoryPreserve=restart
 StateDirectory=filebeans-vaults
 StateDirectoryMode=0700
 ExecStart=/usr/local/bin/filebeans-vault-broker -config /etc/filebeans/vault-broker.json

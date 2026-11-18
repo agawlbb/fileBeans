@@ -45,6 +45,21 @@ command argument, shell history, environment variable, or password file. The
 standard config contains a wrapped copy of the key protected by a random,
 discarded configuration password; that password is not used for recovery.
 
+## Automatic locking
+
+The server mount broker locks each protected folder after one hour without
+public file access or changes. Reads, file opens, writes, and filesystem
+mutations restart that folder's timer. Status requests, directory listings, and
+private cache writes do not. The broker checks every five seconds. Active
+operation leases or busy mounts defer locking; the next check retries without
+cancelling transfers or forcing unmounts.
+
+Unlocking starts a fresh timer. Timers and filesystem watches exist only in
+memory; a broker restart locks folders. No app update or new key is required.
+The isolated FUSE tests advance the clock through the hour boundary on both
+local and Samba-backed ciphertext, including file-read resets, private-cache and
+directory-poll exclusions, busy-operation retries, and recovery after unlock.
+
 ## Creating and using folders
 
 With the compatible broker and patched Quantum running, choose **+ → Add

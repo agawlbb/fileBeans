@@ -249,6 +249,10 @@ func RunVaultBroker(ctx context.Context, configPath string) error {
 		return e
 	}
 	defer b.close()
+	idleCtx, stopIdle := context.WithCancel(ctx)
+	idleDone := make(chan struct{})
+	go func() { defer close(idleDone); b.autoLockVaults(idleCtx) }()
+	defer func() { stopIdle(); <-idleDone }()
 	path := filepath.Join(c.Runtime, "broker.sock")
 	if st, err := os.Lstat(path); err == nil {
 		if st.Mode()&os.ModeSocket == 0 {
