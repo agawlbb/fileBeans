@@ -355,6 +355,9 @@ The companion race suite and vet pass, with the documented unrelated baseline
 hardlink case excluded. The full isolated FUSE suite passes on local/CIFS storage,
 including encrypted registry/restart recovery, shared inactivity, idle event
 streams, folder lifecycle operations and independent gocryptfs recovery. Swift
-syntax/configuration checks pass; the new Swift tests have not been compiled or
-run on macOS. An explicitly requested Apple build is still required. These fixes
-have not been deployed or released; release 21 predates them.
+syntax/configuration checks pass. Apple validation
+[44391292854](https://github.com/agawlbb/fileBeans/actions/runs/44391292854) passed
+all 103 simulator tests and the unsigned iPhone/iPad Release archive with Xcode
+27.2 / SDK 27.2 on this source. The matching broker, companion and Quantum are
+deployed; see the current [release record](RELEASING.md). Real-key migration
+requires the user’s first authenticated unlock after deployment.

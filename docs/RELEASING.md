@@ -448,9 +448,8 @@ runner ([installed toolchains](https://github.com/actions/runner-images/blob/mai
 Both workflows verify that the selected device and simulator SDKs are version 27
 or later before compiling. The deployment target remains iOS 18+. Physical-device acceptance remains manual. Verify privacy answers, the privacy manifest and encryption declaration against the final shipped behavior before release.
 
-Both workflows accept a macOS runner choice. The default remains `macos-15`
-(Apple Silicon). If that hosted pool stays queued, `macos-15-intel` uses the same
-macOS/Xcode 26.3 toolchain on Intel; simulator tests still precede release.
+Both workflows accept the `xcode-27` and `xcode-27-xlarge` Apple Silicon runner
+pools. Both select Xcode 27.2 explicitly; simulator tests precede release.
 
 Validation selects an available iPhone runtime matching the selected Xcode SDK
 (or its newest compatible installed runtime). Simulator boot has a separate
@@ -551,3 +550,57 @@ restart, app build or release was performed.
   Trash navigation, source-aware Trash loading, formatting-tolerant checksummed
   recovery imports and Universal Clipboard support. No key format or deployment
   target change is required.
+
+### Global protection and location privacy deployment (2026-11-18)
+
+The VPS runs broker/companion/Quantum source
+`ba75bb70867468a9e4a5900d88d2167ebe9c0383`. Prepared artifacts were built on
+VM-laptop, checksum-verified and loaded on the VPS without building there.
+
+- Companion: `filebeans-companion:ba75bb7-protection`, manifest
+  `sha256:23948fcd825fa8e13aeee56a6a42e928ee06fd67d3dfdabcd06735fb30dcd93d`;
+  archive SHA-256
+  `3f93b96b939c8874905b6e1859e2c705fcce48eb771a0031fd7af978704dba5c`.
+- Quantum: `filebeans-quantum:ba75bb7-protection`, manifest
+  `sha256:ad86639c4985436fb8c2de39ec4ccfcec7b2631376319de9e4a2099b7c67244e`;
+  archive SHA-256
+  `885c0b93a00215ca895fe1ae935991b38d6fbe24a902782fa781085afee1341a`.
+- Running broker executable SHA-256:
+  `009a52f3bfd7f65d49217d23479e7a7c197a5bbd846e2110c94f8454bab8a409`.
+- Matching consumers were restarted through the existing protected-stack unit.
+  The normalizer retains `filebeans-normalizer:fed272d-parallel` and its resource
+  configuration. All three containers were running with zero restart loops.
+- Live authenticated HTTPS checks verified aggregate locked state, redacted
+  locked-folder descriptors, global Lock and creation capability. The Quantum
+  frontend returned HTTP 200. Disposable ordinary VPS/Samba file and folder checks
+  verified retained Trash payloads, listing, restoration and permanent deletion;
+  all probes were cleaned up. Real-key unlock remains a user-device action.
+
+Deployment artifacts, prior broker/configuration and both prior Compose files
+are retained in root-only `/opt/services/filebeans/deploy/protection-ba75bb7`.
+No new plaintext registry backup was made. The existing root registry snapshot
+was moved to `/var/lib/filebeans-vaults/location-backups/folders-8dd77d7.registry.json`;
+its old deployment path is a symlink to that same file. This root-owned location
+is configured in `locationBackups`. The first authenticated unlock migrates the
+live version-1 registry and this snapshot to encrypted location metadata using
+the existing key. Before that unlock, legacy location metadata remains plaintext.
+After migration, do not roll back to a version-1-only broker.
+
+Apple validation [44391292854](https://github.com/agawlbb/fileBeans/actions/runs/44391292854)
+passed all **103 simulator tests**, with zero failures, and the unsigned Release
+archive for iPhone/iPad. Logs verify Xcode **27.2**, device SDK **27.2** and
+simulator SDK **27.2**. The source is pinned by tag `testflight/0.1.0-22`.
+
+Signed upload [44394355285](https://github.com/agawlbb/fileBeans/actions/runs/44394355285)
+completed successfully for **0.1.0 (22)** from the same tag/source. The log reports
+`ARCHIVE SUCCEEDED`, `EXPORT SUCCEEDED` and `UPLOAD SUCCEEDED with no errors`,
+and verifies both SDKs at **27.2**. This release includes global protection
+controls, imported-key unlock, iPad navigation and encrypted location metadata.
+Physical-device biometric interaction and the user's real-key migration remain
+user-device acceptance checks.
+
+Apple build `f4a55d28-c3b4-4132-9cd5-e3d4e6ee7022` is **VALID** and
+**IN_BETA_TESTING**, with existing automatic internal tester notification enabled.
+External state is `READY_FOR_BETA_SUBMISSION`; no tester groups or external review
+settings were changed. Deployment and the authorized TestFlight release are
+finished and verified.
