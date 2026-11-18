@@ -453,3 +453,23 @@ Validation selects an available iPhone runtime matching the selected Xcode SDK
 (or its newest compatible installed runtime). Simulator boot has a separate
 ten-minute limit; compilation/tests have twenty minutes. This keeps fresh Intel
 runner setup from consuming the entire test execution budget.
+
+### Protected-folder inactivity deployment (2026-11-18)
+
+Broker source `70346d4362353a4998442ddca72f0d8278c753a4` is deployed with a
+fixed one-hour inactivity timer. VM-built Linux/amd64 broker SHA-256:
+`dc51ce708fdd9298b9580d41f52b9c8778549d9138c44f932a65adf3ebc33534`.
+The running executable hash and startup policy message were verified, and the
+public companion vault/trash APIs responded successfully. The deployment safely
+locked the existing protected folder before restarting the broker; unlock it
+from the current app. RuntimeDirectoryPreserve=restart retains the runtime
+directory used by consumer binds. The existing protected-stack systemd dependency
+also restarted the consumers with their existing images: companion 05bcd79,
+Quantum f334c3a, normalizer 87ae6ef. No app build or release was made.
+
+Validation: companion race suite (the documented unrelated staged-hardlink
+baseline remains excluded), Go vet, and the isolated FUSE suite passed. New local
+and Samba-backed idle tests advance the clock through the exact one-hour boundary,
+verify reads extend the timer, exclude directory polling/private cache writes,
+defer while a client holds a lease, retry successfully, and confirm recovered
+bytes after unlocking. The production hour was not shortened for testing.
