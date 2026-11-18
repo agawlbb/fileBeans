@@ -442,6 +442,10 @@ func testNormalizationWorkflow(t *testing.T, s *Service) {
 		oldStable := s.config.Normalization.StableSeconds
 		s.config.Normalization.StableSeconds = 3600
 		workerCtx, cancel := context.WithCancel(ctx)
+		// The shared VM development container may have unrelated builds using RAM.
+		pipeline := newNormPipeline()
+		pipeline.memory = func() (uint64, error) { return 100 << 20, nil }
+		workerCtx = context.WithValue(workerCtx, normPipelineKey{}, pipeline)
 		done := make(chan struct{})
 		go func() { defer close(done); s.RunNormalization(workerCtx) }()
 		defer func() { cancel(); <-done; s.config.Normalization.StableSeconds = oldStable }()

@@ -28,7 +28,7 @@ type normTask struct {
 }
 
 // Only the coordinator admits jobs. Stage gates allow one preparation/download
-// ahead, one encoder, and one validator, without sharing mutable job records.
+// ahead, two encoders, and one validator, without sharing mutable job records.
 type normPipeline struct {
 	mu       sync.Mutex
 	active   map[string]normTask
@@ -42,7 +42,7 @@ type normPipeline struct {
 
 func newNormPipeline() *normPipeline {
 	return &normPipeline{active: make(map[string]normTask), memory: normMemoryUsage,
-		gates: map[string]chan struct{}{"prepare": make(chan struct{}, 1), "encode": make(chan struct{}, 1), "validate": make(chan struct{}, 1)}}
+		gates: map[string]chan struct{}{"prepare": make(chan struct{}, 1), "encode": make(chan struct{}, 2), "validate": make(chan struct{}, 1)}}
 }
 func (p *normPipeline) count() int { p.mu.Lock(); defer p.mu.Unlock(); return len(p.active) }
 func (p *normPipeline) contains(id string) bool {
@@ -57,7 +57,7 @@ func (p *normPipeline) admit() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	// If cgroup accounting is unavailable, run alone rather than assuming headroom.
-	limit := 3
+	limit := 4
 	if p.serial || err != nil {
 		limit = 1
 	}

@@ -347,9 +347,9 @@ and CPU shares 128. Merge `deploy/compose.normalization-resources.yaml` into the
 existing stack for an explicitly requested deployment. The global advisory lock
 and filesystem fence prevent duplicate coordinators across replicas. Each job
 owns a private scratch directory; preparation/download, encoding, and validation
-can overlap, with at most one job in each stage and three admitted jobs total.
-The encoder uses a four-thread x265 pool (one frame thread); validation uses two
-decoding threads. Set `normalization.sequential: true` to disable stage overlap
+can overlap, with at most two encoders, one preparation/download, one validator,
+and four admitted jobs total. Each encoder uses a four-thread x265 pool with two
+frame threads; validation uses two decoding threads. Set `normalization.sequential: true` to disable stage overlap
 without changing encoding quality.
 
 POST `/v1/normalization/jobs` accepts `{source:"drive",path:"DRIVE_ID"}` for a

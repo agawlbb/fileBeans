@@ -28,18 +28,39 @@ func TestNormalizationPipelineBounds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	releaseSecond, err := normStage(ctx, "encode")
+	if err != nil {
+		t.Fatal("second encoder could not overlap", err)
+	}
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
 	if _, err = normStage(cancelled, "encode"); !errors.Is(err, context.Canceled) {
-		t.Fatal("second encoder was admitted", err)
+		t.Fatal("third encoder was admitted", err)
 	}
 	validate, err := normStage(ctx, "validate")
 	if err != nil {
 		t.Fatal("validation could not overlap encoding", err)
 	}
+	prepare, err := normStage(ctx, "prepare")
+	if err != nil {
+		t.Fatal("download could not overlap both encoders and validation", err)
+	}
+	prepare()
 	validate()
+	releaseSecond()
 	release()
 	release() // Stage release must be idempotent.
+	for _, id := range []string{"encode-a", "encode-b", "validate", "prepare"} {
+		p.active[id] = normTask{}
+	}
+	if p.admit() {
+		t.Fatal("more than four jobs admitted")
+	}
+	delete(p.active, "prepare")
+	if !p.admit() {
+		t.Fatal("fourth pipeline job could not be admitted")
+	}
+	clear(p.active)
 	oldCtx, oldCancel := context.WithCancelCause(ctx)
 	newCtx, newCancel := context.WithCancelCause(ctx)
 	defer oldCancel(nil)

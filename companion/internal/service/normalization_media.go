@@ -198,7 +198,7 @@ func encodeArgs(p mediaPlan) []string {
 	}
 	// First materialize non-square pixels, then apply the orientation-aware cap.
 	filters = append(filters, "scale=w='max(2,trunc(iw*sar/2)*2)':h='max(2,trunc(ih/2)*2)',setsar=1", "scale=w='if(gte(iw,ih),min(iw,2560),min(iw,1080))':h='if(gte(iw,ih),min(ih,1080),min(ih,2560))':force_original_aspect_ratio=decrease:force_divisible_by=2")
-	args = append(args, "-vf", strings.Join(filters, ","), "-c:v", "libx265", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p10le", "-threads", "4", "-x265-params", "pools=4:frame-threads=1:log-level=error", "-tag:v", "hvc1", "-movflags", "+faststart")
+	args = append(args, "-vf", strings.Join(filters, ","), "-c:v", "libx265", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p10le", "-threads", "4", "-x265-params", "pools=4:frame-threads=2:log-level=error", "-tag:v", "hvc1", "-movflags", "+faststart")
 	if p.HDR {
 		args = append(args, "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709")
 	}

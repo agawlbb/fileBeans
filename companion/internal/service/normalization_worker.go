@@ -839,7 +839,10 @@ func (s *Service) RunNormalization(ctx context.Context) {
 func (s *Service) normalizationLoop(parent context.Context, lease *sql.Conn) {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
-	pipeline := newNormPipeline()
+	pipeline, ok := parent.Value(normPipelineKey{}).(*normPipeline)
+	if !ok {
+		pipeline = newNormPipeline()
+	}
 	pipeline.serial = s.config.Normalization.Sequential
 	ctx = context.WithValue(ctx, normPipelineKey{}, pipeline)
 	done := make(chan struct{})
