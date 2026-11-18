@@ -476,3 +476,45 @@ and Samba-backed idle tests advance the clock through the exact one-hour boundar
 verify reads extend the timer, exclude directory polling/private cache writes,
 defer while a client holds a lease, retry successfully, and confirm recovered
 bytes after unlocking. The production hour was not shortened for testing.
+
+
+### Parallel normalizer deployment (2026-11-18)
+
+Normalizer source `fed272d19f2bac77957172b43163ac2f36041aaa` was built on
+VM-laptop and deployed as `filebeans-normalizer:fed272d-parallel`. Current main
+contains the deployed encrypted-vault integration; no feature checkout or app
+build was needed. Only the normalizer image reference changed in production
+Compose, and only that service was recreated with `--no-build --no-deps`.
+
+- Two simultaneous HEVC encoders were observed, both using two frame threads,
+  medium/CRF 18 and Main 10. Separate progress readings confirmed advancement;
+  one observed video completed full validation/publication during verification.
+- The worker retains a 4 GiB memory limit, 4 GiB memory-plus-swap limit (no swap),
+  uncapped CPU and CPU shares 128. Early live readings showed about 0.55–0.70 GiB
+  memory use and 313–379% CPU, with zero restarts or OOM termination. The existing
+  3.25/3.5 GiB admission/fallback thresholds remain unchanged.
+- All 743 job IDs were retained. All 449 pre-deployment completed records matched
+  exactly, and their 449 output files retained size, modification time and inode.
+  Three interrupted jobs were cancelled/retried through supported API controls,
+  retaining their IDs, so startup recovery did not serialize the new pipeline.
+  Final observed totals: 451 completed, four admitted/running, 288 queued.
+- Companion and Quantum container IDs/start times and vault broker PID 2104738
+  were unchanged. All unrelated containers initially matched the preflight
+  snapshot; flightdata-service-1 separately restarted later during verification.
+  The deployment commands targeted only the normalizer.
+- Focused normalization workflow and resource/completion checks passed with the
+  Go race detector before packaging. The deployed binary SHA-256 is
+  `b061b446710f75bb9dd0cb6622bfe2386e252668792b8646d6716cb555ecf282`.
+  Archive SHA-256:
+  `c709162296d780d0a4ca732d1cf7371e5b0c60de945d54dceb4edac17d473d51`.
+  The VPS containerd image identity is the verified OCI manifest digest
+  `sha256:d034d3267539f0f88a0b5feaceac356f3f684fdfed7e870bb0c18ef6fcabfb32`.
+
+VM artifacts remain under `.build/normalizer/fed272d19f2bac77957172b43163ac2f36041aaa/`.
+The transferred archive, metadata, original Compose file, queue/output snapshots
+and verification reports are retained privately under
+`/opt/services/filebeans/deploy/normalizer-fed272d/`. For an authorized rollback,
+change only the normalizer image to `filebeans-normalizer:87ae6ef-vaults` and
+recreate only that service with `--no-build --no-deps`; preserve any later changes
+to other services. No schema migration, completed-file re-encoding, broker
+restart, app build or release was performed.
