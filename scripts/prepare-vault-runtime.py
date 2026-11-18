@@ -18,6 +18,10 @@ def main():
     if run("git", "status", "--porcelain", "--untracked-files=no"):
         raise SystemExit("Commit tracked source changes before preparing versioned runtime artifacts")
     revision = run("git", "rev-parse", "HEAD")
+    gocryptfs = Path.home() / ".local/bin/gocryptfs"
+    version = run(str(gocryptfs), "-version")
+    if not version.startswith(("gocryptfs v2.6.1;", "gocryptfs v2.6.1 ")):
+        raise SystemExit("Install the tested gocryptfs 2.6.1 before packaging")
     target = ROOT / ".build" / "vault-runtime" / revision
     if target.exists():
         raise SystemExit("Runtime artifacts already exist for this revision; preserve them")
@@ -35,17 +39,17 @@ def main():
     shutil.copyfile(target / "filebeans", normalizer / "filebeans")
     shutil.copyfile(ROOT / "companion/deploy/Dockerfile", companion / "Dockerfile")
     shutil.copyfile(ROOT / "companion/deploy/Dockerfile.normalizer", normalizer / "Dockerfile")
-    subprocess.run(["python3", str(ROOT / "scripts/prepare-rclone.py"), str(companion)], check=True)
+    rclone_args = ["python3", str(ROOT / "scripts/prepare-rclone.py"), str(companion)]
+    archive = ROOT / ".build/dependencies/rclone-v1.76.0-linux-amd64.zip"
+    if archive.exists():
+        rclone_args += ["--archive", str(archive)]
+    subprocess.run(rclone_args, check=True)
     certs = companion / "etc/ssl/certs"
     certs.mkdir(parents=True)
     shutil.copyfile("/etc/ssl/certs/ca-certificates.crt", certs / "ca-certificates.crt")
     for binary in [companion / "filebeans", normalizer / "filebeans"]:
         binary.chmod(0o555)
     # This is the same standalone tool used by the independent recovery tests.
-    gocryptfs = Path.home() / ".local/bin/gocryptfs"
-    version = run(str(gocryptfs), "-version")
-    if not version.startswith("gocryptfs v2.6.1;"):
-        raise SystemExit("Install the tested gocryptfs 2.6.1 before packaging")
     shutil.copyfile(gocryptfs, target / "gocryptfs")
     (target / "gocryptfs").chmod(0o555)
     files = {str(path.relative_to(target)): hashlib.sha256(path.read_bytes()).hexdigest()
