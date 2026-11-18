@@ -331,3 +331,34 @@ Quantum UID 10001/GID 1000 and operated on by the actual companion API. All six
 passed delete, retained-byte verification, restore, repeated delete and purge.
 Only disposable fixtures were removed. The existing protected folder remained
 unlocked. These are server-path checks; they do not claim physical-device UI tests.
+
+## Six file-management changes — November 18, 2026
+
+The focused server tests cover private encrypted Trash, locked-entry omission,
+legacy-location migration and recovery at intent/rename boundaries, preservation
+of unrecognized contents, cleanup of tracked empty failed-delete directories,
+and restoration after the original parent has been removed. Full Go race/MariaDB
+checks pass with the previously established staged-hardlink baseline excluded.
+
+The real local FUSE and kernel CIFS fixtures exercise private Trash retention,
+restore and permanent deletion under separate consumer UIDs, plus hidden locked
+roots through Quantum's actual resource handler. The patched Quantum race suites
+and runtime image checks also pass.
+
+Live authenticated HTTPS verified file and folder delete/restore/re-delete/purge
+on VPS, ordinary Samba and protected Samba. All six cases matched retained and
+restored contents. A three-file copy into the protected folder and three-file
+move out each ran as a single job; hashes and original retention/removal matched
+the requested operation. Only disposable fixtures were purged. The existing
+retained protected item migrated with its metadata/content-prefix fingerprint
+unchanged, and the old public per-folder Trash directory was removed.
+
+Apple validation 44330888062 passed on source `708525a`, including all eight
+FileOperationTests and the batch-submission transport regression, followed by
+the unsigned iPhone/iPad Release archive. These cases cover immediate whole-
+selection delete state, per-item completion/failure, destination placeholders
+before acknowledgement, duplicate suppression, terminal-job cleanup/error,
+server-job reconstruction, renamed targets, authenticated scope mapping, queued
+batch-move source state, locked-folder identity and legacy Trash cache removal.
+The tests establish server and application-state behavior; physical-device
+interaction acceptance remains separate.

@@ -83,8 +83,9 @@ lock. When the last vault closes, the active metadata key buffer is cleared.
 
 Protected roots fail closed if their expected FUSE mount disappears. The public
 folder is replaced by a read-only locked placeholder, including on CIFS mounts
-with fixed permission masks, preventing fallback plaintext writes. Trash and
-publication staging remain within `files`; rclone configuration/temp/cache files
+with fixed permission masks, preventing fallback plaintext writes. Protected Trash
+payloads live under `private/trash/<id>`, outside the browsable `files` tree.
+Publication staging remains under the hidden staging directory; rclone configuration/temp/cache files
 for protected transfers go under the vault's encrypted `private/tmp` directory.
 Copies explicitly exported to ordinary storage intentionally create plaintext.
 
@@ -229,3 +230,30 @@ and out of the unlocked Samba vault verified content and source removal. Main's
 normalizer pipeline was merged into this feature branch and deployed with its
 4 GiB resource budget; protected-path guards remain in place. See the
 [release record](RELEASING.md) for source revisions, workflows and rollout checks.
+
+### Source Trash and file-operation feedback
+
+Each source has one flat Trash view showing original filenames. Ordinary Trash
+storage and legacy protected Trash directories are excluded from file listings.
+Protected deleted data stays inside its originating vault's encrypted private
+area and its sealed operation record is omitted while that vault is locked.
+A locked protected folder is omitted from resource listings and cached browsing
+views; unlocking restores its listing and existing catalog identity.
+
+The app exposes Select and Select All for batch copy/move/delete. Cross-boundary
+batch moves submit one durable job containing the selection. Destination tiles
+appear dimmed with a progress indicator before submission and while the job is
+active, including jobs reconstructed after app restart. Deletions are dimmed
+immediately, and individual failures clear their pending state without preventing
+the remaining selected deletions. The destination picker lists both folders and
+existing files; files are informational rows rather than destination choices.
+
+Legacy retained Trash entries migrate with a persisted location intent and a
+no-overwrite rename between sibling directories of the same encrypted mount.
+Retries reconcile a completed rename before clearing the intent. Only tracked,
+empty legacy directories are removed; unrecognized contents remain untouched.
+Restoration recreates shared-group parent permissions for both server users.
+Rollback metadata from the deployed migration is retained inside encrypted
+`private/trash-layout-before-05bcd79`. Rolling back requires reversing the Trash
+location migration with that metadata; reverting only to an older image cannot
+interpret the new private locations.
