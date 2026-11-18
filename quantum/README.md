@@ -52,5 +52,5 @@ The suite includes independent ciphertext recovery and does not use real keys.
 
 See [runtime setup](../docs/VAULT-BROKER.md) and
 [behavior and acceptance limits](../docs/PROTECTED-FOLDERS.md). Quantum image
-compilation, native PDF/text rendering and isolated image execution passed on November 18, 2026. No deployment or release has occurred.
+compilation, native PDF/text rendering and isolated image execution passed on November 18, 2026. The feature runtime is deployed with app build 18 from the unmerged branch.
 Apple workflow results are recorded in the protected-folder documentation.

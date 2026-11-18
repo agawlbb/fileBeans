@@ -2,7 +2,8 @@
 
 The experimental branch includes the broker, companion guards, pinned Quantum
 adapter and runtime templates. Real local/CIFS tests run the consumer in a
-separate slave mount namespace. This source has not been deployed or released.
+separate slave mount namespace. The feature runtime and app build 18 are deployed/released from the unmerged
+feature branch; the production configuration is recorded below.
 
 ## Process and storage layout
 
@@ -175,3 +176,62 @@ verifies archive checksums, loads images locally and runs disposable version/hel
 and FFmpeg checks. All three passed as the intended unprivileged UIDs with a
 read-only root, no capabilities, no network and no source/credential/data mounts.
 This is artifact execution verification, not a production-topology acceptance.
+
+## Deployed runtime — November 18, 2026
+
+The existing VPS services now run the prepared feature images. No image builds,
+source preparation, dependency builds or test suites ran on the VPS. The host
+received only VM-built artifacts and runtime configuration/install helpers.
+
+| Component | Deployed image | Manifest digest |
+| --- | --- | --- |
+| Quantum | `filebeans-quantum:32eee70-vaults` | `sha256:e0868b063e8da4e2ec6d04a1944f93757b055c5e13f1abb4c635322154917708` |
+| Companion | `filebeans-companion:74893ba-vaults` | `sha256:2e5dd2b4268c3930a536785a6c88d5846d8b96ff83f91e78b5b656f3b877964c` |
+| Normalizer | `filebeans-normalizer:74893ba-vaults` | `sha256:4fab1831512e5af4bfae6bbaba03e23575a094dc146e17a779811ab23061fcf2` |
+
+The companion and normalizer keep UID/GID `1000:1000` and their private state.
+Quantum uses reader UID `10001`, primary GID `1000`; its existing private data
+was reassigned to that UID without changing accounts, permissions or source
+names. A user ACL gives the reader access to existing local source contents.
+CIFS keeps its existing server/protocol/encryption/credentials with file/directory
+masks `0660`/`0770`. All three running processes report umask `0007`. Web
+containers retain no mount capabilities, no persistent container logs and no
+Docker socket.
+
+Fixed host bind aliases preserve `VPS` at `/folder` and `Samba` at `/samba`.
+Both alias mounts are shared; consumers receive them and the broker runtime via
+`rslave` binds at the identical paths. The normalizer has a separate config with
+only the local root, and no Samba bind. Its queued work resumed after the update.
+
+Host units `filebeans-vault-roots.service`, `filebeans-vault-broker.service` and
+`filebeans-protected-stack.service` are enabled and active. Only the two source
+aliases and these fileBeans containers depend on the new root preparation;
+other Docker applications keep their existing startup order. Consumer Compose
+restart policy is `on-failure`; the stack unit starts them after the broker on
+boot, and stops consumers before the broker during shutdown. The alias helper
+rejects symlink source paths, verifies the CIFS identity and directory identities,
+pins source descriptors for bind mounts and detects bind mounts through
+`mountinfo` rather than the same-filesystem `ismount` heuristic.
+Installed helper SHA-256:
+`dd29a75695825ab555706c1fbf5692e6467ec5091ceb1de22b798805d86f8421`.
+
+Existing Caddy TLS routing was retained. The fileBeans site discards access logs,
+handles proxy failures without persistent request logging, and streams responses.
+The shared proxy and other application routes were not recreated. Swap was
+already disabled; no swap-policy change was needed.
+
+Verified live: public Quantum health and frontend HTTP 200; authenticated companion
+capabilities/vault listing HTTP 200 with `protectedFoldersCreate`; anonymous
+companion HTTP 401; Quantum SQLite integrity; zero container restart loops; shared
+mount identities/propagation; read/write handoff between reader and companion UIDs
+on both local and Samba storage. Only isolated, disposable ordinary probe files
+were used and removed. Normalization remained running and its conversion progress
+advanced after restart. No production protected folder or recovery key was created.
+
+Pre-deployment configurations, SQLite snapshot and source ACLs are retained under
+root-only `/opt/services/filebeans/deploy/protected-9358f30/before`. The installed
+broker config is `/etc/filebeans/vault-broker.json`; public registry state is
+`/var/lib/filebeans-vaults`, runtime state is `/run/filebeans-vaults`. Do not roll
+back the broker or remove these paths after creating folders without preserving
+the ciphertext and public registry. No reboot or real-key device test was part
+of this rollout.

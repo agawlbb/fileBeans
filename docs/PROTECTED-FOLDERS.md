@@ -188,8 +188,8 @@ unsigned archive are retained under ignored `.build/apple-4ffa92f`.
 
 Runtime image builds, native PDF/text rendering tests, and restricted image
 execution pass. Physical-device biometrics, backgrounding, second-device import,
-and signed-installation acceptance remain. Production deployment and a signed
-TestFlight build/release have not occurred for this revision. The VM host still
+and signed-installation acceptance remain. The feature runtime is now deployed, and signed TestFlight build **0.1.0 (18)**
+is **VALID / IN_BETA_TESTING**. See [the release record](RELEASING.md). The VM host still
 has swap configured; real-key startup correctly refuses it. Synthetic test-only
 memory checks do not expose a daemon bypass.
 

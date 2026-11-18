@@ -68,6 +68,38 @@ breadcrumb heading in place of the folder title.
 - This initial build skipped upload; subsequent explicitly authorized publication
   is recorded below. No VPS deployment is needed.
 
+## Feature-branch rollout — November 18, 2026
+
+**0.1.0 (18)** is signed, uploaded and available to the existing internal
+TestFlight group. Apple reports **VALID** / **IN_BETA_TESTING**. Source remains
+on `feature/encrypted-vaults`; `main` has not been merged or changed.
+
+- Release source: `9358f30fe8d9c3a164d2f7ba07068f0565c3ce5b`, immutable tag
+  `testflight/0.1.0-18`.
+- [Publication](https://github.com/agawlbb/fileBeans/actions/runs/44215546871)
+  passed preflight, signing, archive/export, TestFlight upload and temporary
+  runner credential cleanup. Apple build ID:
+  `238dd3dc-e172-427a-9fe0-81849ce27c98`.
+- [Validation](https://github.com/agawlbb/fileBeans/actions/runs/44213282822)
+  passed all 83 simulator tests and the unsigned iPhone/iPad Release archive.
+  Application inputs match the released source; subsequent deployment changes
+  affect server code and documentation only.
+- The compatible Quantum, companion, normalizer and host mount broker are now
+  deployed. Authenticated HTTPS advertises `protectedFoldersCreate`; the app
+  can create protected folders from the Add menu. Existing source names/paths,
+  accounts, OAuth grants and queued normalization work were preserved.
+- The deployment found a separate-UID normalization directory issue. Server
+  source `74893ba14a83f468cae31247a12b00364eb63c03` accepts an already group-writable
+  directory when an ownership-only chmod is denied. Companion race/MariaDB and
+  real local/CIFS/FUSE tests pass. This server-only fix does not require another
+  app build.
+- No existing files were converted, no vault keys were generated on the server,
+  and no production vaults were created during deployment. Physical-device key
+  backup/import, biometrics, backgrounding and Files acceptance remain manual.
+- No tester groups, certificates, credentials or repository protections changed.
+  See [the deployed broker/runtime record](VAULT-BROKER.md#deployed-runtime--november-18-2026)
+  for image digests, identities, mounts, rollback material and live checks.
+
 ## Feature-branch rollout — November 17, 2026
 
 **0.1.0 (17)** has been signed and uploaded successfully. Apple reports
