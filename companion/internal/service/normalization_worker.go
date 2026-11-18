@@ -22,7 +22,16 @@ import (
 
 const normWorkspace = ".filebeans-stage/normalization"
 
-func (s *Service) normSave(j *NormalizationJob) error { return s.save(j.ID, "normalize", j.State, j) }
+func (s *Service) normSave(j *NormalizationJob) error {
+	if s.vaults != nil && s.vaults.guard != nil {
+		lease, e := waitProtection(s.vaults.guard)
+		if e != nil {
+			return protectionError(e)
+		}
+		defer lease.Close()
+	}
+	return s.save(j.ID, "normalize", j.State, j)
+}
 func (s *Service) normCheck(ctx context.Context, j *NormalizationJob) error {
 	if ctx.Err() != nil {
 		return ctx.Err()

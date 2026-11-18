@@ -1,10 +1,12 @@
 package service
 
 import (
+	"context"
 	"filebeans/companion/protection"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // rootFS also accepts an ordinary os.Root for existing callers and tests.
@@ -26,7 +28,32 @@ type rootFS interface {
 
 type guardedRoot struct {
 	*os.Root
-	lease *protection.Lease
+	lease        *protection.Lease
+	transient    *protection.Guard
+	ordinaryOnly bool
+}
+
+// The normalizer never consumes protected files. It refreshes the boundary
+// snapshot for each filesystem operation instead of holding the topology gate
+// while an encoder or network transfer works on an already opened ordinary file.
+func (r *guardedRoot) operation() (*guardedRoot, func(), error) {
+	if r.transient == nil {
+		return r, func() {}, nil
+	}
+	lease, e := waitProtection(r.transient)
+	if e != nil {
+		return nil, nil, protectionError(e)
+	}
+	return &guardedRoot{Root: r.Root, lease: lease, ordinaryOnly: true}, func() { _ = lease.Close() }, nil
+}
+
+func waitProtection(guard *protection.Guard) (*protection.Lease, error) {
+	if guard == nil {
+		return nil, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return guard.AcquireContext(ctx)
 }
 
 func protectionError(e error) error {
@@ -56,9 +83,28 @@ func (r *guardedRoot) check(name string) error {
 	if e != nil {
 		return e
 	}
+	if r.ordinaryOnly {
+		v, _, e := r.lease.Boundary(p)
+		if e != nil {
+			return protectionError(e)
+		}
+		if v != nil {
+			return ErrUnsafe
+		}
+	}
 	return protectionError(r.lease.Check(p, false))
 }
 func (r *guardedRoot) mutation(from, to string) error {
+	if r.ordinaryOnly {
+		if e := r.check(from); e != nil {
+			return e
+		}
+		if to != "" {
+			if e := r.check(to); e != nil {
+				return e
+			}
+		}
+	}
 	a, e := r.path(from)
 	if e != nil {
 		return e
@@ -81,12 +127,30 @@ func (r *guardedRoot) Close() error {
 	return e
 }
 func (r *guardedRoot) Open(name string) (*os.File, error) {
+	if r.transient != nil {
+		active, done, e := r.operation()
+		if e != nil {
+			return nil, e
+		}
+		defer done()
+		return active.Open(name)
+	}
+
 	if e := r.check(name); e != nil {
 		return nil, e
 	}
 	return r.Root.Open(name)
 }
 func (r *guardedRoot) OpenFile(name string, flag int, mode os.FileMode) (*os.File, error) {
+	if r.transient != nil {
+		active, done, e := r.operation()
+		if e != nil {
+			return nil, e
+		}
+		defer done()
+		return active.OpenFile(name, flag, mode)
+	}
+
 	if e := r.check(name); e != nil {
 		return nil, e
 	}
@@ -101,48 +165,120 @@ func (r *guardedRoot) OpenFile(name string, flag int, mode os.FileMode) (*os.Fil
 	return r.Root.OpenFile(name, flag, mode)
 }
 func (r *guardedRoot) Stat(name string) (os.FileInfo, error) {
+	if r.transient != nil {
+		active, done, e := r.operation()
+		if e != nil {
+			return nil, e
+		}
+		defer done()
+		return active.Stat(name)
+	}
+
 	if e := r.check(name); e != nil {
 		return nil, e
 	}
 	return r.Root.Stat(name)
 }
 func (r *guardedRoot) Lstat(name string) (os.FileInfo, error) {
+	if r.transient != nil {
+		active, done, e := r.operation()
+		if e != nil {
+			return nil, e
+		}
+		defer done()
+		return active.Lstat(name)
+	}
+
 	if e := r.check(name); e != nil {
 		return nil, e
 	}
 	return r.Root.Lstat(name)
 }
 func (r *guardedRoot) ReadFile(name string) ([]byte, error) {
+	if r.transient != nil {
+		active, done, e := r.operation()
+		if e != nil {
+			return nil, e
+		}
+		defer done()
+		return active.ReadFile(name)
+	}
+
 	if e := r.check(name); e != nil {
 		return nil, e
 	}
 	return r.Root.ReadFile(name)
 }
 func (r *guardedRoot) WriteFile(name string, data []byte, mode os.FileMode) error {
+	if r.transient != nil {
+		active, done, e := r.operation()
+		if e != nil {
+			return e
+		}
+		defer done()
+		return active.WriteFile(name, data, mode)
+	}
+
 	if e := r.mutation(name, ""); e != nil {
 		return e
 	}
 	return r.Root.WriteFile(name, data, (mode|0060)&^0007)
 }
 func (r *guardedRoot) MkdirAll(name string, mode os.FileMode) error {
+	if r.transient != nil {
+		active, done, e := r.operation()
+		if e != nil {
+			return e
+		}
+		defer done()
+		return active.MkdirAll(name, mode)
+	}
+
 	if e := r.check(name); e != nil {
 		return e
 	}
 	return r.Root.MkdirAll(name, (mode|0070)&^0007)
 }
 func (r *guardedRoot) Chmod(name string, mode os.FileMode) error {
+	if r.transient != nil {
+		active, done, e := r.operation()
+		if e != nil {
+			return e
+		}
+		defer done()
+		return active.Chmod(name, mode)
+	}
+
 	if e := r.mutation(name, ""); e != nil {
 		return e
 	}
 	return r.Root.Chmod(name, mode)
 }
 func (r *guardedRoot) Remove(name string) error {
+	if r.transient != nil {
+		active, done, e := r.operation()
+		if e != nil {
+			return e
+		}
+		defer done()
+		return active.Remove(name)
+	}
+
 	if e := r.mutation(name, ""); e != nil {
 		return e
 	}
 	return r.Root.Remove(name)
 }
 func (r *guardedRoot) RemoveAll(name string) error {
+	if r.transient != nil {
+		active, done, e := r.operation()
+		if e != nil {
+			return e
+		}
+		defer done()
+		return active.RemoveAll(name)
+	}
+
 	if e := r.mutation(name, ""); e != nil {
 		return e
 	}

@@ -107,6 +107,13 @@ func (s *Service) normalizationRoot() (rootFS, NormalizationConfig, error) {
 	if !c.Enabled {
 		return nil, c, ErrUnsupported
 	}
+	if s.vaults != nil && s.vaults.guard != nil {
+		lease, e := waitProtection(s.vaults.guard)
+		if e != nil {
+			return nil, c, protectionError(e)
+		}
+		defer lease.Close()
+	}
 	if s.vaults.pathVault(c.Source, c.Path) != nil {
 		return nil, c, ErrUnsafe
 	}
@@ -116,6 +123,14 @@ func (s *Service) normalizationRoot() (rootFS, NormalizationConfig, error) {
 		}
 	}
 	root, e := s.root(c.Source)
+	if e == nil {
+		if guarded, ok := root.(*guardedRoot); ok && s.vaults.guard != nil {
+			_ = guarded.lease.Close()
+			guarded.lease = nil
+			guarded.transient = s.vaults.guard
+			guarded.ordinaryOnly = true
+		}
+	}
 	return root, c, e
 }
 func (s *Service) enqueueNormalization(req NormalizationRequest, batch, connection string, meta *DriveItem) (NormalizationJob, error) {
@@ -609,6 +624,9 @@ func (s *Service) scanNormalization() error {
 func accessibleDirectory(root rootFS, path string) error {
 	if e := safe(root, path); e != nil {
 		return e
+	}
+	if st, e := root.Stat(path); e == nil && st.IsDir() && st.Mode().Perm() == 0770 {
+		return nil
 	}
 	e := root.Chmod(path, 0770)
 	if errors.Is(e, fs.ErrPermission) {

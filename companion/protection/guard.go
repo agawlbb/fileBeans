@@ -3,6 +3,7 @@
 package protection
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -153,6 +155,27 @@ func (g *Guard) Acquire() (*Lease, error) {
 		return nil, e
 	}
 	return &Lease{guard: g, file: f, Snapshot: s}, nil
+}
+
+// Ordinary-only background work may wait for a mount transition instead of
+// cancelling an encoder because the registry is briefly being updated.
+func (g *Guard) AcquireContext(ctx context.Context) (*Lease, error) {
+	for {
+		if e := ctx.Err(); e != nil {
+			return nil, e
+		}
+		lease, e := g.Acquire()
+		if !errors.Is(e, ErrBusy) {
+			return lease, e
+		}
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 // Both consumers create files, so their primary group must match the broker's

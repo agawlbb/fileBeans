@@ -138,6 +138,13 @@ func syncDir(r rootFS, path string) error {
 }
 func renameExclusive(r rootFS, from, to string) error {
 	if guarded, ok := r.(*guardedRoot); ok {
+		active, done, e := guarded.operation()
+		if e != nil {
+			return e
+		}
+		defer done()
+		r = active
+		guarded = active
 		if e := guarded.mutation(from, to); e != nil {
 			return e
 		}

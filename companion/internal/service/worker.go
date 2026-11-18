@@ -261,7 +261,7 @@ func publicError(e error) string {
 	case errors.Is(e, ErrVaultKey):
 		return "The encryption key does not match this server's protected folders"
 	case errors.Is(e, ErrVaultBusy):
-		return "Protected folder is busy; stop active clients and retry locking"
+		return "Protected folder is busy. Try again."
 	case errors.Is(e, ErrDriveWrite):
 		return "Google Drive needs full access. Choose Upgrade Drive Access and approve the requested permission."
 	case errors.Is(e, ErrDriveAccount):

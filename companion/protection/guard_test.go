@@ -1,15 +1,82 @@
 package protection
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
+
+func TestGuardWaitsForTransitionAndUsesFreshSnapshot(t *testing.T) {
+	g, _ := fixture(t)
+	f, e := os.OpenFile(filepath.Join(g.runtime, "gate"), os.O_RDWR, 0)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer f.Close()
+	if e = unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); e != nil {
+		t.Fatal(e)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	type result struct {
+		lease *Lease
+		err   error
+	}
+	done := make(chan result, 1)
+	go func() { l, e := g.AcquireContext(ctx); done <- result{l, e} }()
+	select {
+	case r := <-done:
+		if r.lease != nil {
+			r.lease.Close()
+		}
+		t.Fatalf("reader ignored transition: %v", r.err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	s, e := g.snapshot()
+	if e != nil {
+		t.Fatal(e)
+	}
+	s.Vaults[0].State = "locked"
+	writeSnapshot(t, g, s)
+	if e = unix.Flock(int(f.Fd()), unix.LOCK_UN); e != nil {
+		t.Fatal(e)
+	}
+	r := <-done
+	if r.err != nil {
+		t.Fatal(r.err)
+	}
+	defer r.lease.Close()
+	if r.lease.Snapshot.Vaults[0].State != "locked" {
+		t.Fatal("reader used a stale snapshot")
+	}
+}
+
+func TestGuardWaitCancellationDoesNotRetainLease(t *testing.T) {
+	g, _ := fixture(t)
+	f, e := os.OpenFile(filepath.Join(g.runtime, "gate"), os.O_RDWR, 0)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer f.Close()
+	if e = unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); e != nil {
+		t.Fatal(e)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if l, e := g.AcquireContext(ctx); l != nil || !errors.Is(e, context.DeadlineExceeded) {
+		if l != nil {
+			l.Close()
+		}
+		t.Fatal("wait did not cancel", e)
+	}
+}
 
 func fixture(t *testing.T) (*Guard, string) {
 	t.Helper()

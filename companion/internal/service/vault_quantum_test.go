@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"filebeans/companion/protection"
 	"golang.org/x/sys/unix"
 	"io"
@@ -43,6 +44,22 @@ func runBrokerQuantumIntegration(t *testing.T, smb bool) {
 	b.config.Gocryptfs = os.Getenv("FILEBEANS_TEST_GOCRYPTFS")
 	b.config.Fusermount = "/test-tools/fusermount3"
 	b.manager.memoryCheck = func() error { return nil } // synthetic test keys only
+	var normalizationRoot rootFS
+	if !smb {
+		guard, e := protection.New(b.config.Runtime, map[string]string{"uploads": b.config.Roots[0].Path})
+		if e != nil {
+			t.Fatal(e)
+		}
+		worker := &Service{config: Config{Roots: b.config.Roots, Normalization: NormalizationConfig{Enabled: true, Source: "uploads", Path: "ordinary"}},
+			vaults: &vaultManager{guard: guard, remote: newBrokerClient(b.config.Runtime, b.config.Roots)}}
+		normalizationRoot, _, e = worker.normalizationRoot()
+		if e != nil {
+			t.Fatal(e)
+		}
+		// Model a long conversion: keep this root open throughout creation,
+		// preview operations and lock/unlock in the separate Quantum process.
+		defer normalizationRoot.Close()
+	}
 	base := filepath.Dir(b.config.Runtime)
 	for _, p := range []string{filepath.Dir(base), base} {
 		if e := os.Chmod(p, 0750); e != nil {
@@ -131,6 +148,20 @@ func runBrokerQuantumIntegration(t *testing.T, smb bool) {
 			var v VaultStatus
 			_ = json.Unmarshal(response.Body.Bytes(), &v)
 			id = v.ID
+			if normalizationRoot != nil {
+				if e := accessibleDirectory(normalizationRoot, "."); e != nil {
+					t.Errorf("normalizer rejected an ordinary ancestor: %v", e)
+				}
+				if e := normalizationRoot.WriteFile("normalizer-ordinary.txt", []byte("ordinary job"), 0600); e != nil {
+					t.Errorf("normalizer could not continue ordinary work: %v", e)
+				}
+				if _, e := normalizationRoot.Stat("Private"); !errors.Is(e, ErrUnsafe) {
+					t.Errorf("normalizer accepted a newly protected folder: %v", e)
+				}
+				if e := normalizationRoot.WriteFile("Private/forbidden.txt", []byte("must never publish"), 0600); !errors.Is(e, ErrUnsafe) {
+					t.Errorf("normalizer wrote into a new vault: %v", e)
+				}
+			}
 		}
 		w.WriteHeader(response.Code)
 		_, _ = w.Write(response.Body.Bytes())
