@@ -15,7 +15,20 @@ import (
 type sharedTrashRoot struct{ *os.Root }
 
 func (r *sharedTrashRoot) MkdirAll(path string, mode os.FileMode) error {
-	return r.Root.MkdirAll(path, (mode|0070)&^0007)
+	if e := r.Root.MkdirAll(path, (mode|0070)&^0007); e != nil {
+		return e
+	}
+	current := ""
+	for _, part := range strings.Split(filepath.Clean(path), string(filepath.Separator)) {
+		if part == "." || part == "" {
+			continue
+		}
+		current = filepath.Join(current, part)
+		if e := accessibleDirectory(r.Root, current); e != nil {
+			return e
+		}
+	}
+	return nil
 }
 
 type trashAccess struct {
