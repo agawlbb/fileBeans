@@ -219,6 +219,14 @@ func TestVaultSharedWriterHelper(t *testing.T) {
 	if st.Mode().Perm()&0770 == 0770 && e != nil {
 		t.Fatal("worker rejected the CIFS sharing mask", e)
 	}
+	copyCommand := exec.Command("/test-tools/rclone", "--config", "/dev/null", "copyto",
+		filepath.Join(path, "Private/secret.txt"), filepath.Join(path, "Private/shared/rclone-copy.txt"))
+	if output, err := copyCommand.CombinedOutput(); err != nil {
+		t.Fatal("separate-UID protected rclone transfer", err, string(output))
+	}
+	if data, err := r.ReadFile("Private/shared/rclone-copy.txt"); err != nil || string(data) != "private text" {
+		t.Fatal("protected rclone transfer content", err)
+	}
 	if e = r.WriteFile("Private/shared/transfer.txt", []byte("shared writer"), 0660); e != nil {
 		t.Fatal(e)
 	}

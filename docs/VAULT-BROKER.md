@@ -224,7 +224,10 @@ Verified live: public Quantum health and frontend HTTP 200; authenticated compan
 capabilities/vault listing HTTP 200 with `protectedFoldersCreate`; anonymous
 companion HTTP 401; Quantum SQLite integrity; zero container restart loops; shared
 mount identities/propagation; read/write handoff between reader and companion UIDs
-on both local and Samba storage. Only isolated, disposable ordinary probe files
+on both local and Samba storage. A final isolated VM check also passes real
+rclone transfers between the separate consumer UIDs inside local and CIFS-backed
+protected folders, including the standard metadata-copy step. Only isolated,
+disposable ordinary probe files
 were used and removed. Normalization remained running and its conversion progress
 advanced after restart. No production protected folder or recovery key was created.
 

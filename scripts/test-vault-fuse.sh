@@ -29,6 +29,7 @@ for source in site.getsitepackages():
 PY
 install -m 0555 /home/dev/.local/bin/gocryptfs .build/fuse-tests/gocryptfs
 install -m 0555 /usr/bin/fusermount3 .build/fuse-tests/fusermount3
+install -m 0555 /usr/bin/rclone .build/fuse-tests/rclone
 cd companion
 CGO_ENABLED=0 "$go_tool" test -c -o ../.build/fuse-tests/service.test ./internal/service
 chmod 0555 ../.build/fuse-tests/service.test
