@@ -62,6 +62,7 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
     let connection: Connection
     private let credential: String?
     private let configuration: URLSessionConfiguration
+    private let store: SharedStore?
     private lazy var session: URLSession = {
         let config = configuration.copy() as! URLSessionConfiguration
         config.httpCookieStorage = nil
@@ -69,8 +70,10 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
         config.timeoutIntervalForRequest = 30
         return URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }()
-    init(connection: Connection, credential: String? = nil, configuration: URLSessionConfiguration = .ephemeral) {
+    init(connection: Connection, credential: String? = nil, configuration: URLSessionConfiguration = .ephemeral,
+         store: SharedStore? = nil) {
         self.connection = connection; self.credential = credential; self.configuration = configuration
+        self.store = store
     }
     func close() { session.invalidateAndCancel() }
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
@@ -167,7 +170,7 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
     }
     private func sourceLocation(_ location: CopyLocation) throws -> CopyLocation {
         guard location.source != "drive", location.source != "upload" else { return location }
-        let scope = try SharedStore().sourceScope(connection.id, source: location.source)
+        let scope = try (store ?? SharedStore()).sourceScope(connection.id, source: location.source)
         return CopyLocation(source: location.source,
                             path: try FilePath.inSource(location.path, scope: scope), name: location.name)
     }
