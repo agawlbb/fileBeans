@@ -187,8 +187,13 @@ func (s *Service) migrateProtectedTrash(t *Trash) error {
 
 // Remove only an empty directory, never retained files. ReadDir checks intent;
 // os.Root.Remove uses unlink/rmdir and atomically refuses a nonempty directory.
-func removeEmptyTrashRoot(root rootFS) error {
-	st, e := root.Lstat("Trash")
+func removeEmptyTrashRoot(root rootFS) error { return removeEmptyDirectory(root, "Trash") }
+
+func removeEmptyDirectory(root rootFS, path string) error {
+	if e := safe(root, path); e != nil {
+		return e
+	}
+	st, e := root.Lstat(path)
 	if errors.Is(e, os.ErrNotExist) {
 		return nil
 	}
@@ -198,7 +203,7 @@ func removeEmptyTrashRoot(root rootFS) error {
 	if !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
 		return ErrUnsafe
 	}
-	dir, e := root.Open("Trash")
+	dir, e := root.Open(path)
 	if e != nil {
 		return e
 	}
@@ -213,5 +218,33 @@ func removeEmptyTrashRoot(root rootFS) error {
 	if closeErr != nil {
 		return closeErr
 	}
-	return root.Remove("Trash")
+	return root.Remove(path)
+}
+
+// Only recorded legacy IDs are eligible, and only when their directories are
+// empty. Unexpected files and all retained entries are left for migration.
+func (s *Service) cleanupFinishedTrash(t Trash) {
+	if t.State != "failed" && t.State != "restored" && t.State != "purged" && t.State != "missing" {
+		return
+	}
+	if t.Vault != "" {
+		a, e := s.accessTrash(t)
+		if e == nil {
+			_ = removeEmptyDirectory(a.bin, trashDirectory(t))
+			a.close()
+		}
+		return
+	}
+	v := s.vaults.pathVault(t.Source, t.Original)
+	if v == nil || v.Path == "" || t.Storage != filepath.Join(strings.TrimPrefix(v.Path, "/"), "Trash", t.ID) {
+		return
+	}
+	descriptor := t
+	descriptor.Vault = v.ID
+	a, e := s.accessTrash(descriptor)
+	if e != nil {
+		return
+	}
+	defer a.close()
+	_ = removeEmptyDirectory(a.files, filepath.Join("Trash", t.ID))
 }

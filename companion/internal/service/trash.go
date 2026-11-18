@@ -142,6 +142,7 @@ func (s *Service) reconcileTrash() {
 		if json.Unmarshal(b, &t) != nil {
 			continue
 		}
+		s.cleanupFinishedTrash(t)
 		if t.State == "purged" || t.State == "restored" || t.State == "missing" {
 			continue
 		}

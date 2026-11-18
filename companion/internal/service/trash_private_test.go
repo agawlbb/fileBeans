@@ -117,6 +117,26 @@ func testPrivateTrash(t *testing.T, s *Service) {
 			}
 		})
 	}
+
+	t.Run("empty-failed-trash-folders-cleaned-with-original-retained", func(t *testing.T) {
+		id := ID()
+		entry := Trash{ID: id, Source: "samba", Original: "files/failed-original", Name: "failed-original", State: "failed", Storage: filepath.Join("files", "Trash", id)}
+		write(entry.Original)
+		if e := os.MkdirAll(filepath.Join(base, entry.Storage), 0770); e != nil {
+			t.Fatal(e)
+		}
+		if e := s.insert(id, "trash", entry.State, ID(), entry); e != nil {
+			t.Fatal(e)
+		}
+		ids = append(ids, id)
+		s.reconcileTrash()
+		if _, e := os.Stat(filepath.Join(base, entry.Storage)); !errors.Is(e, os.ErrNotExist) {
+			t.Fatal("empty legacy directory remains", e)
+		}
+		if data, e := os.ReadFile(filepath.Join(base, entry.Original)); e != nil || string(data) != "retained private bytes" {
+			t.Fatal("original damaged", e)
+		}
+	})
 	t.Run("unknown-legacy-content-preserved", func(t *testing.T) {
 		write("files/Trash/untracked")
 		root, e := os.OpenRoot(filepath.Join(base, "files"))
