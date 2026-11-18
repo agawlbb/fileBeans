@@ -222,3 +222,10 @@ Vault roots and ancestors spanning vault boundaries remain restricted.
 Protected CIFS destinations skip timestamp assignment because shared group
 writers may lack ownership permission to set timestamps through FUSE. Move
 verification compares content rather than destination timestamps.
+
+The move implementation is deployed and available in TestFlight **0.1.0 (19)**.
+All 87 Apple simulator tests and the device archive passed. Live HTTPS moves into
+and out of the unlocked Samba vault verified content and source removal. Main's
+normalizer pipeline was merged into this feature branch and deployed with its
+4 GiB resource budget; protected-path guards remain in place. See the
+[release record](RELEASING.md) for source revisions, workflows and rollout checks.

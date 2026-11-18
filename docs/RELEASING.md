@@ -68,7 +68,54 @@ breadcrumb heading in place of the folder title.
 - This initial build skipped upload; subsequent explicitly authorized publication
   is recorded below. No VPS deployment is needed.
 
-## Feature-branch rollout — November 18, 2026
+## Protected-folder moves and merged normalizer — November 18, 2026
+
+**0.1.0 (19)** is available to the existing internal TestFlight group:
+**VALID / IN_BETA_TESTING**, Apple build
+`79db23a4-ac3b-4472-bbeb-c72e053aeec5`.
+
+- Release source `87ae6efc9ac783a22c4c7046a189f81230898640`, tag
+  `testflight/0.1.0-19`, on `feature/encrypted-vaults`.
+- [Validation 44301022097](https://github.com/agawlbb/fileBeans/actions/runs/44301022097)
+  passed all **87 simulator tests** and the unsigned iPhone/iPad Release archive.
+  It validated `cb9fb2b`; application, extension, tests, configuration and workflow
+  inputs are identical at the merged release source.
+- [Upload 44305782407](https://github.com/agawlbb/fileBeans/actions/runs/44305782407)
+  passed signing, export and upload. A redundant
+  [dispatch 44305782427](https://github.com/agawlbb/fileBeans/actions/runs/44305782427)
+  exported the same version but Apple rejected its upload as duplicate build 19.
+  Its green workflow status does not establish a second upload. App Store Connect
+  confirms the single available build above.
+- Initial validation attempt 44298859957 passed the new move tests but timed out
+  in the existing media seek test. Its queued retry was cancelled before the
+  successful Intel validation above.
+- `origin/main` commit `258bc7e` was merged into the feature branch as `87ae6ef`.
+  The two normalizer merge conflicts retain guarded filesystem access alongside
+  isolated pipeline workspaces. The feature branch has **not** been merged into
+  `main`.
+- VPS companion and normalizer run `87ae6ef-vaults` images; Quantum runs
+  `cb9fb2b-vaults` with unchanged Quantum/protection inputs after the merge.
+  The normalizer has a 4 GiB memory/swap limit, no CPU quota, and CPU shares 128.
+  Quantum and broker were preserved during the normalizer upgrade; the broker
+  retained PID 1637955 throughout both deployments and its vault stayed unlocked.
+- Go race/MariaDB tests pass, with only the established unrelated staged-hardlink
+  baseline excluded; Go vet, source checks and patched Quantum race tests pass.
+  Real local FUSE/CIFS tests cover boundary-conflict responses, moves in both
+  directions, durability and shared-user writes. Journal tests cover publication,
+  quarantine, partial deletion, cancellation and source/destination changes.
+- Authenticated live HTTPS moved disposable data into and out of the unlocked
+  vault. Both moves verified content/empty directories and removed the original;
+  the probe was cleaned up. No new production key or vault was created.
+- All 743 normalization jobs remained accounted for. Four more completed after
+  the merged rollout; three jobs were in flight at the final check. The interrupted
+  encode hit the existing restart safeguard and was requeued through the supported
+  retry API after the resource upgrade. Existing completed outputs were retained.
+- Prepared-image checksums and rollback compose files are retained under
+  `/opt/services/filebeans/deploy/moves-cb9fb2b` and
+  `/opt/services/filebeans/deploy/normalizer-87ae6ef`. No schema migration,
+  tester-group change or signing-identity change was needed.
+
+## Earlier feature-branch rollout — build 18
 
 **0.1.0 (18)** is signed, uploaded and available to the existing internal
 TestFlight group. Apple reports **VALID** / **IN_BETA_TESTING**. Source remains
