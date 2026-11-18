@@ -178,12 +178,20 @@ The synthetic SMB fixture uses SMB 2.0 only because of its test-server support;
 production SMB negotiation is unchanged.
 
 Swift syntax/configuration and Keychain entitlement isolation pass. Apple
-compilation, XCTest execution, physical-device biometrics/backgrounding and
-second-device acceptance remain unexecuted. Runtime image builds, native PDF/text rendering tests, and restricted image
-execution now pass. Production deployment remains outstanding. No source-level result
-changes the currently installed app or server. The VM host still has swap
-configured; real-key startup correctly refuses it. Synthetic test-only memory
-checks do not expose a daemon bypass.
+[validation run 44213282822](https://github.com/agawlbb/fileBeans/actions/runs/44213282822)
+passed on source revision `4ffa92f9b0cf881ea982ad81c88a1fef910788f1`: all 83
+simulator tests passed with no failures, and the unsigned Release archive for
+iPhone/iPad built successfully with the File Provider extension. This includes
+key-session recovery/backup/authentication, catalog protection, scope boundaries,
+and companion API transport tests. Local copies of the simulator results and
+unsigned archive are retained under ignored `.build/apple-4ffa92f`.
+
+Runtime image builds, native PDF/text rendering tests, and restricted image
+execution pass. Physical-device biometrics, backgrounding, second-device import,
+and signed-installation acceptance remain. Production deployment and a signed
+TestFlight build/release have not occurred for this revision. The VM host still
+has swap configured; real-key startup correctly refuses it. Synthetic test-only
+memory checks do not expose a daemon bypass.
 
 Protected-folder roots cannot be renamed, moved, copied recursively or sent to
 Trash, nor can an ordinary ancestor be mutated recursively across a vault.

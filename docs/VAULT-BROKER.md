@@ -139,7 +139,8 @@ mount subtree exist only inside its own namespace. It uses synthetic keys and a
 test-code-only memory check, leaving production checks intact.
 
 Runtime artifacts/native PDF compilation and isolated image execution pass.
-Before deciding to keep/merge: complete Apple compilation/XCTest and physical-device
+Apple validation now passes all 83 simulator tests and the unsigned iPhone/iPad
+Release archive. Before deciding to keep/merge: complete physical-device
 acceptance, then exercise
 the explicitly requested staging deployment topology, proxy and full SQL-backed
 transfer/Trash flows. Root/ancestor mutation restrictions and metadata feature
@@ -166,8 +167,9 @@ The VM image builder exported these local, undeployed images:
 | Normalizer | `filebeans-normalizer:2747b84-vaults` | `sha256:0de8e00754c8114cf1b6e34453150ccef66a996a7a608a2066e2f3b0b9196c0e` |
 
 Archives and checksum metadata are under ignored `.build/images`. The tags have
-different preparation commits, but the feature implementation is the same
-`e2eab58` source; subsequent commits add packaging and build tests only.
+different preparation commits containing the same Go implementation from
+`e2eab58`; differences between those preparation commits concern packaging and
+build tests.
 `sh scripts/test-vault-images.sh QUANTUM.tar COMPANION.tar NORMALIZER.tar`
 verifies archive checksums, loads images locally and runs disposable version/help
 and FFmpeg checks. All three passed as the intended unprivileged UIDs with a
