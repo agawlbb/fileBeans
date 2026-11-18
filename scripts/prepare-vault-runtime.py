@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Prepare feature runtime artifacts inside development; never deploy or build images."""
+import argparse
 import hashlib
 import json
 import os
@@ -15,6 +16,9 @@ def run(*args, **kwargs):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--filesystem", action="store_true", help="prepare the standalone filesystem API runtime")
+    args = parser.parse_args()
     if run("git", "status", "--porcelain", "--untracked-files=no"):
         raise SystemExit("Commit tracked source changes before preparing versioned runtime artifacts")
     revision = run("git", "rev-parse", "HEAD")
@@ -22,7 +26,7 @@ def main():
     version = run(str(gocryptfs), "-version")
     if not version.startswith(("gocryptfs v2.6.1;", "gocryptfs v2.6.1 ")):
         raise SystemExit("Install the tested gocryptfs 2.6.1 before packaging")
-    target = ROOT / ".build" / "vault-runtime" / revision
+    target = ROOT / ".build" / ("filesystem-runtime" if args.filesystem else "vault-runtime") / revision
     if target.exists():
         raise SystemExit("Runtime artifacts already exist for this revision; preserve them")
     go = shutil.which("go") or "/tmp/filebeans-go/go/bin/go"
@@ -37,7 +41,7 @@ def main():
     normalizer.mkdir()
     shutil.copyfile(target / "filebeans", companion / "filebeans")
     shutil.copyfile(target / "filebeans", normalizer / "filebeans")
-    shutil.copyfile(ROOT / "companion/deploy/Dockerfile", companion / "Dockerfile")
+    shutil.copyfile(ROOT / ("companion/deploy/Dockerfile.filesystem" if args.filesystem else "companion/deploy/Dockerfile"), companion / "Dockerfile")
     shutil.copyfile(ROOT / "companion/deploy/Dockerfile.normalizer", normalizer / "Dockerfile")
     rclone_args = ["python3", str(ROOT / "scripts/prepare-rclone.py"), str(companion)]
     archive = ROOT / ".build/dependencies/rclone-v1.76.0-linux-amd64.zip"
@@ -54,7 +58,7 @@ def main():
     (target / "gocryptfs").chmod(0o555)
     files = {str(path.relative_to(target)): hashlib.sha256(path.read_bytes()).hexdigest()
              for path in sorted(target.rglob("*")) if path.is_file()}
-    (target / "artifacts.json").write_text(json.dumps({"revision": revision, "gocryptfs": version,
+    (target / "artifacts.json").write_text(json.dumps({"revision": revision, "filesystem": args.filesystem, "gocryptfs": version,
                                                      "sha256": files}, indent=2) + "\n")
     print(f"Prepared runtime binaries and image contexts: {target}")
 

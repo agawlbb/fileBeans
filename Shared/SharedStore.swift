@@ -116,7 +116,7 @@ final class SharedStore {
         }
         return result
     }
-    func connections() throws -> [Connection] { try transaction { $0.connections } }
+    func connections() throws -> [Connection] { try transaction { $0.connections.map(\.unified) } }
     func save(_ connection: Connection) throws {
         try transaction { state in
             state.connections.removeAll { $0.id == connection.id }

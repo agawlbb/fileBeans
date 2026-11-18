@@ -48,6 +48,9 @@ func main() {
 		s.RunNormalization(ctx)
 		return
 	}
+	if e := s.StartFilesystem(ctx); e != nil {
+		log.Fatal("Filesystem consumer unavailable; check broker and renderer configuration")
+	}
 	server := &http.Server{Addr: c.Listen, Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 2 * time.Minute, IdleTimeout: time.Minute, MaxHeaderBytes: 16384}
 	done := make(chan struct{})
 	go func() { defer close(done); s.Run(ctx) }()

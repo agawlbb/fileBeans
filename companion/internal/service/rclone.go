@@ -280,7 +280,7 @@ func (s *Service) runRclone(ctx context.Context, j *Job, f File, dst rootFS, sta
 			env = append(env, "RCLONE_CONFIG_TO_CASE_INSENSITIVE=true")
 		}
 	}
-	args := []string{"--config", config, "--cache-dir", private, "--temp-dir", private, "--use-json-log", "--stats", "1s", "--stats-log-level", "NOTICE", "--log-level", "INFO", "--fast-list"}
+	args := []string{"--config", config, "--cache-dir", private, "--temp-dir", private, "--use-json-log", "--stats", "1s", "--stats-log-level", "NOTICE", "--log-level", "INFO", "--fast-list", "--exclude", "**/" + thumbnailDirectory + "/**", "--exclude", "**/" + thumbnailDirectory + "/"}
 	// CIFS can expose fixed ownership through FUSE. Group writers can write
 	// bytes but cannot set another UID's timestamps. Content verification remains
 	// authoritative; do not make protected transfers depend on chtimes.

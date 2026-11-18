@@ -2,7 +2,7 @@ import XCTest
 @testable import myFiles
 
 final class MediaRangeTests: XCTestCase {
-    func testRangeLargerThanQuantumCapIsFullyDelivered() async throws {
+    func testLargeRangeIsFullyDelivered() async throws {
         let total = 5 * (1 << 20) + 37
         var received = Data()
         var offsets: [Int64] = []

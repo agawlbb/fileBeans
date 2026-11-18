@@ -6,6 +6,16 @@ struct Connection: Codable, Identifiable, Hashable {
     var url: URL
     var companionURL: URL?
     var companionTokenID: UUID?
+    // Existing connections already identify the companion, which now hosts
+    // file access too. Keep connection/domain IDs and stored credentials.
+    var filesystemURL: URL { companionURL ?? url }
+    var filesystemTokenID: UUID { companionTokenID ?? id }
+    var unified: Connection {
+        var value = self
+        value.companionURL = filesystemURL
+        value.companionTokenID = filesystemTokenID
+        return value
+    }
 }
 
 struct Permissions: Codable, Hashable {
@@ -38,6 +48,7 @@ struct Scope: Codable, Hashable, Identifiable {
 }
 
 struct User: Decodable {
+    var version: Int
     var scopes: [Scope]
 }
 
@@ -48,7 +59,7 @@ struct RemoteFile: Codable, Hashable {
     var size: Int64?
     var modified: String?
     var hasPreview: Bool?
-    var viewToken: String?
+    var revision: String? = nil
     var isDirectory: Bool { type == "directory" }
     var isMedia: Bool { type.hasPrefix("video/") || type.hasPrefix("audio/") }
     var date: Date? {
@@ -57,7 +68,7 @@ struct RemoteFile: Codable, Hashable {
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f.date(from: modified) ?? ISO8601DateFormatter().date(from: modified)
     }
-    var version: Data { Data("\(modified ?? ""):\(size ?? 0)".utf8) }
+    var version: Data { Data((revision ?? "\(modified ?? ""):\(size ?? 0)").utf8) }
 }
 
 struct Resource: Decodable {
@@ -67,52 +78,30 @@ struct Resource: Decodable {
     var size: Int64?
     var modified: String?
     var hasPreview: Bool?
-    var viewToken: String?
-    var folders: [RemoteFile]?
-    var files: [RemoteFile]?
+    var revision: String?
+    var children: [RemoteFile]
     private enum CodingKeys: String, CodingKey {
-        case name, path, type, size, modified, hasPreview, viewToken, folders, files
+        case name, path, type, size, modified, hasPreview, revision, children
     }
-
-    // Quantum's child ItemInfo objects contain names, not paths. Keep this wire
-    // model separate from RemoteFile, whose persisted catalog path is required.
-    private struct Child: Decodable {
-        var name: String
-        var type: String
-        var size: Int64?
-        var modified: String?
-        var hasPreview: Bool?
-        var viewToken: String?
-
-        func file(in parent: String) throws -> RemoteFile {
-            RemoteFile(name: name, path: try FilePath.child(name, in: parent), type: type,
-                       size: size, modified: modified, hasPreview: hasPreview, viewToken: viewToken)
-        }
-    }
-
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         name = try c.decode(String.self, forKey: .name)
-        path = try c.decode(String.self, forKey: .path)
+        path = FilePath.normalized(try c.decode(String.self, forKey: .path))
         type = try c.decode(String.self, forKey: .type)
         size = try c.decodeIfPresent(Int64.self, forKey: .size)
         modified = try c.decodeIfPresent(String.self, forKey: .modified)
         hasPreview = try c.decodeIfPresent(Bool.self, forKey: .hasPreview)
-        viewToken = try c.decodeIfPresent(String.self, forKey: .viewToken)
-        let parentPath = path
-        folders = try c.decodeIfPresent([Child].self, forKey: .folders)?.map { try $0.file(in: parentPath) }
-        files = try c.decodeIfPresent([Child].self, forKey: .files)?.map { try $0.file(in: parentPath) }
-    }
-    var children: [RemoteFile] {
-        ((folders ?? []) + (files ?? [])).map {
-            var file = $0
-            file.path = FilePath.normalized(file.path)
-            return file
+        revision = try c.decodeIfPresent(String.self, forKey: .revision)
+        children = try c.decodeIfPresent([RemoteFile].self, forKey: .children) ?? []
+        for index in children.indices {
+            let expected = try FilePath.child(children[index].name, in: path)
+            guard FilePath.normalized(children[index].path) == expected else { throw APIError.incompatible }
+            children[index].path = expected
         }
     }
     var file: RemoteFile {
-        RemoteFile(name: name, path: FilePath.normalized(path), type: type, size: size, modified: modified,
-                   hasPreview: hasPreview, viewToken: viewToken)
+        RemoteFile(name: name, path: path, type: type, size: size, modified: modified,
+                   hasPreview: hasPreview, revision: revision)
     }
 }
 
@@ -151,7 +140,7 @@ enum APIError: LocalizedError {
         case .forbidden: return "You don’t have permission for this action."
         case .missing: return "This item is no longer available."
         case .conflict: return "An item already exists or changed on the server. Refresh before trying again."
-        case .incompatible: return "This connection requires File Browser Quantum v2 with API access enabled."
+        case .incompatible: return "This connection requires the fileBeans filesystem API."
         case .status(let code): return "The server could not complete the request (\(code))."
         }
     }

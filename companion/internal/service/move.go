@@ -110,6 +110,9 @@ func snapshotMove(ctx context.Context, root rootFS, base string) ([]MoveEntry, e
 			}
 			sort.Slice(children, func(i, j int) bool { return children[i].Name() < children[j].Name() })
 			for _, child := range children {
+				if strings.EqualFold(child.Name(), thumbnailDirectory) {
+					continue
+				}
 				if child.Name() == brokerStore || child.Name() == ".filebeans-stage" {
 					return ErrUnsafe
 				}

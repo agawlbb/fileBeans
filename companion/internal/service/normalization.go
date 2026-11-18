@@ -595,6 +595,12 @@ func (s *Service) scanNormalization() error {
 		}
 	}
 	return fs.WalkDir(root.FS(), c.Path, func(path string, d fs.DirEntry, e error) error {
+		if e == nil && filesystemHidden(path) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
 		if e != nil {
 			return e
 		}

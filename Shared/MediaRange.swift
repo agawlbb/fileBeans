@@ -23,7 +23,7 @@ struct MediaChunk {
 }
 
 enum MediaRange {
-    // Stay below Quantum's 4 MiB response cap. Never buffer a complete movie.
+    // Use bounded responses so playback never buffers a complete movie.
     static let chunkSize = 1 << 20
 
     @MainActor

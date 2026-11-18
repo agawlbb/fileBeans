@@ -55,10 +55,10 @@ final class MediaStreamTests: XCTestCase {
         }
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MediaProtocol.self]
-        let client = QuantumClient(connection: Connection(name: "Fixture", url: URL(string: "https://files.example")!),
+        let client = FilesystemClient(connection: Connection(name: "Fixture", url: URL(string: "https://files.example")!),
                                    token: "synthetic-token", configuration: config)
         defer { client.close() }
-        let request = try client.request("media/stream", query: ["file": "/probe.mp4", "source": "disk", "viewToken": "fixture"])
+        let request = try client.request("content", query: ["path": "/probe.mp4", "source": "disk"])
         let stream = MediaStream(client: client, request: request, name: "probe.mp4")
         let player = AVPlayer()
         defer { player.pause(); player.replaceCurrentItem(with: nil); stream.cancel() }
@@ -106,7 +106,7 @@ final class MediaStreamTests: XCTestCase {
     @MainActor
     func testNativeAssetReadsMetadataPastFourMiBThroughCappedResponses() async throws {
         // Insert a valid free box before moov, leaving sample offsets intact. This
-        // puts required movie metadata beyond Quantum's cap without a large fixture.
+        // puts required movie metadata beyond a small response cap without a large fixture.
         let fixture = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "range-probe", withExtension: "mp4"))
         var media = try Data(contentsOf: fixture)
         var cursor = 0
@@ -128,10 +128,6 @@ final class MediaStreamTests: XCTestCase {
         MediaProtocol.respond = { request in
             XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer synthetic-token")
             XCTAssertFalse(request.url!.absoluteString.contains("synthetic-token"))
-            if request.url?.path.hasSuffix("/resources") == true {
-                return (200, ["Content-Type": "application/json"],
-                        Data(#"{"name":"probe.mp4","path":"/probe.mp4","type":"video/mp4","viewToken":"synthetic-grant"}"#.utf8))
-            }
             XCTAssertEqual(request.value(forHTTPHeaderField: "Accept-Encoding"), "identity")
             let range = try XCTUnwrap(request.value(forHTTPHeaderField: "Range"))
             let bounds = range.dropFirst(6).split(separator: "-")
@@ -139,7 +135,7 @@ final class MediaStreamTests: XCTestCase {
             let requestedEnd = try XCTUnwrap(Int(bounds[1]))
             guard start < content.count else { return (416, [:], Data()) }
             XCTAssertLessThanOrEqual(requestedEnd - start + 1, MediaRange.chunkSize)
-            // Also tolerate a server/proxy cap smaller than Quantum's.
+            // Also tolerate a server/proxy cap smaller than the requested range.
             let end = min(requestedEnd, start + 65535, content.count - 1)
             lock.lock(); offsets.append(start); lock.unlock()
             return (206, ["Content-Type": "video/mp4", "Content-Range": "bytes \(start)-\(end)/\(content.count)"],
@@ -147,7 +143,7 @@ final class MediaStreamTests: XCTestCase {
         }
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MediaProtocol.self]
-        let client = QuantumClient(connection: Connection(name: "Fixture", url: URL(string: "https://files.example/quantum")!),
+        let client = FilesystemClient(connection: Connection(name: "Fixture", url: URL(string: "https://files.example/companion")!),
                                    token: "synthetic-token", configuration: config)
         defer { client.close() }
         let request = try await client.streamRequest(source: "disk", path: "/probe.mp4")

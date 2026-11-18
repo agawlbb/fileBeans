@@ -15,6 +15,7 @@ type Root struct {
 	MountSource string `json:"mountSource,omitempty"`
 }
 type Config struct {
+	Filesystem         FilesystemConfig    `json:"filesystem,omitempty"`
 	ProtectedRuntime   string              `json:"protectedRuntime,omitempty"`
 	Vaults             []VaultConfig       `json:"vaults,omitempty"`
 	Rclone             string              `json:"rclone,omitempty"`
@@ -68,6 +69,22 @@ func Load(path string) (Config, error) {
 	}
 	if c.GoogleClientID != "" && (!strings.HasPrefix(c.GoogleRedirect, "https://") || c.GoogleClientSecret == "") {
 		return c, errors.New("Google requires client secret and HTTPS redirect")
+	}
+	if c.Filesystem.Enabled {
+		if c.Filesystem.FFmpeg == "" {
+			c.Filesystem.FFmpeg = "/usr/bin/ffmpeg"
+		}
+		if c.Filesystem.PDFToPPM == "" {
+			c.Filesystem.PDFToPPM = "/usr/bin/pdftoppm"
+		}
+		for _, path := range []string{c.Filesystem.FFmpeg, c.Filesystem.PDFToPPM} {
+			if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+				return c, errors.New("filesystem renderers require absolute executable paths")
+			}
+		}
+		if len(c.Vaults) != 0 {
+			return c, errors.New("filesystem API requires the current protected-folder broker")
+		}
 	}
 	c.Normalization = c.Normalization.defaults()
 	if e := validateVaults(c); e != nil {

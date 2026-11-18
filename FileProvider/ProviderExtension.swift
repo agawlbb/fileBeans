@@ -110,7 +110,7 @@ final class ProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFi
                 if changedFields.contains(.contents) {
                     do {
                         guard let newContents else { throw CocoaError(.fileReadNoSuchFile) }
-                        try await repo.client.upload(source: stored.source, path: stored.file.path, file: newContents, replacing: true)
+                        try await repo.client.upload(source: stored.source, path: stored.file.path, file: newContents, replacing: true, expectedRevision: remote.file.revision)
                         remaining.remove(.contents)
                     } catch {
                         if metadataChanged {
