@@ -186,8 +186,8 @@ received only VM-built artifacts and runtime configuration/install helpers.
 | Component | Deployed image | Manifest digest |
 | --- | --- | --- |
 | Quantum | `filebeans-quantum:32eee70-vaults` | `sha256:e0868b063e8da4e2ec6d04a1944f93757b055c5e13f1abb4c635322154917708` |
-| Companion | `filebeans-companion:74893ba-vaults` | `sha256:2e5dd2b4268c3930a536785a6c88d5846d8b96ff83f91e78b5b656f3b877964c` |
-| Normalizer | `filebeans-normalizer:74893ba-vaults` | `sha256:4fab1831512e5af4bfae6bbaba03e23575a094dc146e17a779811ab23061fcf2` |
+| Companion | `filebeans-companion:6b8147c-vaults` | `sha256:450933ff6e32afb40d98e0a78939f7bc887df24343043aaa4b0e456e79c7609f` |
+| Normalizer | `filebeans-normalizer:6b8147c-vaults` | `sha256:f87bcbc3763a6421ab2d2939e4a2f1f76aeafa276888e4bfd5cb1a666caae639` |
 
 The companion and normalizer keep UID/GID `1000:1000` and their private state.
 Quantum uses reader UID `10001`, primary GID `1000`; its existing private data
@@ -238,3 +238,36 @@ broker config is `/etc/filebeans/vault-broker.json`; public registry state is
 back the broker or remove these paths after creating folders without preserving
 the ciphertext and public registry. No reboot or real-key device test was part
 of this rollout.
+
+### Folder creation blocked by an ordinary conversion — November 18
+
+Server hotfix `6b8147ce128b08ed240d6337cac85bbdff1039de` fixes a persistent busy
+response during Add Protected Folder. The normalizer had retained a shared
+broker gate lease through an entire ordinary video conversion, so creating a
+folder on any source could never acquire the exclusive transition gate.
+
+Ordinary-only normalization roots now acquire a fresh snapshot/lease around
+each filesystem operation. Open ordinary file descriptors can be used by the
+encoder without retaining the gate. Normalization rejects every protected
+boundary, including folders created after the normalization root was opened.
+Atomic renames and recursive mutations retain a lease for the complete operation.
+Metadata checkpoints and ordinary operations wait up to ten seconds for a short
+mount transition rather than cancelling a conversion immediately. Existing
+protected consumer streams retain their original whole-operation leases.
+The generic busy response no longer tells a creation request to retry locking.
+
+Companion race/MariaDB and isolated local/CIFS/FUSE suites pass. The regression
+keeps a normalization root open through broker creation, unlock/lock and preview
+operations, then verifies ordinary work can continue while access/publication
+into the newly created protected folder is refused. Context wait tests verify
+fresh snapshots and cancellation. No production key or vault was created for
+verification.
+
+Both updated consumers were rebuilt on VM-laptop, checksum-verified and deployed
+with `--no-build`. Quantum, the broker and their mounts stayed running. Live
+checks show conversion active, no container restart loops, creation capability
+present and the exclusive gate available in 19 of 20 immediate probes during
+conversion. The previous normalizer held that gate continuously. Rollback Compose
+configuration is retained in root-only
+`/opt/services/filebeans/deploy/vault-busy-6b8147c`. This change requires no new
+mobile build; TestFlight 18 remains current.
