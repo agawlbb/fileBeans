@@ -22,7 +22,7 @@ Enable only in the trial companion configuration:
   "enabled": true,
   "ffmpeg": "/usr/bin/ffmpeg",
   "pdftoppm": "/usr/bin/pdftoppm",
-  "thumbnailCacheOverrides": [{"source": "vps", "path": "/pics"}]
+  "thumbnailCacheOverrides": [{"source": "VPS", "path": "/pics"}]
 }
 ```
 
@@ -166,5 +166,25 @@ Do not execute these steps without the corresponding explicit request.
    branch and retire Quantum's service and build dependencies. Preserve rollback
    artifacts according to the existing release procedure.
 
-Current branch work makes no production configuration changes and triggers no
-Apple build or deployment.
+The owner subsequently authorized the trial deployment and TestFlight release;
+see the release record below and `RELEASING.md`. Main remains unchanged.
+
+## Authorized trial release — November 18, 2026
+
+The owner authorized deployment and app release after the temporary cache
+exception was tested. Source `8af2393`, tagged `testflight/0.1.0-23`, is deployed
+as the independent API runtime and released as **0.1.0 (23)**, **VALID /
+IN_BETA_TESTING**. Apple validation passed **104 simulator tests** and device
+archiving; the runtime image passed its isolated API/renderer checks.
+
+Live VPS/Samba and authenticated HTTPS checks passed, including ordinary file
+operations, ranges, conflicts, thumbnails and managed Trash. Quantum is stopped
+with rollback artifacts preserved. The `/pics` cache exception is enabled for
+source `VPS`. The normalizer was neither updated nor restarted: its original
+container, start time, restart count, worker PID and active encoder PID remained
+unchanged, its 743 job IDs were retained, and progress continued. A trial systemd
+override prevents broker restart dependencies from stopping that worker.
+
+See `RELEASING.md` for hashes, Apple workflow links, backups and rollback details.
+Main remains unchanged until owner acceptance. Physical-device playback, Files
+interaction and real-key unlock still require owner acceptance on their devices.

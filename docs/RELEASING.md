@@ -604,3 +604,62 @@ Apple build `f4a55d28-c3b4-4132-9cd5-e3d4e6ee7022` is **VALID** and
 External state is `READY_FOR_BETA_SUBMISSION`; no tester groups or external review
 settings were changed. Deployment and the authorized TestFlight release are
 finished and verified.
+
+### Standalone filesystem API trial and TestFlight 23 (2026-11-18)
+
+This is an owner-authorized trial on `feature/filesystem-api`; main was not
+merged or changed. Runtime and app source are
+`8af23930b55bad98ddb2d6363bda931f0e8cca20`, pinned by `testflight/0.1.0-23`.
+
+- [Apple validation 44407837321](https://github.com/agawlbb/fileBeans/actions/runs/44407837321)
+  passed all **104 simulator tests**, with zero failures, and the unsigned device
+  Release archive. Xcode/device/simulator SDK versions are **27.2**.
+- [Signed upload 44410395658](https://github.com/agawlbb/fileBeans/actions/runs/44410395658)
+  reports archive/export success and `UPLOAD SUCCEEDED with no errors` for
+  **0.1.0 (23)**. Apple build `4cf1e3a5-5f67-40fc-8e0a-15922baf2ba6` is
+  **VALID / IN_BETA_TESTING**. Existing automatic internal notification remains
+  enabled; external state is `READY_FOR_BETA_SUBMISSION`. No tester groups,
+  branch protections or external review settings were changed.
+- The VPS runs `filebeans-api:8af2393-trial`, built on VM-laptop with independent
+  Debian/FFmpeg/Poppler/rclone runtime assets. Manifest:
+  `sha256:21fda110568b09ea9e8d42aced43840c13c9f507a1a820b909929f6c43ec6052`.
+  Image archive SHA-256:
+  `8dae096bcfe1e8b97919c227bd5d046bad1b8e7cd5143d02f07b3535f5b72d8e`.
+  The transferred archive and loaded image identity were verified. The matching
+  broker binary was checked against the VM artifact manifest.
+- Quantum is stopped, with its image, configuration and private database retained
+  for rollback. The broker's `filesystemConsumer` mode uses the API's control UID
+  for readiness. Protected folders are locked following broker restart; real-key
+  unlock and physical-device acceptance remain user-device checks.
+- A dedicated `filesystem-trial.json` and companion-only Compose overlay leave
+  the normalizer's configuration untouched. The temporary cache override for
+  source `VPS`, path `/pics`, stores ordinary thumbnails/scratch in private API
+  state outside the scan. Protected thumbnails still stay inside encryption.
+  Remove this override after the old worker is retired; no originals need moving.
+- A trial systemd drop-in excludes the normalizer from stack stop/start commands.
+  The worker remains on `filebeans-normalizer:fed272d-parallel`. Container
+  `a1e4d4109975`, start time, restart count and PID **2167339** stayed unchanged;
+  the same FFmpeg process **2188617** survived. All **743** normalization job IDs
+  and **454** previously completed records were retained. Live progress advanced
+  during and after cutover; no running conversion was restarted by deployment.
+- Go race/vet checks, isolated local/CIFS encrypted-folder tests and the built
+  runtime's synthetic API/renderer tests passed. Live authenticated HTTPS checks
+  covered source discovery, permissions, ranges, conflicts, thumbnails and
+  synthetic VPS/Samba create/upload/edit/rename/Trash/restore/purge. Disposable
+  probes were removed. `/pics` thumbnails were confirmed outside the watched
+  tree. API restart count and OOM count were zero during verification.
+
+VM artifacts remain in this feature worktree's
+`.build/filesystem-runtime/8af23930b55bad98ddb2d6363bda931f0e8cca20/` and
+`.build/filesystem-images/8af2393/`. Root-only VPS rollback files, original
+configuration/broker, images, worker snapshots and deployment scripts are retained
+under `/opt/services/filebeans/deploy/filesystem-8af2393/`.
+
+For a requested rollback during the trial, the retained
+`bundle/deploy.py rollback` restores the prior broker and companion/Quantum
+services without issuing normalizer stop/start commands. It preserves the worker
+present at rollback time. Reinstall the previous native build separately when
+requested. No SQL migration or ciphertext conversion was performed.
+
+Trial deployment and the authorized TestFlight release are finished and verified;
+physical-device acceptance and the owner's permanent-merge decision remain open.

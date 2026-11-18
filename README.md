@@ -2,7 +2,7 @@
 
 A native iPhone and iPad client backed by the fileBeans filesystem API.
 
-This feature branch replaces Quantum. See the [trial API, validation and rollback procedure](docs/FILESYSTEM-API.md). It has not been built for Apple devices or deployed.
+This feature branch replaces Quantum. See the [trial API, validation and rollback procedure](docs/FILESYSTEM-API.md). The trial API is deployed; app release evidence is recorded in [release notes](docs/RELEASING.md). Main remains unchanged until owner acceptance.
 
 Browse folders in list or grid view, preview server-generated thumbnails, copy, move and rename items, create folders, delete files, and upload from Files or Photos. Videos and audio stream through the native player. Each connection is also available as a read/write location in Apple's Files app and document pickers.
 
@@ -23,7 +23,7 @@ BUNDLE_ID_PREFIX = your.registered.app.identifier
 
 Register the main app ID and its `.FileProvider` extension with the same App Group (`group.` followed by the main bundle ID) and shared Keychain group. Use your registered identifiers rather than the example defaults. The extension must be signed and installed with the app for device testing.
 
-This VM is for editing and Go/static checks; Apple SDK compilation, simulator tests, and archives run on GitHub macOS runners when explicitly requested. This replacement branch has not run Apple builds or device acceptance. See [release setup](docs/RELEASING.md) and the [device acceptance checklist](docs/TESTING.md).
+This VM is for editing and Go/static checks; Apple SDK compilation, simulator tests, and archives run on GitHub macOS runners when explicitly requested. This replacement branch passed Apple simulator tests and device archiving; physical-device acceptance remains with the owner. See [release setup](docs/RELEASING.md) and the [device acceptance checklist](docs/TESTING.md).
 
 For static checks, install `scripts/requirements-validation.txt` in an isolated Python environment and run `python scripts/validate-source.py`. This parses Swift, Python, plists, asset JSON, and workflow/project configuration; it does not replace compilation or XCTest.
 
