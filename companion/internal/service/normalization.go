@@ -610,5 +610,13 @@ func accessibleDirectory(root rootFS, path string) error {
 	if e := safe(root, path); e != nil {
 		return e
 	}
-	return root.Chmod(path, 0770)
+	e := root.Chmod(path, 0770)
+	if errors.Is(e, fs.ErrPermission) {
+		// Quantum and the worker have separate UIDs. An already shared directory
+		// needs no ownership-only chmod before the worker can publish into it.
+		if st, err := root.Stat(path); err == nil && st.IsDir() && st.Mode().Perm()&0770 == 0770 {
+			return nil
+		}
+	}
+	return e
 }

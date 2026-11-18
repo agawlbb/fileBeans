@@ -204,6 +204,21 @@ func TestVaultSharedWriterHelper(t *testing.T) {
 	if data, e := r.ReadFile("Private/secret.txt"); e != nil || string(data) != "private text" {
 		t.Fatal("companion cannot read Quantum upload", e)
 	}
+	if e = accessibleDirectory(r, "Private/shared"); e != nil {
+		t.Fatal("worker rejected an already shared Quantum directory", e)
+	}
+	st, e := r.Stat("Private/notshared")
+	if e != nil {
+		t.Fatal(e)
+	}
+	e = accessibleDirectory(r, "Private/notshared")
+	// CIFS fixed masks can make even a requested 0700 directory shared.
+	if st.Mode().Perm()&0770 != 0770 && e == nil {
+		t.Fatal("worker accepted an inaccessible directory")
+	}
+	if st.Mode().Perm()&0770 == 0770 && e != nil {
+		t.Fatal("worker rejected the CIFS sharing mask", e)
+	}
 	if e = r.WriteFile("Private/shared/transfer.txt", []byte("shared writer"), 0660); e != nil {
 		t.Fatal(e)
 	}

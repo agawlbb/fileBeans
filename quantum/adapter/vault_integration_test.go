@@ -153,6 +153,9 @@ func TestVaultFilesystemIntegration(t *testing.T) {
 	if e := os.Mkdir(filepath.Join(root, "Private", "shared"), 0770); e != nil {
 		t.Fatal(e)
 	}
+	if e := os.Mkdir(filepath.Join(root, "Private", "notshared"), 0700); e != nil {
+		t.Fatal(e)
+	}
 	fixture("shared-writer", 200)
 	if data, e := os.ReadFile(filepath.Join(root, "Private", "shared", "restored.txt")); e != nil || string(data) != "shared writer" {
 		t.Fatal("Quantum cannot read companion output", e)
