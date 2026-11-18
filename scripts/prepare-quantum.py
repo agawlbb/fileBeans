@@ -44,6 +44,7 @@ def main():
     subprocess.run(["python3", str(ROOT / "quantum/patch.py"), str(target)], check=True)
     shutil.copytree(ROOT / "quantum/adapter/vaultbridge", target / "backend/pkg/vaultbridge")
     shutil.copyfile(ROOT / "quantum/adapter/vault_preview.go", target / "backend/internal/preview/vault_preview.go")
+    shutil.copyfile(ROOT / "quantum/adapter/vault_pdf_test.go", target / "backend/internal/preview/vault_pdf_test.go")
     shutil.copyfile(ROOT / "quantum/adapter/vault_integration_test.go", target / "backend/internal/web/vault_integration_test.go")
     module = target / "backend/go.mod"
     module.write_text(module.read_text() + f"\nrequire filebeans/companion v0.0.0\nreplace filebeans/companion => {ROOT / 'companion'}\n")

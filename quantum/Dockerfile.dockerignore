@@ -6,4 +6,3 @@
 !.build/quantum/source/
 !.build/quantum/source/backend/
 !.build/quantum/source/backend/**
-**/*_test.go
