@@ -518,3 +518,36 @@ change only the normalizer image to `filebeans-normalizer:87ae6ef-vaults` and
 recreate only that service with `--no-build --no-deps`; preserve any later changes
 to other services. No schema migration, completed-file re-encoding, broker
 restart, app build or release was performed.
+
+### Folder operations, recovery import and SDK 27 release (2026-11-18)
+
+- App source: `8dd77d70c794aa8e659333333a3868c22b188f2d`, immutable tag
+  `testflight/0.1.0-21`. A separate normalization commit subsequently landed on
+  main; the app release remains pinned to this validated source.
+- Signed upload: [44369352108](https://github.com/agawlbb/fileBeans/actions/runs/44369352108),
+  build **0.1.0 (21)**, Apple build
+  `638eeb43-78cc-4fa7-99d0-aac83139fabb`, **VALID / IN_BETA_TESTING**.
+  The log reports device and simulator SDK **27.2** and upload success with no errors.
+- [Apple validation 44366675017](https://github.com/agawlbb/fileBeans/actions/runs/44366675017)
+  passed its simulator tests and unsigned iPhone/iPad archive steps on the same source.
+  Device biometrics and transfer of an actual user key between physical devices
+  remain manual acceptance; synthetic recovery-code formatting and session-import
+  regressions are included in the simulator suite.
+- The VPS runs companion `filebeans-companion:8dd77d7-folders` and the matching
+  broker. VM image archive SHA-256:
+  `7f17e27c5723096e85d658035383e3ee9737c201ed93eedb63ec7cecc3075361`.
+  Manifest `sha256:03153e3eace206ade29a209342998b1a1e52d0ea944aa5fd325d6cefdf091338`.
+  Broker executable hash was matched to the VM runtime manifest.
+- Deployment backups and image metadata are under
+  `/opt/services/filebeans/deploy/folders-8dd77d7`. The broker restart locked the
+  existing protected folder; its existing key was not exported or replaced.
+  Quantum and normalizer images were preserved by this deployment.
+- Focused broker recovery tests, local/Samba FUSE lifecycle tests, source-scoped
+  Trash API tests, and the earlier companion race/vet checks passed. Live disposable
+  VPS/Samba file and folder probes verified delete, retained payload bytes, flat
+  Trash listing, restore, repeated delete and permanent deletion. All probes
+  were cleaned. Source Trash requests returned in approximately 15 milliseconds.
+- App changes include visible batch actions, protected-root actions, full-row
+  Trash navigation, source-aware Trash loading, formatting-tolerant checksummed
+  recovery imports and Universal Clipboard support. No key format or deployment
+  target change is required.

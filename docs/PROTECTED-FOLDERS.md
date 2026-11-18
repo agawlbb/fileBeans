@@ -68,8 +68,8 @@ With the compatible broker and patched Quantum running, choose **+ → Add
 Protected Folder** in the current directory. Generate or import the single key,
 copy its recovery code, acknowledge the backup, and name the folder. Creation
 leaves the folder unlocked and returns to its parent. Protected folders appear
-alongside ordinary folders with a lock badge. Selecting a locked folder presents
-its actions; biometric unlock and opening the folder are separate actions.
+alongside ordinary folders with a lock badge while unlocked. Locked folders are
+hidden from the browser. Unlock them from the connection's Protected folders screen.
 The connection’s Protected folders screen controls lock/unlock across folders.
 
 Creation is gated by `protectedFoldersCreate`. The broker enables this only
@@ -87,7 +87,8 @@ static-vault path only; they are not the current Add Protected Folder setup.
 
 ## Locking and metadata
 
-Folders remain unlocked indefinitely, including when the phone disconnects.
+Folders remain unlocked when the phone disconnects, until manually locked or
+the server's one-hour inactivity timer expires.
 Because all vaults share a master key, protection against server root requires
 all vaults locked. While any vault is open, root could capture the shared key
 and decrypt another vault even if that other mount is currently locked.
@@ -211,14 +212,15 @@ is **VALID / IN_BETA_TESTING**. See [the release record](RELEASING.md). The VM h
 has swap configured; real-key startup correctly refuses it. Synthetic test-only
 memory checks do not expose a daemon bypass.
 
-Protected-folder roots cannot be renamed, moved, copied recursively or sent to
-Trash, nor can an ordinary ancestor be mutated recursively across a vault.
-Operations on their contents remain available. Protected-child pins, deep user
+Unlocked protected-folder roots support Copy, Rename, Move and Delete in the
+app. Ordinary filesystem mutation routes still reject mountpoint changes; the
+app delegates root relocation and deletion to the mount broker. An ordinary
+ancestor cannot be mutated recursively across a protected-folder boundary.
+Operations on folder contents remain available. Protected-child pins, deep user
 scopes, persistent access rules and public child shares are refused to avoid
 ordinary database filename leakage; permissions on the public root still apply.
 Protected content cannot use OnlyOffice or the normalizer. Existing plaintext
-sources/backups/history are not retroactively erased. These are experimental
-branch limits to assess before deciding whether to keep or merge it.
+sources/backups/history are not retroactively erased. These remaining integration limits apply on main.
 
 ### Moves across protected folders
 
@@ -235,7 +237,8 @@ stored with the job's existing encrypted metadata when either endpoint is
 protected. Restart recovery handles publication, quarantine and partial cleanup.
 Cancellation is accepted before commit; committed cleanup resumes to completion.
 Changed sources or destinations produce a conflict and preserve remaining data.
-Vault roots and ancestors spanning vault boundaries remain restricted.
+Ordinary move jobs still reject vault-root mutation and ancestors spanning
+vault boundaries; protected-root operations use the separate broker path.
 
 Protected CIFS destinations skip timestamp assignment because shared group
 writers may lack ownership permission to set timestamps through FUSE. Move
@@ -274,3 +277,34 @@ Rollback metadata from the deployed migration is retained inside encrypted
 `private/trash-layout-before-05bcd79`. Rolling back requires reversing the Trash
 location migration with that metadata; reverting only to an older image cannot
 interpret the new private locations.
+
+
+### Protected-folder roots and scoped Trash
+
+The app exposes Copy, Rename, Move and Delete for unlocked protected roots.
+Same-source rename/move journals and renames the empty public mount directory,
+then rebinds the existing encrypted files. It retains the vault ID, ciphertext
+store and private Trash. Previous root paths allow previously deleted children
+to restore into the renamed folder.
+
+Copy to ordinary local storage creates a new protected destination using the
+existing master key and copies its public children through companion jobs.
+Copy into an existing protected folder remains inside that encrypted boundary;
+copy to Drive is an explicit ordinary export. Cross-source protected-root moves
+verify the destination job before retaining the source vault in source Trash,
+preserving its existing private Trash during the normal ten-day retention period.
+
+Deleting a whole protected folder journals its public marker into the source's
+hidden store and removes its public boundary. The encrypted payload and private
+mount remain available for Trash while unlocked. Locking hides its Trash entry;
+unlocking it from Protected folders permits Restore. Restore refuses an occupied
+original path; permanent deletion closes the mount and journals ciphertext
+removal. Interrupted public renames and purges resume from the broker registry.
+Older brokers do not understand these lifecycle fields and must not be used to
+roll back a registry after protected-root operations have occurred.
+
+GET /v1/trash accepts an optional source query and returns retained/purging
+entries without filesystem reconciliation. Recovery and expiry run in regular
+maintenance. The app requests its source explicitly and shows loading or request
+errors separately from an empty result. Multi-selection actions use a bottom
+toolbar, and the full shaded Trash row is a navigation hit target.
