@@ -305,3 +305,29 @@ upload and media-normalization regression suites also passed.
 The iOS request/response contract is unchanged, so existing TestFlight build 16 can
 use this backend. Local fixture timing is not a Drive/Samba performance claim;
 production measurements and transfer completion must be recorded separately.
+
+## Shared-user deletion regression — November 18, 2026
+
+Delete verification must include the Trash preparation step with different
+Quantum and companion UIDs sharing the configured GID. Existing SQL lifecycle
+and transfer tests did not exercise this complete permission boundary.
+
+The regression reproduced `chmodat Trash: operation not permitted` for ordinary
+and protected roots when Quantum owned an already group-writable Trash folder.
+The fix reuses shared-directory permission validation rather than requiring
+ownership to chmod every existing Trash directory.
+
+Focused MariaDB/API tests cover files and nested/empty folders on both configured
+sources: delete intent/retention, restore with matching contents, repeated delete,
+confirmation-required permanent deletion, and the persisted purge checkpoint.
+The isolated local FUSE and kernel CIFS fixtures create sources and Trash roots
+as Quantum, then run the production retention helper as the separate companion
+UID. They verify delete, restore and permanent deletion for files and folders,
+including retained contents and empty directories.
+
+After deployment, authenticated HTTPS checks exercised all six combinations of
+file/folder and VPS/ordinary Samba/protected Samba. Fixtures were created as
+Quantum UID 10001/GID 1000 and operated on by the actual companion API. All six
+passed delete, retained-byte verification, restore, repeated delete and purge.
+Only disposable fixtures were removed. The existing protected folder remained
+unlocked. These are server-path checks; they do not claim physical-device UI tests.

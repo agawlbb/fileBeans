@@ -425,3 +425,25 @@ error rather than producing a snapshot missing input data. After a restore that
 omits scratch, a publication intent with its visible input intact is re-encoded.
 Repeated interrupted pre-publication attempts stop after three recoveries with a
 resource diagnostic. Background scans do not recreate a user-deleted library.
+
+### Shared-user Trash permission repair — November 18, 2026
+
+Companion source `0ab86d790be34f72b9e796af0fc2b1196dc43a42` is deployed as
+`filebeans-companion:0ab86d7-vaults`. Trash preparation now accepts the shared
+0770 directory permissions used by the separate Quantum and companion users.
+It no longer fails by trying to chmod a Trash root owned by Quantum.
+
+The regression failed before the repair and passes on real local FUSE and CIFS.
+Focused API lifecycle tests and six deployed HTTPS file/folder cases across VPS,
+Samba and protected Samba passed, including restore and permanent deletion.
+See [the test record](../docs/TESTING.md#shared-user-deletion-regression--november-18-2026).
+
+The prepared archive SHA-256 is
+`8d04c7b14be6e51f264c16a4f1527b7c006ee995c28f6b1fe693a26a1b41441a`;
+image config digest is
+`sha256:9793b8098446a1813717dde07dc7278d43620de71df23190e90f0ed2d75ecfb7`.
+Rollback compose and image metadata are retained under
+`/opt/services/filebeans/deploy/trash-0ab86d7`.
+Only the companion was recreated; Quantum, the normalizer and the key-holding
+broker kept their process/container identities. No app build or schema migration
+was needed; existing TestFlight build 19 uses the repaired API.
