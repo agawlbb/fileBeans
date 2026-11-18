@@ -126,7 +126,9 @@ func TestVaultFilesystemIntegration(t *testing.T) {
 			d := &Context{User: user, Ctx: r.Context()}
 			var status int
 			var err error
-			if r.Method == "POST" {
+			if r.Method == "PATCH" {
+				status, err = ResourcePatchHandler(w, r, d)
+			} else if r.Method == "POST" {
 				status, err = ResourcePostHandler(w, r, d)
 			} else {
 				status, err = resourceGetHandler(w, r, d)
@@ -149,6 +151,14 @@ func TestVaultFilesystemIntegration(t *testing.T) {
 	upload := request("POST", "/api/resources?source=uploads&path=/Private/secret.txt", strings.NewReader("private text"), map[string]string{"X-File-Upload-Session": "vault-upload"})
 	if upload.Code >= 300 {
 		t.Fatalf("upload: %d %s", upload.Code, upload.Body.String())
+	}
+
+	conflict := request("PATCH", "/api/resources", strings.NewReader(`{"action":"move","items":[{"fromSource":"uploads","fromPath":"/Private/secret.txt","toSource":"uploads","toPath":"/export.txt"}]}`), nil)
+	if conflict.Code != http.StatusConflict {
+		t.Fatalf("boundary move must be conflict: %d %s", conflict.Code, conflict.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(root, "Private", "secret.txt")); err != nil {
+		t.Fatal("rejected move removed source", err)
 	}
 	if e := os.Mkdir(filepath.Join(root, "Private", "shared"), 0770); e != nil {
 		t.Fatal(e)
@@ -333,5 +343,13 @@ func TestVaultFilesystemIntegration(t *testing.T) {
 		return nil
 	}); e != nil {
 		t.Fatal(e)
+	}
+}
+
+func TestProtectedErrorsAreConflicts(t *testing.T) {
+	for _, err := range []error{protection.ErrBoundary, protection.ErrLocked, protection.ErrBusy, protection.ErrHidden} {
+		if got := ErrToStatus(fmt.Errorf("operation: %w", err)); got != http.StatusConflict {
+			t.Fatal(got, err)
+		}
 	}
 }

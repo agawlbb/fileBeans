@@ -294,3 +294,15 @@ func (ffs *filteredFileSystem) vaultMutation(from,to string)(*protection.Lease,e
 }
 '''
 path.write_text(text)
+
+# Protected boundary failures are actionable conflicts, including batch patches.
+edit("internal/web/http.go", "case err == nil:", "case vaultbridge.Conflict(err):\n\t\treturn http.StatusConflict\n\tcase err == nil:")
+edit("internal/web/resource.go", "\tresponse := MoveCopyResponse{", "\tprotectedConflict := false\n\tresponse := MoveCopyResponse{")
+edit("internal/web/resource.go", '\t\t\tlogger.Errorf("Could not run patch action.', '\t\t\tprotectedConflict = protectedConflict || vaultbridge.Conflict(err)\n\t\t\tlogger.Errorf("Could not run patch action.')
+edit("internal/web/resource.go", "// All operations failed - return 500 error\n\t\tstatusCode = http.StatusInternalServerError", "// All operations failed.\n\t\tstatusCode = http.StatusInternalServerError\n\t\tif protectedConflict { statusCode = http.StatusConflict }")
+
+edit("internal/web/resource.go", "func patchAction(ctx context.Context, params patchActionParams) error {", """func patchAction(ctx context.Context, params patchActionParams) error {
+    vaultLease,vaultErr := vaultbridge.Mutation(params.src,params.dst)
+    if vaultErr != nil {return vaultErr}
+    defer vaultLease.Close()
+""")

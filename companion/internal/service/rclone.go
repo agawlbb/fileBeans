@@ -149,6 +149,9 @@ func (s *Service) executeRclone(ctx context.Context, j *Job) error {
 				f.To = filepath.Base(f.From)
 				f.Directory = stat.IsDir()
 			}
+			if j.Request.DestinationName != "" {
+				f.To = j.Request.DestinationName
+			}
 			if !validName(f.To) || f.To == "Trash" || f.To == ".filebeans-stage" {
 				return ErrUnsafe
 			}
@@ -278,6 +281,12 @@ func (s *Service) runRclone(ctx context.Context, j *Job, f File, dst rootFS, sta
 		}
 	}
 	args := []string{"--config", config, "--cache-dir", private, "--temp-dir", private, "--use-json-log", "--stats", "1s", "--stats-log-level", "NOTICE", "--log-level", "INFO", "--fast-list"}
+	// CIFS can expose fixed ownership through FUSE. Group writers can write
+	// bytes but cannot set another UID's timestamps. Content verification remains
+	// authoritative; do not make protected transfers depend on chtimes.
+	if s.vaults.pathVault(j.Request.Destination.Source, j.Request.Destination.Path) != nil {
+		args = append(args, "--local-no-set-modtime")
+	}
 	// Copy into private staging. Rclone's ordinary copy semantics preserve
 	// existing staged files and never delete files that disappeared at source.
 	operation := "copy"

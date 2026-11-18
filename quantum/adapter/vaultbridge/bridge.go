@@ -262,3 +262,8 @@ func Start(ctx context.Context) error {
 	}()
 	return nil
 }
+
+// Conflict identifies protected-boundary failures without exposing paths.
+func Conflict(err error) bool {
+	return errors.Is(err, protection.ErrBoundary) || errors.Is(err, protection.ErrLocked) || errors.Is(err, protection.ErrBusy) || errors.Is(err, protection.ErrHidden)
+}

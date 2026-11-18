@@ -184,7 +184,7 @@ struct BrowserView: View {
             if let repository = model.repository, let parent {
                 NavigationStack {
                     SourceDestinationPicker(connection: connection,
-                                            mode: copying ? .copy : .localMove(parent.source),
+                                            mode: copying ? .copy : .localMove(connection.companionURL == nil ? parent.source : nil),
                                             excludedLocal: chosen, excludedDrive: []) { destination in
                         let items = chosen
                         let isCopy = copying

@@ -14,6 +14,22 @@ final class CatalogTests: XCTestCase {
     private func folder(_ name: String, _ path: String) -> RemoteFile {
         RemoteFile(name: name, path: path, type: "directory")
     }
+
+    func testCrossSourceMovePreservesIDsAndUpdatesDescendantProtection() throws {
+        let parent = try store.reconcile(connection: connection, parent: "old-root", source: "disk",
+            files: [folder("Before", "/Before")], permissions: permissions)[0]
+        let child = try store.reconcile(connection: connection, parent: parent.id, source: "disk",
+            files: [folder("Child", "/Before/Child")], permissions: permissions)[0]
+        try store.setVaults([ProtectedVault(id: "vault", source: "samba", state: "unlocked", initialized: true, path: "/Private")], connection: connection)
+        try store.relocate(parent, connection: connection, path: "/Private/After", parent: "new-root", source: "samba")
+        let items = try store.items(connection)
+        XCTAssertEqual(items[parent.id]?.source, "samba")
+        XCTAssertEqual(items[parent.id]?.parent, "new-root")
+        XCTAssertEqual(items[child.id]?.file.path, "/Private/After/Child")
+        XCTAssertEqual(items[child.id]?.source, "samba")
+        XCTAssertEqual(items[child.id]?.protection?.id, "vault")
+        XCTAssertEqual(items[child.id]?.parent, parent.id)
+    }
     func testProtectionChangesAdvanceAnchorWithoutRepeatedListingChurn() throws {
         let files = [folder("Private", "/Private")]
         let item = try store.reconcile(connection: connection, parent: "source", source: "disk", files: files, permissions: permissions)[0]

@@ -194,7 +194,7 @@ func (s *Service) runJob(ctx context.Context, j *Job) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var latest Job
-	if s.read(j.ID, "copy", &latest) == nil && latest.Cancel && e != nil {
+	if s.read(j.ID, "copy", &latest) == nil && latest.Cancel && e != nil && (j.Move == nil || !j.Move.Committed) {
 		e = errCancelled
 	}
 	if errors.Is(e, errCancelled) {
@@ -243,6 +243,9 @@ func (s *Service) runJob(ctx context.Context, j *Job) {
 	}
 }
 func (s *Service) execute(ctx context.Context, j *Job) error {
+	if j.Request.Operation == "move" {
+		return s.executeMove(ctx, j)
+	}
 	if j.Request.Destination.Source == "drive" {
 		return s.executeDrive(ctx, j)
 	}

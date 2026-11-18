@@ -69,6 +69,35 @@ final class CompanionTransportTests: XCTestCase {
         try store.updateScope(connection: connection.id, source: "samba", boundary: scope)
         return CompanionClient(connection: connection, credential: "synthetic-companion-token", configuration: config, store: store)
     }
+
+    func testMoveSubmissionPreservesOperationNameAndSourceScope() async throws {
+        CompanionStub.inspect = { request in
+            let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+            XCTAssertEqual(body["operation"] as? String, "move")
+            XCTAssertEqual(body["destinationName"] as? String, "renamed.mov")
+            let items = body["items"] as! [[String: Any]]
+            XCTAssertEqual(items[0]["path"] as? String, "/allowed/movie.mov")
+            return (202, Data(#"{"id":"move-1","state":"queued","total":0,"done":0,"speed":0,"current":""}"#.utf8))
+        }
+        let service = try client(scope: "/allowed"); defer { service.close() }
+        _ = try await service.submit(BackgroundCopy(items: [CopyLocation(source: "samba", path: "/movie.mov")],
+            destination: CopyLocation(source: "samba", path: "/Private"), operation: "move", destinationName: "renamed.mov"))
+    }
+    func testCopySubmissionKeepsLegacyPayload() async throws {
+        CompanionStub.inspect = { request in
+            let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+            XCTAssertNil(body["operation"]); XCTAssertNil(body["destinationName"])
+            return (202, Data(#"{"id":"copy-1","state":"queued","total":0,"done":0,"speed":0,"current":""}"#.utf8))
+        }
+        let service = try client(); defer { service.close() }
+        _ = try await service.submit(BackgroundCopy(items: [CopyLocation(source: "samba", path: "/movie.mov")],
+            destination: CopyLocation(source: "samba", path: "/Private")))
+    }
+    func testCommittedMoveDisablesCancellation() throws {
+        let job = try JSONDecoder().decode(CopyJob.self, from: Data(#"{"id":"move-1","state":"copying","total":1,"done":1,"speed":0,"current":"","canCancel":false,"request":{"operation":"move","items":[],"destination":{"source":"samba","path":"/Private"}}}"#.utf8))
+        XCTAssertEqual(job.canCancel, false)
+        XCTAssertEqual(job.title, "Server move")
+    }
     override func tearDown() { CompanionStub.inspect = nil; try? FileManager.default.removeItem(at: directory) }
     func testProtectedCreationPreservesIdempotencyAndSendsKeyOnlyInBody() async throws {
         CompanionStub.inspect = { request in

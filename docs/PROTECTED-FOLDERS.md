@@ -201,3 +201,24 @@ ordinary database filename leakage; permissions on the public root still apply.
 Protected content cannot use OnlyOffice or the normalizer. Existing plaintext
 sources/backups/history are not retroactively erased. These are experimental
 branch limits to assess before deciding whether to keep or merge it.
+
+### Moves across protected folders
+
+The app uses companion jobs for moves into, out of, or between protected folders.
+A single-file rename inside one folder continues to use Quantum's atomic move.
+Jobs accept optional `operation: "move"` and `destinationName`; existing copy
+requests remain compatible. The server advertises `protectedFolderMoves`.
+
+A move snapshots source identity, timestamps and SHA-256 contents, transfers into
+destination-local staging, publishes without overwrite, verifies and syncs the
+destination, then commits source removal. The original is renamed into private
+source-local staging before removal; it does not enter Trash. The journal is
+stored with the job's existing encrypted metadata when either endpoint is
+protected. Restart recovery handles publication, quarantine and partial cleanup.
+Cancellation is accepted before commit; committed cleanup resumes to completion.
+Changed sources or destinations produce a conflict and preserve remaining data.
+Vault roots and ancestors spanning vault boundaries remain restricted.
+
+Protected CIFS destinations skip timestamp assignment because shared group
+writers may lack ownership permission to set timestamps through FUSE. Move
+verification compares content rather than destination timestamps.

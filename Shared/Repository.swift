@@ -9,7 +9,7 @@ final class Repository {
     init(connection: Connection, store: SharedStore, token: String? = nil) throws {
         self.connection = connection; self.store = store
         client = QuantumClient(connection: connection, token: token)
-        companion = connection.companionURL == nil ? nil : CompanionClient(connection: connection)
+        companion = connection.companionURL == nil ? nil : CompanionClient(connection: connection, store: store)
     }
     deinit { client.close(); companion?.close() }
     func refreshProtection() async {
@@ -97,14 +97,33 @@ final class Repository {
         manager?.signalEnumerator(for: .workingSet) { _ in }
     }
     func move(_ item: StoredItem, to parent: StoredItem, name: String) async throws {
-        guard !item.isSource, item.source == parent.source, item.permissions.modify,
+        guard !item.isSource, (item.source == parent.source || companion != nil), item.permissions.modify,
               (item.parent == parent.id || parent.permissions.create) else { throw APIError.forbidden }
         let path = try FilePath.child(name, in: parent.file.path)
         if companion != nil && (CompanionClient.protected(item.file.path) || CompanionClient.protected(path)) { throw APIError.forbidden }
-        guard !item.file.isDirectory || !FilePath.contains(parent.file.path, in: item.file.path) else { throw APIError.invalidName }
-        if path == item.file.path { return }
-        try await client.move(source: item.source, from: item.file.path, to: path)
-        try store.relocate(item, connection: connection.id, path: path, parent: parent.id)
+        guard item.source != parent.source || !item.file.isDirectory || !FilePath.contains(parent.file.path, in: item.file.path) else { throw APIError.invalidName }
+        if item.source == parent.source && path == item.file.path { return }
+        var serverMove = false
+        if let companion {
+            try store.setVaults(await companion.vaults(), connection: connection.id)
+            try requireUnlocked(item); try requireUnlocked(parent)
+            let origin = try store.protection(for: item, connection: connection.id)
+            let target = try store.protection(for: parent, connection: connection.id)
+            guard origin?.isRoot != true else { throw APIError.forbidden }
+            serverMove = item.source != parent.source || origin?.id != target?.id
+            if serverMove {
+                let capabilities = try await companion.capabilities()
+                guard capabilities.features?.contains("protectedFolderMoves") == true else { throw APIError.incompatible }
+                let job = try await companion.submit(BackgroundCopy(
+                    items: [CopyLocation(source: item.source, path: item.file.path)],
+                    destination: CopyLocation(source: parent.source, path: parent.file.path),
+                    operation: "move", destinationName: name))
+                try await companion.waitForMove(job)
+            }
+        }
+        if !serverMove { try await client.move(source: item.source, from: item.file.path, to: path) }
+        try store.relocate(item, connection: connection.id, path: path, parent: parent.id, source: parent.source, permissions: parent.permissions)
+        if item.source != parent.source { _ = try await children(try self.item(item.parent)) }
         _ = try await children(parent)
         notify(item.parent); notify(parent.id)
     }

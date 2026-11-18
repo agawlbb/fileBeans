@@ -199,13 +199,17 @@ final class SharedStore {
             return result
         }
     }
-    func relocate(_ item: StoredItem, connection: UUID, path: String, parent: String) throws {
+    func relocate(_ item: StoredItem, connection: UUID, path: String, parent: String, source: String? = nil, permissions: Permissions? = nil) throws {
         try transaction { state in
             let key = connection.uuidString
             var items = state.items[key] ?? [:]
             for (id, var child) in items where child.source == item.source && FilePath.contains(child.file.path, in: item.file.path) {
                 let suffix = String(child.file.path.dropFirst(item.file.path.count))
                 child.file.path = path + suffix
+                child.source = source ?? item.source
+                child.permissions = permissions ?? child.permissions
+                child.protection = Self.protection(for: child, vaults: state.protectedFolders?[key] ?? [],
+                    scope: state.boundaries[key]?[child.source] ?? "/")
                 if id == item.id { child.parent = parent; child.file.name = (path as NSString).lastPathComponent }
                 items[id] = child
             }

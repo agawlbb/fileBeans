@@ -19,11 +19,14 @@ struct CopyLocation: Codable {
 struct BackgroundCopy: Encodable {
     let items: [CopyLocation]
     let destination: CopyLocation
+    var operation: String? = nil
+    var destinationName: String? = nil
 }
 struct CopyJob: Decodable, Identifiable {
     struct Request: Decodable {
         let items: [CopyLocation]
         let destination: CopyLocation
+        let operation: String?
     }
     let id: String
     let state: String
@@ -37,11 +40,12 @@ struct CopyJob: Decodable, Identifiable {
     let itemsDone: Int?
     let request: Request?
     let cancel: Bool?
+    let canCancel: Bool?
     var title: String {
         if let items = request?.items, !items.isEmpty {
             return items.map { $0.name ?? ($0.path as NSString).lastPathComponent }.joined(separator: ", ")
         }
-        return current.isEmpty ? "Server copy" : current.replacingOccurrences(of: "publish:", with: "Finishing ")
+        return current.isEmpty ? (request?.operation == "move" ? "Server move" : "Server copy") : current.replacingOccurrences(of: "publish:", with: "Finishing ")
     }
     var active: Bool { !["completed", "cancelled", "failed"].contains(state) }
 }
@@ -140,11 +144,11 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
         let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
         let canonical = BackgroundCopy(items: try copy.items.map(sourceLocation).sorted {
             $0.source == $1.source ? $0.path < $1.path : $0.source < $1.source
-        }, destination: try sourceLocation(copy.destination))
+        }, destination: try sourceLocation(copy.destination), operation: copy.operation, destinationName: copy.destinationName)
         let body = try encoder.encode(canonical)
         let identity = Data((connection.id.uuidString + (connection.companionURL?.absoluteString ?? "")).utf8) + body
         let hash = SHA256.hash(data: identity).map { String(format: "%02x", $0) }.joined()
-        let directory = try AppConfiguration.directory.appendingPathComponent("copy-submissions", isDirectory: true)
+        let directory = try (store?.directory ?? AppConfiguration.directory).appendingPathComponent("copy-submissions", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let pending = directory.appendingPathComponent(hash + ".key")
         // A retry after a lost response or app restart uses the same request key.
@@ -161,6 +165,17 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
                 try? FileManager.default.removeItem(at: pending)
             }
             throw error
+        }
+    }
+    func waitForMove(_ submitted: CopyJob) async throws {
+        var job = submitted
+        while job.active {
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+            job = try JSONDecoder().decode(CopyJob.self, from: await request("jobs/\(job.id)"))
+        }
+        guard job.state == "completed" else {
+            throw NSError(domain: "fileBeans.Companion", code: 409,
+                          userInfo: [NSLocalizedDescriptionKey: job.error.flatMap { $0.isEmpty ? nil : $0 } ?? "Move failed"])
         }
     }
     func jobs() async throws -> [CopyJob] { try JSONDecoder().decode([CopyJob].self, from: await request("jobs")) }

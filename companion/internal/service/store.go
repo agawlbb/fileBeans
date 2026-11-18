@@ -19,8 +19,10 @@ type Item struct {
 	Name   string `json:"name,omitempty"`
 }
 type CopyRequest struct {
-	Items       []Item `json:"items"`
-	Destination Item   `json:"destination"`
+	Operation       string `json:"operation,omitempty"`
+	DestinationName string `json:"destinationName,omitempty"`
+	Items           []Item `json:"items"`
+	Destination     Item   `json:"destination"`
 }
 type File struct {
 	DriveID   string `json:"driveId,omitempty"`
@@ -39,6 +41,8 @@ type File struct {
 	Attempted bool   `json:"attempted,omitempty"`
 }
 type Job struct {
+	Move         *MoveState  `json:"move,omitempty"`
+	CanCancel    *bool       `json:"canCancel,omitempty"`
 	RclonePlan   []File      `json:"rclonePlan,omitempty"`
 	Engine       string      `json:"engine,omitempty"`
 	ID           string      `json:"id"`

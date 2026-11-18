@@ -10,7 +10,7 @@ enum BrowserDestination: Identifiable {
 }
 enum DestinationMode {
     case copy
-    case localMove(String)
+    case localMove(String?)
     case driveMove
     var copying: Bool { if case .copy = self { return true }; return false }
     var allowsLocal: Bool { if case .driveMove = self { return false }; return true }
@@ -100,7 +100,7 @@ struct SourceDestinationPicker: View {
     }
     private func allowedLocal(_ item: StoredItem) -> Bool {
         guard item.file.isDirectory else { return false }
-        if case .localMove(let source) = mode, item.source != source { return false }
+        if case .localMove(let source) = mode, let source, item.source != source { return false }
         if connection.companionURL != nil && CompanionClient.protected(item.file.path) { return false }
         return !excludedLocal.contains { selected in
             selected.source == item.source && selected.file.isDirectory && FilePath.contains(item.file.path, in: selected.file.path)

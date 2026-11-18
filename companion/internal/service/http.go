@@ -74,7 +74,7 @@ func (s *Service) Handler() http.Handler {
 			roots = append(roots, map[string]string{"source": root.Name, "trash": "/Trash"})
 		}
 		g, e := s.google()
-		features := []string{"driveWrite", "driveDestinations", "driveUploads", "driveThumbnails", "driveMedia", "normalization"}
+		features := []string{"protectedFolderMoves", "driveWrite", "driveDestinations", "driveUploads", "driveThumbnails", "driveMedia", "normalization"}
 		if s.vaults != nil && s.vaults.remote != nil && s.vaults.remote.ready() {
 			features = append(features, "protectedFoldersCreate")
 		}
@@ -83,6 +83,10 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/jobs", func(w http.ResponseWriter, r *http.Request) {
 		var req CopyRequest
 		if e := body(r, &req); e != nil {
+			fail(w, e)
+			return
+		}
+		if e := validateMoveRequest(req); e != nil {
 			fail(w, e)
 			return
 		}
@@ -236,6 +240,10 @@ func (s *Service) Handler() http.Handler {
 			reply(w, 200, publicJob(j))
 			return
 		}
+		if j.Move != nil && j.Move.Committed {
+			fail(w, ErrConflict)
+			return
+		}
 		j.Cancel = true
 		// A job that has never started has no staged data to clean up. Do not
 		// make its cancellation wait behind a running transfer.
@@ -268,7 +276,7 @@ func (s *Service) Handler() http.Handler {
 			fail(w, e)
 			return
 		}
-		if j.State != "failed" || len(j.Published) != 0 {
+		if j.State != "failed" || (len(j.Published) != 0 && j.Move == nil) {
 			fail(w, ErrConflict)
 			return
 		}
@@ -516,4 +524,14 @@ func hasDrive(r CopyRequest) bool {
 	return false
 }
 
-func publicJob(j Job) Job { j.Manifest = nil; j.RclonePlan = nil; j.RemoteStage = ""; return j }
+func publicJob(j Job) Job {
+	if j.Move != nil {
+		allowed := !j.Move.Committed
+		j.CanCancel = &allowed
+	}
+	j.Move = nil
+	j.Manifest = nil
+	j.RclonePlan = nil
+	j.RemoteStage = ""
+	return j
+}

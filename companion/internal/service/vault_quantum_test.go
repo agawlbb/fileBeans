@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"filebeans/companion/protection"
+	"fmt"
 	"golang.org/x/sys/unix"
 	"io"
 	"net"
@@ -250,13 +251,51 @@ func TestVaultSharedWriterHelper(t *testing.T) {
 	if st.Mode().Perm()&0770 == 0770 && e != nil {
 		t.Fatal("worker rejected the CIFS sharing mask", e)
 	}
-	copyCommand := exec.Command("/test-tools/rclone", "--config", "/dev/null", "copyto",
+	copyCommand := exec.Command("/test-tools/rclone", "--config", "/dev/null", "--local-no-set-modtime", "copyto",
 		filepath.Join(path, "Private/secret.txt"), filepath.Join(path, "Private/shared/rclone-copy.txt"))
 	if output, err := copyCommand.CombinedOutput(); err != nil {
 		t.Fatal("separate-UID protected rclone transfer", err, string(output))
 	}
 	if data, err := r.ReadFile("Private/shared/rclone-copy.txt"); err != nil || string(data) != "private text" {
 		t.Fatal("protected rclone transfer content", err)
+	}
+
+	// Exercise the same verified source-removal primitive on real FUSE and CIFS,
+	// in both directions, while all fixture data and keys remain disposable.
+	for i, pair := range [][2]string{{"move-in", "Private/shared/move-in"}, {"Private/shared/move-out", "move-out"}} {
+		from, to := pair[0], pair[1]
+		if e = r.WriteFile(from, []byte("move payload"), 0660); e != nil {
+			t.Fatal(e)
+		}
+		entries, err := snapshotMove(context.Background(), r, from)
+		if err != nil {
+			t.Fatal(err)
+		}
+		command := exec.Command("/test-tools/rclone", "--config", "/dev/null", "--local-no-set-modtime", "copyto", filepath.Join(path, from), filepath.Join(path, to))
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatal(err, string(output))
+		}
+		if err = syncMoveTree(r, to, entries); err != nil {
+			t.Fatal(err)
+		}
+		prefix := ".filebeans-stage"
+		if strings.HasPrefix(from, "Private/") {
+			prefix = "Private/.filebeans-stage"
+		}
+		m := MoveSelection{Path: from, To: filepath.Base(to), Quarantine: filepath.Join(prefix, fmt.Sprintf("move-fixture-%d", i)), Entries: entries}
+		persisted := 0
+		if err = finishMoveSource(context.Background(), r, r, filepath.Dir(to), &m, func() error { persisted++; return nil }); err != nil {
+			t.Fatal(err)
+		}
+		if !m.Removed || persisted != 2 {
+			t.Fatal("move did not commit cleanup")
+		}
+		if _, err = r.Stat(from); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("source retained", err)
+		}
+		if data, err := r.ReadFile(to); err != nil || string(data) != "move payload" {
+			t.Fatal("destination damaged", err)
+		}
 	}
 	if e = r.WriteFile("Private/shared/transfer.txt", []byte("shared writer"), 0660); e != nil {
 		t.Fatal(e)

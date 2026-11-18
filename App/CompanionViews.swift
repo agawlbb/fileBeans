@@ -9,7 +9,7 @@ struct TransferList: View {
     var body: some View {
         List {
             if let error { Text(error).foregroundStyle(.red) }
-            if jobs.isEmpty { Text("No copy jobs") }
+            if jobs.isEmpty { Text("No transfers") }
             ForEach(jobs) { job in
                 VStack(alignment: .leading, spacing: 6) {
                     Text(job.title).lineLimit(2)
@@ -29,7 +29,7 @@ struct TransferList: View {
                     if let detail = job.error, !detail.isEmpty { Text(detail).foregroundStyle(.red).font(.caption) }
                     if job.active {
                         Button(pendingActions.contains(job.id) || job.cancel == true ? "Cancelling…" : "Cancel", role: .destructive) { action("jobs/\(job.id)/cancel", id: job.id) }
-                            .disabled(pendingActions.contains(job.id) || job.cancel == true)
+                            .disabled(pendingActions.contains(job.id) || job.cancel == true || job.canCancel == false)
                     }
                     if job.state == "failed" { Button("Retry") { action("jobs/\(job.id)/retry", id: job.id) }.disabled(pendingActions.contains(job.id)) }
                 }
