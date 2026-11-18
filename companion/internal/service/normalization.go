@@ -20,6 +20,7 @@ import (
 const normalizationProfile = "ipad-hevc18-v1"
 
 type NormalizationConfig struct {
+	Sequential    bool   `json:"sequential,omitempty"`
 	Enabled       bool   `json:"enabled"`
 	Source        string `json:"source"`
 	Path          string `json:"path"`
@@ -58,33 +59,34 @@ type NormalizationRequest struct {
 	RelativePath string `json:"relativePath,omitempty"`
 }
 type NormalizationJob struct {
-	Recoveries    int                  `json:"recoveries,omitempty"`
-	LibrarySource string               `json:"librarySource"`
-	LibraryPath   string               `json:"libraryPath"`
-	ID            string               `json:"id"`
-	Request       NormalizationRequest `json:"request"`
-	State         string               `json:"state"`
-	Phase         string               `json:"phase"`
-	Profile       string               `json:"profile"`
-	Batch         string               `json:"batch,omitempty"`
-	Connection    string               `json:"connection,omitempty"`
-	SourceVersion string               `json:"sourceVersion,omitempty"`
-	SourceSize    int64                `json:"sourceSize"`
-	ExpectedSHA   string               `json:"expectedSHA,omitempty"`
-	ExpectedMD5   string               `json:"expectedMD5,omitempty"`
-	SourceHash    string               `json:"sourceHash,omitempty"`
-	OutputHash    string               `json:"outputHash,omitempty"`
-	OutputPath    string               `json:"outputPath,omitempty"`
-	OutputVersion string               `json:"outputVersion,omitempty"`
-	OutputSize    int64                `json:"outputSize"`
-	RawMoved      bool                 `json:"rawMoved,omitempty"`
-	Published     bool                 `json:"published,omitempty"`
-	Done          int64                `json:"done"`
-	Total         int64                `json:"total"`
-	Error         string               `json:"error,omitempty"`
-	Next          int64                `json:"next,omitempty"`
-	Attempts      int                  `json:"attempts,omitempty"`
-	Created       int64                `json:"created"`
+	IsolatedWorkspace bool                 `json:"isolatedWorkspace,omitempty"`
+	Recoveries        int                  `json:"recoveries,omitempty"`
+	LibrarySource     string               `json:"librarySource"`
+	LibraryPath       string               `json:"libraryPath"`
+	ID                string               `json:"id"`
+	Request           NormalizationRequest `json:"request"`
+	State             string               `json:"state"`
+	Phase             string               `json:"phase"`
+	Profile           string               `json:"profile"`
+	Batch             string               `json:"batch,omitempty"`
+	Connection        string               `json:"connection,omitempty"`
+	SourceVersion     string               `json:"sourceVersion,omitempty"`
+	SourceSize        int64                `json:"sourceSize"`
+	ExpectedSHA       string               `json:"expectedSHA,omitempty"`
+	ExpectedMD5       string               `json:"expectedMD5,omitempty"`
+	SourceHash        string               `json:"sourceHash,omitempty"`
+	OutputHash        string               `json:"outputHash,omitempty"`
+	OutputPath        string               `json:"outputPath,omitempty"`
+	OutputVersion     string               `json:"outputVersion,omitempty"`
+	OutputSize        int64                `json:"outputSize"`
+	RawMoved          bool                 `json:"rawMoved,omitempty"`
+	Published         bool                 `json:"published,omitempty"`
+	Done              int64                `json:"done"`
+	Total             int64                `json:"total"`
+	Error             string               `json:"error,omitempty"`
+	Next              int64                `json:"next,omitempty"`
+	Attempts          int                  `json:"attempts,omitempty"`
+	Created           int64                `json:"created"`
 }
 type NormalizationBatch struct {
 	ID         string               `json:"id"`
@@ -231,6 +233,7 @@ func (s *Service) normalizationJobs() ([]NormalizationJob, error) {
 	return out, nil
 }
 func publicNormalization(j NormalizationJob) NormalizationJob {
+	j.IsolatedWorkspace = false
 	j.Connection = ""
 	j.ExpectedSHA = ""
 	j.ExpectedMD5 = ""
@@ -241,7 +244,7 @@ func publicNormalization(j NormalizationJob) NormalizationJob {
 func (s *Service) normalizationRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/normalization/status", func(w http.ResponseWriter, r *http.Request) {
 		c := s.config.Normalization.defaults()
-		reply(w, 200, map[string]any{"enabled": c.Enabled, "source": c.Source, "path": "/" + c.Path, "profile": normalizationProfile, "driveFolder": c.DriveFolder, "sequential": true})
+		reply(w, 200, map[string]any{"enabled": c.Enabled, "source": c.Source, "path": "/" + c.Path, "profile": normalizationProfile, "driveFolder": c.DriveFolder, "sequential": c.Sequential})
 	})
 	mux.HandleFunc("GET /v1/normalization/jobs", func(w http.ResponseWriter, r *http.Request) {
 		jobs, e := s.normalizationJobs()
