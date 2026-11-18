@@ -10,6 +10,14 @@ import (
 	"strings"
 )
 
+// Private filesystem operations retain the same shared-group directory modes
+// as ordinary guarded roots, including parents recreated during restore.
+type sharedTrashRoot struct{ *os.Root }
+
+func (r *sharedTrashRoot) MkdirAll(path string, mode os.FileMode) error {
+	return r.Root.MkdirAll(path, (mode|0070)&^0007)
+}
+
 type trashAccess struct {
 	files, bin rootFS
 	original   string
@@ -101,7 +109,7 @@ func (s *Service) accessTrash(t Trash) (*trashAccess, error) {
 		release()
 		return nil, e
 	}
-	return &trashAccess{files: files, bin: bin, original: original, close: func() { files.Close(); bin.Close(); release() }}, nil
+	return &trashAccess{files: &sharedTrashRoot{files}, bin: &sharedTrashRoot{bin}, original: original, close: func() { files.Close(); bin.Close(); release() }}, nil
 }
 func retainTrashAccess(a *trashAccess, t Trash) error {
 	if e := mkdir(a.bin, trashDirectory(t)); e != nil {

@@ -118,6 +118,27 @@ func testPrivateTrash(t *testing.T, s *Service) {
 		})
 	}
 
+	t.Run("restore-recreates-shared-parent", func(t *testing.T) {
+		write("files/gone-parent/content")
+		entry, e := s.trash(Item{Source: "samba", Path: "files/gone-parent/content"}, ID())
+		if e != nil {
+			t.Fatal(e)
+		}
+		ids = append(ids, entry.ID)
+		if e = os.Remove(filepath.Join(base, "files", "gone-parent")); e != nil {
+			t.Fatal(e)
+		}
+		if e = s.restore(entry.ID); e != nil {
+			t.Fatal(e)
+		}
+		info, e := os.Stat(filepath.Join(base, "files", "gone-parent"))
+		if e != nil {
+			t.Fatal(e)
+		}
+		if info.Mode().Perm()&0070 != 0070 {
+			t.Fatal("restored parent inaccessible to shared server group", info.Mode())
+		}
+	})
 	t.Run("empty-failed-trash-folders-cleaned-with-original-retained", func(t *testing.T) {
 		id := ID()
 		entry := Trash{ID: id, Source: "samba", Original: "files/failed-original", Name: "failed-original", State: "failed", Storage: filepath.Join("files", "Trash", id)}
