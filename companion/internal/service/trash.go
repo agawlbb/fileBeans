@@ -46,22 +46,7 @@ func (s *Service) trash(item Item, key string) (Trash, error) {
 	if e = s.insert(t.ID, "trash", t.State, key, t); e != nil {
 		return t, e
 	}
-	if e = mkdir(r, trashDirectory(t)); e != nil {
-		return t, e
-	}
-	if e = r.Chmod(filepath.Dir(trashDirectory(t)), 0750); e != nil {
-		return t, e
-	}
-	if e = r.Chmod(trashDirectory(t), 0750); e != nil {
-		return t, e
-	}
-	if e = renameExclusive(r, p, trashPath(t)); e != nil {
-		return t, e
-	}
-	if e = syncDir(r, filepath.Dir(p)); e != nil {
-		return t, e
-	}
-	if e = syncDir(r, filepath.Dir(trashPath(t))); e != nil {
+	if e = retainTrashFile(r, t); e != nil {
 		return t, e
 	}
 	t.State = "retained"
@@ -188,4 +173,28 @@ func (s *Service) reconcileTrash() {
 			_ = s.purge(&t)
 		}
 	}
+}
+
+// retainTrashFile is the filesystem half of the journaled delete operation.
+// The caller persists intent first and retention only after durable publication.
+func retainTrashFile(r rootFS, t Trash) error {
+	if e := mkdir(r, trashDirectory(t)); e != nil {
+		return e
+	}
+	if e := accessibleDirectory(r, filepath.Dir(trashDirectory(t))); e != nil {
+		return e
+	}
+	if e := accessibleDirectory(r, trashDirectory(t)); e != nil {
+		return e
+	}
+	if e := renameExclusive(r, t.Original, trashPath(t)); e != nil {
+		return e
+	}
+	if e := syncDir(r, filepath.Dir(t.Original)); e != nil {
+		return e
+	}
+	if e := syncDir(r, filepath.Dir(trashPath(t))); e != nil {
+		return e
+	}
+	return nil
 }

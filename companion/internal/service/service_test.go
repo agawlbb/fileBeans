@@ -348,6 +348,7 @@ func TestDatabaseWorkflow(t *testing.T) {
 			t.Fatal(j.State)
 		}
 	})
+	t.Run("trash-api-files-and-folders", func(t *testing.T) { testTrashAPI(t, s) })
 	t.Run("trash-restore-retention", func(t *testing.T) {
 		os.WriteFile(filepath.Join(vps, "original"), []byte("original"), 0600)
 		item, e := s.trash(Item{Source: "vps", Path: "/original"}, "trash-test-key-0001")

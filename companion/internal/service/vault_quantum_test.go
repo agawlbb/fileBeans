@@ -251,6 +251,54 @@ func TestVaultSharedWriterHelper(t *testing.T) {
 	if st.Mode().Perm()&0770 == 0770 && e != nil {
 		t.Fatal("worker rejected the CIFS sharing mask", e)
 	}
+
+	for _, prefix := range []string{"", "Private"} {
+		for _, kind := range []string{"file", "folder"} {
+			t.Run("delete-restore-purge-"+prefix+"-"+kind, func(t *testing.T) {
+				original := filepath.Join(prefix, "shared-delete-"+kind)
+				suffix := ""
+				if kind == "folder" {
+					suffix = "payload"
+				}
+				verify := func(base string) {
+					t.Helper()
+					if data, err := r.ReadFile(filepath.Join(base, suffix)); err != nil || string(data) != "delete payload" {
+						t.Fatal("contents damaged", err)
+					}
+					if kind == "folder" {
+						if st, err := r.Stat(filepath.Join(base, "empty")); err != nil || !st.IsDir() {
+							t.Fatal("empty folder lost", err)
+						}
+					}
+				}
+				verify(original)
+				entry := Trash{ID: ID(), Original: original, Name: filepath.Base(original), Storage: filepath.Join(prefix, "Trash", ID())}
+				if err := retainTrashFile(r, entry); err != nil {
+					t.Fatal("delete through shared Trash", err)
+				}
+				if _, err := r.Stat(original); !errors.Is(err, os.ErrNotExist) {
+					t.Fatal("delete left original", err)
+				}
+				verify(trashPath(entry))
+				if err := renameExclusive(r, trashPath(entry), original); err != nil {
+					t.Fatal("restore", err)
+				}
+				verify(original)
+				if err := r.RemoveAll(trashDirectory(entry)); err != nil {
+					t.Fatal(err)
+				}
+				if err := retainTrashFile(r, entry); err != nil {
+					t.Fatal("repeat delete", err)
+				}
+				if err := r.RemoveAll(trashDirectory(entry)); err != nil {
+					t.Fatal("permanent deletion", err)
+				}
+				if _, err := r.Stat(trashPath(entry)); !errors.Is(err, os.ErrNotExist) {
+					t.Fatal("purge retained file", err)
+				}
+			})
+		}
+	}
 	copyCommand := exec.Command("/test-tools/rclone", "--config", "/dev/null", "--local-no-set-modtime", "copyto",
 		filepath.Join(path, "Private/secret.txt"), filepath.Join(path, "Private/shared/rclone-copy.txt"))
 	if output, err := copyCommand.CombinedOutput(); err != nil {
