@@ -32,13 +32,19 @@ type BrokerConfig struct {
 }
 
 type brokerEntry struct {
-	Initialized bool   `json:"initialized,omitempty"`
-	ID          string `json:"id"`
-	Source      string `json:"source"`
-	Path        string `json:"path"`
-	RequestHash string `json:"requestHash"`
-	Device      uint64 `json:"device"`
-	Inode       uint64 `json:"inode"`
+	Trashed       int64    `json:"trashed,omitempty"`
+	OriginalPath  string   `json:"originalPath,omitempty"`
+	PreviousPaths []string `json:"previousPaths,omitempty"`
+	NextPath      string   `json:"nextPath,omitempty"`
+	NextTrashed   int64    `json:"nextTrashed,omitempty"`
+	Purging       bool     `json:"purging,omitempty"`
+	Initialized   bool     `json:"initialized,omitempty"`
+	ID            string   `json:"id"`
+	Source        string   `json:"source"`
+	Path          string   `json:"path"`
+	RequestHash   string   `json:"requestHash"`
+	Device        uint64   `json:"device"`
+	Inode         uint64   `json:"inode"`
 }
 
 type brokerRegistry struct {
@@ -47,14 +53,17 @@ type brokerRegistry struct {
 }
 
 type BrokerVault struct {
-	Device      uint64 `json:"device,omitempty"`
-	Inode       uint64 `json:"inode,omitempty"`
-	ID          string `json:"id"`
-	Source      string `json:"source"`
-	Path        string `json:"path"`
-	Name        string `json:"name"`
-	State       string `json:"state"`
-	Initialized bool   `json:"initialized"`
+	Trashed       int64    `json:"trashed,omitempty"`
+	OriginalPath  string   `json:"originalPath,omitempty"`
+	PreviousPaths []string `json:"previousPaths,omitempty"`
+	Device        uint64   `json:"device,omitempty"`
+	Inode         uint64   `json:"inode,omitempty"`
+	ID            string   `json:"id"`
+	Source        string   `json:"source"`
+	Path          string   `json:"path"`
+	Name          string   `json:"name"`
+	State         string   `json:"state"`
+	Initialized   bool     `json:"initialized"`
 }
 
 type brokerSnapshot struct {
@@ -182,6 +191,9 @@ func newMountBrokerWithChecks(c BrokerConfig, lockedCheck func(brokerEntry) bool
 	} else if !errors.Is(e, os.ErrNotExist) {
 		return nil, e
 	}
+	if e = b.recoverPublicChanges(); e != nil {
+		return nil, e
+	}
 	ids, requests := map[string]bool{}, map[string]bool{}
 	for i, entry := range b.registry.Entries {
 		if !validBrokerID(entry.ID) || ids[entry.ID] || requests[entry.RequestHash] || len(entry.RequestHash) != 64 {
@@ -191,8 +203,27 @@ func newMountBrokerWithChecks(c BrokerConfig, lockedCheck func(brokerEntry) bool
 		if _, e = hex.DecodeString(entry.RequestHash); e != nil {
 			return nil, ErrUnsafe
 		}
-		if e = b.validateLocation(entry.Source, entry.Path, b.registry.Entries[:i]); e != nil {
+		location := entry.Path
+		if entry.Trashed > 0 {
+			if location != "/"+brokerStore+"/"+entry.ID+".public" {
+				return nil, ErrUnsafe
+			}
+			location = entry.OriginalPath
+		}
+		previous := b.registry.Entries[:i]
+		if entry.Trashed > 0 {
+			previous = nil
+		}
+		if e = b.validateLocation(entry.Source, location, previous); e != nil {
 			return nil, e
+		}
+		if entry.Trashed > 0 {
+			v := b.vaultConfig(entry)
+			if mounted(v.Mount, "") {
+				return nil, ErrVaultBusy
+			}
+			b.manager.states = append(b.manager.states, &vaultState{config: v})
+			continue
 		}
 		if mounted(b.publicPath(entry), "filebeans-locked-"+entry.ID) {
 			if e = b.unmountFiles(b.publicPath(entry)); e != nil {
@@ -292,7 +323,7 @@ func (b *mountBroker) validateLocation(source, path string, entries []brokerEntr
 		return e
 	}
 	for _, v := range entries {
-		if v.Source == source && (within(path, v.Path) || within(v.Path, path)) {
+		if v.Trashed == 0 && v.Source == source && (within(path, v.Path) || within(v.Path, path)) {
 			return ErrConflict
 		}
 	}
@@ -381,7 +412,10 @@ func (b *mountBroker) statuses() []BrokerVault {
 	defer b.manager.mu.Unlock()
 	out := make([]BrokerVault, 0, len(b.registry.Entries))
 	for _, e := range b.registry.Entries {
-		v := BrokerVault{ID: e.ID, Source: e.Source, Path: e.Path, Name: filepath.Base(e.Path), State: "locked", Initialized: e.Initialized, Device: e.Device, Inode: e.Inode}
+		v := BrokerVault{Trashed: e.Trashed, OriginalPath: e.OriginalPath, PreviousPaths: e.PreviousPaths, ID: e.ID, Source: e.Source, Path: e.Path, Name: filepath.Base(e.Path), State: "locked", Initialized: e.Initialized, Device: e.Device, Inode: e.Inode}
+		if e.Trashed > 0 {
+			v.Name = filepath.Base(e.OriginalPath)
+		}
 		r, err := b.configuredRoot(e.Source)
 		if err != nil || r.Mount != "" && !mounted(r.Mount, r.MountSource) {
 			v.State = "error"
@@ -398,7 +432,7 @@ func (b *mountBroker) statuses() []BrokerVault {
 			}
 		}
 		publicMounted := mounted(b.publicPath(e), "filebeans-vault-"+e.ID)
-		if v.State == "unlocked" && !publicMounted || v.State == "locked" && !b.isLockedMount(e) {
+		if e.Trashed == 0 && (v.State == "unlocked" && !publicMounted || v.State == "locked" && !b.isLockedMount(e)) {
 			v.State = "error"
 		}
 		out = append(out, v)
@@ -407,7 +441,14 @@ func (b *mountBroker) statuses() []BrokerVault {
 }
 
 func (b *mountBroker) publish() error {
-	return brokerAtomicJSON(filepath.Join(b.config.Runtime, "status.json"), brokerSnapshot{brokerProtocol, b.statuses()}, 0640, b.config.GID)
+	vaults := b.statuses()
+	active := vaults[:0]
+	for _, v := range vaults {
+		if v.Trashed == 0 {
+			active = append(active, v)
+		}
+	}
+	return brokerAtomicJSON(filepath.Join(b.config.Runtime, "status.json"), brokerSnapshot{brokerProtocol, active}, 0640, b.config.GID)
 }
 
 // Every cooperating reader holds a shared lock for its entire filesystem
@@ -620,7 +661,7 @@ func (b *mountBroker) open(entry brokerEntry, key []byte) error {
 		return ErrUnsafe
 	}
 	if v.unlocked {
-		if mounted(b.publicPath(entry), "filebeans-vault-"+entry.ID) {
+		if entry.Trashed > 0 || mounted(b.publicPath(entry), "filebeans-vault-"+entry.ID) {
 			return nil
 		}
 		return errVault
@@ -631,7 +672,7 @@ func (b *mountBroker) open(entry brokerEntry, key []byte) error {
 		}
 	}
 	defer func() {
-		if !mounted(b.publicPath(entry), "filebeans-vault-"+entry.ID) {
+		if entry.Trashed == 0 && !mounted(b.publicPath(entry), "filebeans-vault-"+entry.ID) {
 			_ = b.installLockedMount(entry)
 		}
 	}()
@@ -710,9 +751,11 @@ func (b *mountBroker) open(entry brokerEntry, key []byte) error {
 			return e
 		}
 	}
-	if e = b.mountFiles(filepath.Join(v.config.Mount, "files"), brokerFD(public)); e != nil {
-		rollback()
-		return fmt.Errorf("%w: public bind: %v", errVault, e)
+	if entry.Trashed == 0 {
+		if e = b.mountFiles(filepath.Join(v.config.Mount, "files"), brokerFD(public)); e != nil {
+			rollback()
+			return fmt.Errorf("%w: public bind: %v", errVault, e)
+		}
 	}
 	if e = b.publish(); e != nil {
 		_ = b.unmountFiles(b.publicPath(entry))
@@ -740,9 +783,11 @@ func (b *mountBroker) lock(entry brokerEntry) error {
 		_ = b.publish()
 		return e
 	}
-	if e := b.installLockedMount(entry); e != nil {
-		_ = b.publish()
-		return e
+	if entry.Trashed == 0 {
+		if e := b.installLockedMount(entry); e != nil {
+			_ = b.publish()
+			return e
+		}
 	}
 	return b.publish()
 }

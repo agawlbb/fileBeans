@@ -35,8 +35,7 @@ final class VaultKeySession: ObservableObject {
         busy = true; defer { busy = false }
         do {
             guard !hasKey else { throw VaultRecoveryCode.failure("A key is already stored.") }
-            let value = try make()
-            _ = try VaultRecoveryCode.decode(value)
+            let value = try VaultRecoveryCode.encode(VaultRecoveryCode.decode(make()))
             defaults.set(true, forKey: Self.pendingBackup)
             try await saveKey(value)
             hasKey = true; code = try VaultRecoveryCode.encode(VaultRecoveryCode.decode(value))
@@ -54,7 +53,7 @@ final class VaultKeySession: ObservableObject {
     }
     func copy() {
         guard !code.isEmpty else { return }
-        UIPasteboard.general.setItems([[UIPasteboard.typeAutomatic: code]], options: [.localOnly: true])
+        UIPasteboard.general.setItems([[UIPasteboard.typeAutomatic: code]], options: [:])
         copied = true
     }
     func hide() { code = ""; copied = false }
@@ -85,6 +84,9 @@ struct VaultKeyControls: View {
                 Button("Generate key") { Task { await session.generate() } }
                 TextField("Recovery code", text: $session.importCode, axis: .vertical)
                     .textInputAutocapitalization(.never).autocorrectionDisabled().privacySensitive()
+                PasteButton(payloadType: String.self) { values in
+                    if let value = values.first { session.importCode = value }
+                }
                 Button("Import key") { Task { await session.importKey() } }.disabled(session.importCode.isEmpty)
             }
             if !session.code.isEmpty {

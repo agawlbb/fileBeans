@@ -29,14 +29,15 @@ var ErrHidden = errors.New("private storage is inaccessible")
 var ErrBusy = errors.New("protected folders are changing state")
 
 type Vault struct {
-	Device      uint64 `json:"device,omitempty"`
-	Inode       uint64 `json:"inode,omitempty"`
-	ID          string `json:"id"`
-	Source      string `json:"source"`
-	Path        string `json:"path"`
-	Name        string `json:"name"`
-	State       string `json:"state"`
-	Initialized bool   `json:"initialized"`
+	PreviousPaths []string `json:"previousPaths,omitempty"`
+	Device        uint64   `json:"device,omitempty"`
+	Inode         uint64   `json:"inode,omitempty"`
+	ID            string   `json:"id"`
+	Source        string   `json:"source"`
+	Path          string   `json:"path"`
+	Name          string   `json:"name"`
+	State         string   `json:"state"`
+	Initialized   bool     `json:"initialized"`
 }
 
 type Snapshot struct {

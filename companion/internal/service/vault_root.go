@@ -118,6 +118,13 @@ func (r *guardedRoot) mutation(from, to string) error {
 	}
 	return protectionError(r.lease.Mutation(a, b))
 }
+func (r *guardedRoot) readTree(name string) error {
+	path, err := r.path(name)
+	if err != nil {
+		return err
+	}
+	return protectionError(r.lease.Check(path, true))
+}
 func (r *guardedRoot) tree(name string) error {
 	return r.mutation(name, "")
 }

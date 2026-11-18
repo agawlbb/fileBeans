@@ -41,6 +41,21 @@ final class VaultSessionTests: XCTestCase {
         XCTAssertFalse(defaults.dictionaryRepresentation().values.contains { ($0 as? String) == original })
     }
 
+
+    func testImportStoresTheSameCanonicalKeyAfterCrossDevicePaste() async throws {
+        let canonical = try VaultRecoveryCode.encode(Data(repeating: 0xAB, count: 32))
+        var saved: String?
+        let session = VaultKeySession(defaults: defaults, containsKey: { false },
+            saveKey: { saved = $0 }, readKey: { canonical }, removeKey: {})
+        session.importCode = canonical.uppercased().replacingOccurrences(of: ":", with: ":\n")
+        await session.importKey()
+        XCTAssertNil(session.error)
+        XCTAssertTrue(session.hasKey)
+        XCTAssertEqual(saved, canonical)
+        XCTAssertEqual(session.code, canonical)
+        XCTAssertTrue(session.importCode.isEmpty)
+    }
+
     func testFailedSecureStorageNeverDisplaysGeneratedKey() async {
         let session = VaultKeySession(defaults: defaults, containsKey: { false }, saveKey: { _ in
             throw CancellationError()

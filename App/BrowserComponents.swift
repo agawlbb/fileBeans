@@ -107,12 +107,10 @@ struct BrowserSelectionControls: View {
     var selectAll: (() -> Void)? = nil
     var body: some View {
         HStack {
-            if let selectAll { Button("Select All", systemImage: "checkmark.circle", action: selectAll) }
             Button("Copy", systemImage: "doc.on.doc", action: copy).disabled(!canCopy)
             Button("Move", systemImage: "folder", action: move).disabled(!canMove)
             Button("Delete", systemImage: "trash", role: .destructive, action: delete).disabled(!canDelete)
-            Button("Done", action: done).labelStyle(.titleOnly)
-        }.labelStyle(.iconOnly)
+        }.labelStyle(.titleAndIcon).frame(maxWidth: .infinity)
     }
 }
 struct SourceTrashBar<Destination: View>: View {
@@ -120,7 +118,7 @@ struct SourceTrashBar<Destination: View>: View {
     var body: some View {
         NavigationLink { destination } label: {
             HStack { Label("Trash", systemImage: "trash"); Spacer(); Image(systemName: "chevron.right").font(.caption) }
-                .padding()
+                .padding().frame(maxWidth: .infinity).contentShape(Rectangle())
         }.buttonStyle(.plain).background(.regularMaterial)
     }
 }

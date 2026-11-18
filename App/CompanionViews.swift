@@ -65,6 +65,7 @@ struct TrashList: View {
     let connection: Connection
     let source: String
     @State private var entries: [TrashEntry] = []
+    @State private var loaded = false
     @State private var error: String?
     @State private var permanent: TrashEntry?
     @State private var emptying = false
@@ -74,7 +75,8 @@ struct TrashList: View {
     var body: some View {
         List {
             if let error { Text(error).foregroundStyle(.red) }
-            if visible.isEmpty { Text("Trash is empty") }
+            if !loaded && error == nil { ProgressView() }
+            else if visible.isEmpty && error == nil { Text("Trash is empty") }
             ForEach(visible) { entry in
                 VStack(alignment: .leading, spacing: 5) {
                     Label(entry.name, systemImage: "trash")
@@ -116,7 +118,7 @@ struct TrashList: View {
     }
     private func refresh() async {
         let client = CompanionClient(connection: connection); defer { client.close() }
-        do { entries = try await client.trashEntries(); error = nil } catch { self.error = error.localizedDescription }
+        do { entries = try await client.trashEntries(source: source); loaded = true; error = nil } catch { self.error = error.localizedDescription }
     }
     private func refreshKeepingError() async { let previous = error; await refresh(); if let previous { error = previous } }
     private func action(_ route: String, permanent: Bool = false) {

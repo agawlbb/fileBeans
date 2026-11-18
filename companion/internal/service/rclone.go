@@ -133,7 +133,7 @@ func (s *Service) executeRclone(ctx context.Context, j *Job) error {
 				}
 				err = safe(root, f.From)
 				if guarded, ok := root.(*guardedRoot); err == nil && ok {
-					err = guarded.tree(f.From)
+					err = guarded.readTree(f.From)
 				}
 				var stat fs.FileInfo
 				if err == nil {
@@ -322,7 +322,7 @@ func (s *Service) runRclone(ctx context.Context, j *Job, f File, dst rootFS, sta
 		}
 		err = safe(root, f.From)
 		if guarded, ok := root.(*guardedRoot); err == nil && ok {
-			err = guarded.tree(f.From)
+			err = guarded.readTree(f.From)
 		}
 		var handle *os.File
 		if err == nil {

@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -57,7 +58,7 @@ func TestBrokerReservationIsDurableAndIdempotent(t *testing.T) {
 		t.Fatal(e)
 	}
 	retry, e := b.reserve("disk", "/", "Private", "synthetic-request-one")
-	if e != nil || retry != entry {
+	if e != nil || !reflect.DeepEqual(retry, entry) {
 		t.Fatal("retry changed reservation", e)
 	}
 	if _, e = b.reserve("disk", "/", "Other", "synthetic-request-one"); !errors.Is(e, ErrConflict) {
@@ -80,7 +81,7 @@ func TestBrokerReservationIsDurableAndIdempotent(t *testing.T) {
 	}
 	defer reopened.close()
 	retry, e = reopened.reserve("disk", "/", "Private", "synthetic-request-one")
-	if e != nil || retry != entry {
+	if e != nil || !reflect.DeepEqual(retry, entry) {
 		t.Fatal("restart lost reservation", e)
 	}
 	status := reopened.statuses()

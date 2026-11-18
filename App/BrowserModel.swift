@@ -72,6 +72,21 @@ final class BrowserModel: ObservableObject {
         guard let repository else { return }
         guard !values.isEmpty else { error = APIError.missing.localizedDescription; return }
         let connection = repository.connection
+        if values.contains(where: { $0.protection?.isRoot == true }) {
+            for item in values {
+                if item.protection?.isRoot != true { await transfer([item], to: destination, copying: copying); continue }
+                let ids = FileActivity.shared.begin([ActivityFile(source:item.source,path:item.file.path,name:item.file.name,folder:true)],
+                    connection:connection.id,operation:copying ? "copy" : "move",
+                    destination: { if case .local(let parent) = destination { return CopyLocation(source:parent.source,path:parent.file.path) }; return nil }())
+                do {
+                    if let job = try await transferProtectedFolder(item,to:destination,copying:copying) {
+                        FileActivity.shared.attach(job,ids:ids,connection:connection.id)
+                    } else { FileActivity.shared.finish(ids) }
+                    if !copying { items.removeAll { $0.id == item.id } }
+                } catch { FileActivity.shared.finish(ids); self.error = error.localizedDescription }
+            }
+            return
+        }
         let target: CopyLocation
         switch destination {
         case .local(let parent): target = CopyLocation(source: parent.source, path: parent.file.path)
@@ -132,6 +147,51 @@ final class BrowserModel: ObservableObject {
             activity.finish([ids[index]])
         }
         if !failures.isEmpty { error = failures.joined(separator: "\n") }
+    }
+
+    private func transferProtectedFolder(_ item: StoredItem, to destination: BrowserDestination, copying: Bool) async throws -> CopyJob? {
+        guard let repository, let companion = repository.companion else { throw APIError.forbidden }
+        try repository.requireUnlocked(item)
+        if !copying, case .local(let parent) = destination, parent.source == item.source,
+            repository.protectedItem(parent).protection == nil {
+            try await repository.move(item,to:parent,name:item.file.name)
+            return nil
+        }
+        let job: CopyJob?
+        switch destination {
+        case .drive(let parent):
+            guard copying else { throw APIError.forbidden }
+            job = try await companion.submit(BackgroundCopy(items:[CopyLocation(source:item.source,path:item.file.path)],
+                destination:CopyLocation(source:"drive",path:parent.id,name:parent.name)))
+        case .local(let parent):
+            guard parent.permissions.create,
+                item.source != parent.source || !FilePath.contains(parent.file.path,in:item.file.path) else { throw APIError.forbidden }
+            if repository.protectedItem(parent).protection != nil {
+                job = try await companion.submit(BackgroundCopy(items:[CopyLocation(source:item.source,path:item.file.path)],
+                    destination:CopyLocation(source:parent.source,path:parent.file.path)))
+            } else {
+                let children = try await repository.children(item)
+                let code = try await VaultKeySession.shared.authorizedCode()
+                let canonical = try companion.sourceLocation(CopyLocation(source:parent.source,path:parent.file.path))
+                let created = try await companion.createProtectedFolder(source:parent.source,parent:canonical.path,
+                    name:item.file.name,code:code,requestID:UUID().uuidString)
+                try repository.store.setVaults(await companion.vaults(),connection:repository.connection.id)
+                if children.isEmpty { job = nil }
+                else {
+                    // The API expects scope-relative inputs; submit canonicalizes them.
+                    let path = try FilePath.child(item.file.name,in:parent.file.path)
+                    job = try await companion.submit(BackgroundCopy(items:children.map { CopyLocation(source:$0.source,path:$0.file.path) },
+                        destination:CopyLocation(source:parent.source,path:path)))
+                }
+                _ = created
+            }
+        }
+        if !copying {
+            if let job { try await companion.waitForMove(job) }
+            try await companion.trash(item)
+            return nil
+        }
+        return job
     }
     func enqueue(urls: [URL], parent: StoredItem, scoped: Bool = true) {
         do {

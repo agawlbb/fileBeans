@@ -31,6 +31,7 @@ var ErrVaultKey = errors.New("encryption key does not match")
 var errVault = errors.New("vault operation failed; check protected-folder setup")
 
 type VaultConfig struct {
+	PreviousPaths   []string `json:"previousPaths,omitempty"`
 	cipherDirectory *os.File // pinned by the broker; never serialized or caller supplied
 	forceOwner      string   // broker-generated mapping for non-Unix remote filesystems
 	Path            string   `json:"path,omitempty"`
@@ -78,12 +79,15 @@ func (m *vaultManager) isMounted(v VaultConfig) bool {
 }
 
 type VaultStatus struct {
-	ID          string `json:"id"`
-	Source      string `json:"source"`
-	State       string `json:"state"`
-	Initialized bool   `json:"initialized"`
-	Path        string `json:"path,omitempty"`
-	Name        string `json:"name,omitempty"`
+	Trashed       int64    `json:"trashed,omitempty"`
+	OriginalPath  string   `json:"originalPath,omitempty"`
+	PreviousPaths []string `json:"previousPaths,omitempty"`
+	ID            string   `json:"id"`
+	Source        string   `json:"source"`
+	State         string   `json:"state"`
+	Initialized   bool     `json:"initialized"`
+	Path          string   `json:"path,omitempty"`
+	Name          string   `json:"name,omitempty"`
 }
 
 func validateVaults(c Config) error {
@@ -657,6 +661,7 @@ func (m *vaultManager) close() {
 }
 
 func (s *Service) vaultRoutes(mux *http.ServeMux) {
+	s.vaultFolderRoutes(mux)
 	mux.HandleFunc("GET /v1/vaults", func(w http.ResponseWriter, r *http.Request) {
 		if s.vaults != nil && s.vaults.remote != nil {
 			statuses, e := s.vaults.remote.statuses()

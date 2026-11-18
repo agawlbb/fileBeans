@@ -117,7 +117,14 @@ final class Repository {
             try requireUnlocked(item); try requireUnlocked(parent)
             let origin = try store.protection(for: item, connection: connection.id)
             let target = try store.protection(for: parent, connection: connection.id)
-            guard origin?.isRoot != true else { throw APIError.forbidden }
+            if origin?.isRoot == true {
+                guard item.source == parent.source, target == nil else { throw APIError.forbidden }
+                try await companion.relocateProtectedFolder(protectedItem(item), parent: parent, name: name)
+                try store.relocate(item, connection: connection.id, path: path, parent: parent.id, source: parent.source, permissions: parent.permissions)
+                await refreshProtection()
+                notify(item.parent); notify(parent.id)
+                return
+            }
             serverMove = item.source != parent.source || origin?.id != target?.id
             if serverMove {
                 let capabilities = try await companion.capabilities()

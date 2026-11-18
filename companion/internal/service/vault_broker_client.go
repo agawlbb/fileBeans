@@ -156,7 +156,7 @@ func (m *vaultManager) configs() []VaultConfig {
 		for _, s := range statuses {
 			for _, r := range m.remote.roots {
 				if r.Name == s.Source {
-					out = append(out, VaultConfig{ID: s.ID, Source: s.Source, Path: s.Path,
+					out = append(out, VaultConfig{PreviousPaths: s.PreviousPaths, ID: s.ID, Source: s.Source, Path: s.Path,
 						Mount: filepath.Join(m.remote.runtime, "mounts", s.ID), Cipher: filepath.Join(r.Path, brokerStore, s.ID)})
 				}
 			}

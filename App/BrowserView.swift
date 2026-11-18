@@ -259,6 +259,18 @@ struct BrowserView: View {
             }
     }
     @ToolbarContentBuilder private var browserToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .bottomBar) {
+            if selecting {
+                BrowserSelectionControls(
+                        canCopy: !model.busy && !chosen.isEmpty && !chosen.contains { $0.isSource || !$0.permissions.download || protected($0) || pending($0) },
+                        canMove: !chosen.isEmpty && !chosen.contains { $0.isSource || !$0.permissions.modify || pending($0) },
+                        canDelete: !chosen.isEmpty && !chosen.contains { $0.isSource || !$0.permissions.delete || pending($0) },
+                        copy: { copying = true; moving = true }, move: { copying = false; moving = true },
+                        delete: { deleting = true }, done: { selecting = false; selected.removeAll() },
+                        selectAll: { selected = Set(visible.filter { !$0.isSource && !protected($0) && !pending($0) }.map(\.id)) })
+            }
+        }
+
             if connection.companionURL != nil && parent != nil {
                 ToolbarItem(placement: .topBarLeading) {
                     NavigationLink { TransferList(connection: connection) } label: { Label("Transfers", systemImage: "arrow.left.arrow.right") }
@@ -266,13 +278,8 @@ struct BrowserView: View {
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 if selecting {
-                    BrowserSelectionControls(
-                        canCopy: !model.busy && !chosen.isEmpty && !chosen.contains { $0.isSource || !$0.permissions.download || protected($0) || pending($0) },
-                        canMove: !chosen.isEmpty && !chosen.contains { $0.isSource || !$0.permissions.modify || pending($0) },
-                        canDelete: !chosen.isEmpty && !chosen.contains { $0.isSource || !$0.permissions.delete || pending($0) },
-                        copy: { copying = true; moving = true }, move: { copying = false; moving = true },
-                        delete: { deleting = true }, done: { selecting = false; selected.removeAll() },
-                        selectAll: { selected = Set(visible.filter { !$0.isSource && !protected($0) && !pending($0) }.map(\.id)) })
+                Button("Select All") { selected = Set(visible.filter { !$0.isSource && !pending($0) }.map(\.id)) }
+                Button("Done") { selecting = false; selected.removeAll() }
                 } else {
                     BrowserViewOptions(grid: $grid, sortOrder: $sortOrder, select: { selecting = true }, refresh: { Task { await reload() } })
                     if let parent, parent.permissions.create, model.parentProtection?.unlocked != false {
@@ -345,7 +352,7 @@ struct BrowserView: View {
         }
     }
     private func protected(_ item: StoredItem) -> Bool {
-        item.protection?.isRoot == true || connection.companionURL != nil && CompanionClient.protected(item.file.path)
+        connection.companionURL != nil && CompanionClient.protected(item.file.path)
     }
     private func reloadPreservingError() async { let error = model.error; await reload(); if let error { model.error = error } }
     private func reload() async { await model.load(connection: connection, parent: parent) }

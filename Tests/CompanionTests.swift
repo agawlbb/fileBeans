@@ -71,6 +71,19 @@ final class CompanionTransportTests: XCTestCase {
     }
 
 
+    func testSambaTrashUsesSourceQueryAndDecodesRetainedItems() async throws {
+        CompanionStub.inspect = { request in
+            XCTAssertEqual(request.url?.path, "/companion/v1/trash")
+            XCTAssertEqual(URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "source" })?.value, "Samba")
+            return (200, Data(#"[{"id":"retained","source":"Samba","original":"Folder/video.mp4","name":"video.mp4","deleted":1800000000,"expires":1800864000,"state":"retained","vault":"opaque"}]"#.utf8))
+        }
+        let service = try client(); defer { service.close() }
+        let entries = try await service.trashEntries(source: "Samba")
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries.first?.name, "video.mp4")
+        XCTAssertEqual(entries.first?.state, "retained")
+    }
+
     func testMultipleMovesUseOneSubmissionWithEverySelectedFile() async throws {
         var submissions = 0
         CompanionStub.inspect = { request in

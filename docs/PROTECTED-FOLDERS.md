@@ -21,8 +21,10 @@ on a device of your choice. Import that exact code on each new mobile device.
 Generated keys are saved to biometric Keychain before display. A pending-backup
 flag survives process termination; the same key can be displayed again after
 biometric authentication. Backup acknowledgment is required before using the key
-to initialize a folder. The Copy to Clipboard button uses a local-only clipboard
-item without an expiration. App switching retains the displayed code and setup
+to initialize a folder. Copy to Clipboard supports Universal Clipboard for transfer to another Apple
+device. Import accepts whitespace, invisible paste separators, and hexadecimal
+letter-case changes, then verifies the original key checksum and stores the
+canonical recovery code. Truncated codes and extra text remain invalid. App switching retains the displayed code and setup
 state; an opaque overlay covers the code while the app is inactive. Hide clears
 the displayed copy explicitly. Each unlock still authenticates through Keychain,
 including when a code is already displayed.

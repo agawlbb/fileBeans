@@ -88,6 +88,16 @@ func (s *Service) accessTrash(t Trash) (*trashAccess, error) {
 				public = filepath.Join(root.Path, t.Original)
 			}
 		}
+		for _, old := range config.PreviousPaths {
+			if within(t.Original, strings.TrimPrefix(old, "/")) {
+				relative := strings.TrimPrefix(strings.TrimPrefix(t.Original, strings.TrimPrefix(old, "/")), "/")
+				for _, root := range s.config.Roots {
+					if root.Name == t.Source {
+						public = filepath.Join(root.Path, config.Path, relative)
+					}
+				}
+			}
+		}
 		if e = lease.Check(public, false); e != nil {
 			lease.Close()
 			return nil, protectionError(e)
@@ -106,6 +116,13 @@ func (s *Service) accessTrash(t Trash) (*trashAccess, error) {
 		return nil, e
 	}
 	prefix := strings.TrimPrefix(config.Path, "/")
+	for _, old := range config.PreviousPaths {
+		candidate := strings.TrimPrefix(old, "/")
+		if within(original, candidate) && !within(original, prefix) {
+			prefix = candidate
+			break
+		}
+	}
 	if !within(original, prefix) || original == prefix {
 		release()
 		return nil, ErrUnsafe

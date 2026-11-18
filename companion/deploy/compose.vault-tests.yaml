@@ -25,7 +25,7 @@ services:
       PATH: /test-tools:/usr/bin:/bin
     entrypoint: [/test-tools/service.test]
     command:
-      - -test.run=^(TestGocryptfsIndependentRecovery|TestBrokerRealFilesystemLifecycle|TestBrokerIdleRealFilesystem|TestBrokerIdleRealSMBFilesystem|TestBrokerQuantumIntegration|TestBrokerQuantumSMBIntegration)$
+      - -test.run=^(TestGocryptfsIndependentRecovery|TestBrokerRealFilesystemLifecycle|TestBrokerFolderLifecycle|TestBrokerFolderSMBLifecycle|TestBrokerIdleRealFilesystem|TestBrokerIdleRealSMBFilesystem|TestBrokerQuantumIntegration|TestBrokerQuantumSMBIntegration)$
       - -test.v
       - -test.timeout=90s
     cpus: 1

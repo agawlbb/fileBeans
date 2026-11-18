@@ -202,10 +202,7 @@ struct DriveBrowser: View {
         }
     }
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            if connection.companionURL != nil { NavigationLink { TransferList(connection: connection) } label: { Label("Transfers", systemImage: "arrow.left.arrow.right") } }
-        }
-        ToolbarItemGroup(placement: .topBarTrailing) {
+        ToolbarItemGroup(placement: .bottomBar) {
             if selecting {
                 BrowserSelectionControls(canCopy: !chosen.isEmpty && !chosen.contains(where: pending) && chosen.allSatisfy(\.canCopy),
                                          canMove: model.writable && !chosen.isEmpty && !chosen.contains(where: pending) && chosen.allSatisfy(\.canMove),
@@ -215,6 +212,16 @@ struct DriveBrowser: View {
                                          delete: { deleting = true }, done: { selecting = false; selected.removeAll() },
                                          selectAll: { selected = Set(visible.filter { !pending($0) && $0.sourceRoot != true }.map(\.id)) })
                     .disabled(model.busy)
+            }
+        }
+
+        ToolbarItem(placement: .topBarLeading) {
+            if connection.companionURL != nil { NavigationLink { TransferList(connection: connection) } label: { Label("Transfers", systemImage: "arrow.left.arrow.right") } }
+        }
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            if selecting {
+                Button("Select All") { selected = Set(visible.filter { !pending($0) }.map(\.id)) }
+                Button("Done") { selecting = false; selected.removeAll() }
             } else {
                 BrowserViewOptions(grid: $grid, sortOrder: $sortOrder, select: { selecting = true }, refresh: { Task { await reload(refreshLoaded: true) } })
                 if model.writable && model.current?.capabilities?.canAddChildren == true {

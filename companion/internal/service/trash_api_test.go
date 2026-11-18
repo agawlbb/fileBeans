@@ -57,6 +57,32 @@ func testTrashAPI(t *testing.T, s *Service) {
 				if entry.State != "retained" {
 					t.Fatal(entry.State)
 				}
+				for _, filter := range []string{source, "different-source"} {
+					request := httptest.NewRequest("GET", "/v1/trash?source="+filter, nil)
+					request.Header.Set("Authorization", "Bearer "+s.config.Token)
+					response := httptest.NewRecorder()
+					s.Handler().ServeHTTP(response, request)
+					if response.Code != 200 {
+						t.Fatal("trash listing", response.Code, response.Body.String())
+					}
+					var listed []Trash
+					if err := json.Unmarshal(response.Body.Bytes(), &listed); err != nil {
+						t.Fatal(err)
+					}
+					found := false
+					for _, item := range listed {
+						if item.Source != filter {
+							t.Fatal("wrong source in trash")
+						}
+						if item.ID == entry.ID {
+							found = true
+						}
+					}
+					if found != (filter == source) {
+						t.Fatal("retained deletion not listed for its source")
+					}
+				}
+
 				if _, e = root.Stat(path); !errors.Is(e, os.ErrNotExist) {
 					t.Fatal("original still visible", e)
 				}

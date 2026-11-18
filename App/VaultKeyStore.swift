@@ -18,13 +18,21 @@ enum VaultRecoveryCode {
         return prefix + ":" + checksum
     }
     static func decode(_ code: String) throws -> Data {
-        let parts = code.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: ":", omittingEmptySubsequences: false)
-        guard parts.count == 3, parts[0] == "FBK1", parts[1].count == 64, parts[2].count == 8 else {
+        // Text selections and cross-device paste can introduce wrapping or
+        // invisible separators. Normalize formatting only, never key content.
+        let invisible: Set<UInt32> = [0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF]
+        let cleaned = String(String.UnicodeScalarView(code.unicodeScalars.filter {
+            !CharacterSet.whitespacesAndNewlines.contains($0) && !invisible.contains($0.value)
+        }))
+        let parts = cleaned.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 3, parts[0].uppercased() == "FBK1", parts[1].utf8.count == 64, parts[2].utf8.count == 8 else {
             throw failure("Invalid recovery code. Paste the complete FBK1 code.")
         }
-        let characters = Array(parts[1].utf8)
+        let keyHex = parts[1].lowercased()
+        let checksum = parts[2].lowercased()
+        let characters = Array(keyHex.utf8)
         guard characters.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else {
-            throw failure("The key must contain lowercase hexadecimal characters.")
+            throw failure("Invalid encryption key.")
         }
         var data = Data()
         for offset in stride(from: 0, to: characters.count, by: 2) {
@@ -33,7 +41,7 @@ enum VaultRecoveryCode {
             }
             data.append(byte)
         }
-        guard try encode(data) == code.trimmingCharacters(in: .whitespacesAndNewlines) else {
+        guard try encode(data) == "FBK1:" + keyHex + ":" + checksum else {
             throw failure("Recovery code checksum does not match. Check your saved copy.")
         }
         return data

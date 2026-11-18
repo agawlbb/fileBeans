@@ -112,7 +112,11 @@ func (b *mountBroker) pollIdleVaults(watches map[string]*vaultIdleWatch, now tim
 		}
 		err := w.drain(now)
 		if err == nil && w.dirty {
-			err = w.scan(b.publicPath(entry))
+			watchPath := b.publicPath(entry)
+			if entry.Trashed > 0 {
+				watchPath = filepath.Join(b.vaultConfig(entry).Mount, "files")
+			}
+			err = w.scan(watchPath)
 		}
 		if err == nil {
 			_ = w.drain(now)

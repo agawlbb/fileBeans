@@ -8,6 +8,27 @@ final class VaultTests: XCTestCase {
         XCTAssertEqual(String(code.split(separator: ":")[1]), String(repeating: "42", count: 32))
         XCTAssertEqual(try VaultRecoveryCode.decode("\n" + code + "\n"), key)
     }
+
+    func testRecoveryCodeSurvivesCrossDeviceTextFormatting() throws {
+        let key = Data((0..<32).map { UInt8($0 * 7) })
+        let code = try VaultRecoveryCode.encode(key)
+        let split = code.index(code.startIndex, offsetBy: 37)
+        let wrapped = String(code[..<split]) + "\r\n" + String(code[split...])
+        for pasted in [code.uppercased(), wrapped, "\u{FEFF}" + code + "\u{200B}",
+                       code.replacingOccurrences(of: ":", with: " :\n"),
+                       code.replacingOccurrences(of: ":", with: ":\u{2060}"),
+                       "\u{00A0}" + code + "\u{00A0}"] {
+            XCTAssertEqual(try VaultRecoveryCode.decode(pasted), key)
+            XCTAssertEqual(try VaultRecoveryCode.encode(VaultRecoveryCode.decode(pasted)), code)
+        }
+    }
+    func testRecoveryCodeRejectsPartialSelectionsAndExtraText() throws {
+        let code = try VaultRecoveryCode.encode(Data(repeating: 0x42, count: 32))
+        for pasted in [String(code.split(separator: ":")[1]), "Recovery code: " + code,
+                       "\"" + code + "\"", String(code.dropLast(8)), code + ":extra"] {
+            XCTAssertThrowsError(try VaultRecoveryCode.decode(pasted))
+        }
+    }
     func testRecoveryCodeRejectsCorruptionAndUnsupportedVersions() throws {
         let code = try VaultRecoveryCode.encode(Data(repeating: 0x42, count: 32))
         for invalid in ["", code + "x", code.replacingOccurrences(of: "FBK1", with: "FBK2"),

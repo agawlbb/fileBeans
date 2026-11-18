@@ -99,7 +99,7 @@ func (s *Service) discover(ctx context.Context, j *Job) error {
 			}
 			er = safe(root, from)
 			if guarded, ok := root.(*guardedRoot); er == nil && ok {
-				er = guarded.tree(from)
+				er = guarded.readTree(from)
 			}
 			if er == nil {
 				er = fs.WalkDir(root.FS(), from, func(path string, d fs.DirEntry, walkErr error) error {

@@ -184,13 +184,15 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
         let location = try sourceLocation(CopyLocation(source: item.source, path: item.file.path))
         _ = try await request("trash", method: "POST", body: JSONEncoder().encode(location), key: UUID().uuidString)
     }
-    private func sourceLocation(_ location: CopyLocation) throws -> CopyLocation {
+    func sourceLocation(_ location: CopyLocation) throws -> CopyLocation {
         guard location.source != "drive", location.source != "upload" else { return location }
         let scope = try (store ?? SharedStore()).sourceScope(connection.id, source: location.source)
         return CopyLocation(source: location.source,
                             path: try FilePath.inSource(location.path, scope: scope), name: location.name)
     }
-    func trashEntries() async throws -> [TrashEntry] { try JSONDecoder().decode([TrashEntry].self, from: await request("trash")) }
+    func trashEntries(source: String? = nil) async throws -> [TrashEntry] {
+        try JSONDecoder().decode([TrashEntry].self, from: await request("trash", query: source.map { ["source": $0] } ?? [:]))
+    }
     static func protected(_ path: String) -> Bool {
         FilePath.contains(path, in: "/Trash") || FilePath.contains(path, in: "/.filebeans-stage")
     }

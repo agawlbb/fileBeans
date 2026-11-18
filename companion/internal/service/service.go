@@ -134,6 +134,13 @@ func (s *Service) maintenance(ctx context.Context) {
 			}
 		}
 		s.reconcileTrash()
+		if s.vaults != nil && s.vaults.remote != nil {
+			for _, v := range s.vaults.status() {
+				if v.Trashed > 0 && v.Trashed+10*24*3600 <= time.Now().Unix() {
+					_ = s.vaults.remote.folderAction(v.ID, "purge", "")
+				}
+			}
+		}
 		s.mu.Unlock()
 		s.vaultGate.RUnlock()
 		wait(ctx, time.Hour)

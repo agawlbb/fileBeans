@@ -1,10 +1,12 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -17,6 +19,18 @@ func trashDirectory(t Trash) string {
 func trashPath(t Trash) string { return filepath.Join(trashDirectory(t), t.Name) }
 func (s *Service) trash(item Item, key string) (Trash, error) {
 	var t Trash
+	if s.vaults != nil && s.vaults.remote != nil {
+		for _, v := range s.vaults.status() {
+			if v.Source == item.Source && v.Trashed == 0 && filepath.Clean(v.Path) == filepath.Clean("/"+strings.TrimPrefix(item.Path, "/")) {
+				if err := s.vaults.remote.folderAction(v.ID, "trash", ""); err != nil {
+					return t, err
+				}
+				v.Trashed = time.Now().Unix()
+				v.OriginalPath = v.Path
+				return vaultTrash(v), nil
+			}
+		}
+	}
 	p, e := clean(item.Path)
 	if e != nil || p == "." || p == "" || protected(p) {
 		return t, ErrUnsafe
@@ -59,6 +73,9 @@ func (s *Service) trash(item Item, key string) (Trash, error) {
 	return t, e
 }
 func (s *Service) restore(id string) error {
+	if strings.HasPrefix(id, "vault-") && s.vaults != nil && s.vaults.remote != nil {
+		return s.vaults.remote.folderAction(strings.TrimPrefix(id, "vault-"), "restore", "")
+	}
 	var t Trash
 	if e := s.read(id, "trash", &t); e != nil {
 		return e
@@ -107,6 +124,9 @@ func (s *Service) restore(id string) error {
 	return a.bin.RemoveAll(trashDirectory(t))
 }
 func (s *Service) purge(t *Trash) error {
+	if strings.HasPrefix(t.ID, "vault-") && s.vaults != nil && s.vaults.remote != nil {
+		return s.vaults.remote.folderAction(strings.TrimPrefix(t.ID, "vault-"), "purge", "")
+	}
 	if e := s.migrateProtectedTrash(t); e != nil {
 		return e
 	}
@@ -228,4 +248,40 @@ func retainTrashFile(r rootFS, t Trash) error {
 		return e
 	}
 	return nil
+}
+
+// Listing is a read operation. Filesystem recovery/expiration runs in
+// maintenance rather than blocking every mobile poll on remote storage.
+func (s *Service) retainedTrash(source string) ([][]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	query := "SELECT id,body FROM fb_operations WHERE kind='trash' AND state IN ('retained','purging') ORDER BY updated_at DESC"
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out [][]byte
+	for rows.Next() {
+		var id string
+		var data []byte
+		if err = rows.Scan(&id, &data); err != nil {
+			return nil, err
+		}
+		data, err = s.decodeRecord(id, "trash", data)
+		if errors.Is(err, ErrVaultLocked) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		var entry Trash
+		if err = json.Unmarshal(data, &entry); err != nil {
+			return nil, err
+		}
+		if source == "" || entry.Source == source {
+			out = append(out, data)
+		}
+	}
+	return out, rows.Err()
 }

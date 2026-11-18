@@ -5,11 +5,12 @@ struct ProtectedVault: Codable, Identifiable, Hashable {
     let source: String
     var state: String
     let initialized: Bool
+    var trashed: Int64? = nil
     var path: String? = nil
     var name: String? = nil
     var displayName: String { name ?? path.map { ($0 as NSString).lastPathComponent } ?? source }
     func contains(source: String, path: String) -> Bool {
-        self.source == source && FilePath.contains(path, in: self.path ?? "/")
+        (trashed ?? 0) == 0 && self.source == source && FilePath.contains(path, in: self.path ?? "/")
     }
 }
 
@@ -23,6 +24,11 @@ struct FolderProtection: Codable, Hashable {
 }
 
 extension CompanionClient {
+    func relocateProtectedFolder(_ item: StoredItem, parent: StoredItem, name: String) async throws {
+        guard let protection = item.protection, protection.isRoot else { throw APIError.forbidden }
+        let destination = try sourceLocation(CopyLocation(source: parent.source, path: FilePath.child(name, in: parent.file.path)))
+        _ = try await request("vaults/\(protection.id)/relocate", method: "POST", body: JSONEncoder().encode(["path": destination.path]))
+    }
     func vaults() async throws -> [ProtectedVault] {
         try JSONDecoder().decode([ProtectedVault].self, from: await request("vaults"))
     }

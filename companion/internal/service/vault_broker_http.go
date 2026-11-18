@@ -138,6 +138,7 @@ func (b *mountBroker) handler() http.Handler {
 		}
 		fail(w, errVault)
 	})
+	b.folderRoutes(mux)
 	for _, action := range []string{"unlock", "lock"} {
 		mux.HandleFunc("POST /v1/vaults/{id}/"+action, func(w http.ResponseWriter, r *http.Request) {
 			var entry *brokerEntry

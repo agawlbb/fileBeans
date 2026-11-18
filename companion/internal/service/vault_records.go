@@ -57,6 +57,10 @@ func (s *Service) recordSources(b []byte) ([]string, error) {
 				if s.vaults.remote != nil {
 					label = "vault:" + v.ID
 				}
+				if id, ok := x["vault"].(string); ok && id == v.ID {
+					labels[label] = true
+				}
+
 				if v.Path == "" {
 					labels[label] = true
 					continue

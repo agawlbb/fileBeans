@@ -350,13 +350,19 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/trash", func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		s.reconcileTrash()
-		records, e := s.records("trash")
+		records, e := s.retainedTrash(r.URL.Query().Get("source"))
 		if e != nil {
 			fail(w, e)
 			return
 		}
 		out := []Trash{}
+		if s.vaults != nil && s.vaults.remote != nil {
+			for _, v := range s.vaults.status() {
+				if v.Trashed > 0 && v.State == "unlocked" && (r.URL.Query().Get("source") == "" || r.URL.Query().Get("source") == v.Source) {
+					out = append(out, vaultTrash(v))
+				}
+			}
+		}
 		for _, b := range records {
 			var t Trash
 			if e = json.Unmarshal(b, &t); e != nil {
@@ -386,6 +392,15 @@ func (s *Service) Handler() http.Handler {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		var t Trash
+		if strings.HasPrefix(r.PathValue("id"), "vault-") {
+			t.ID = r.PathValue("id")
+			if e := s.purge(&t); e != nil {
+				fail(w, e)
+				return
+			}
+			reply(w, 200, map[string]bool{"purged": true})
+			return
+		}
 		if e := s.read(r.PathValue("id"), "trash", &t); e != nil {
 			fail(w, e)
 			return
