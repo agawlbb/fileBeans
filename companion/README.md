@@ -447,3 +447,32 @@ Rollback compose and image metadata are retained under
 Only the companion was recreated; Quantum, the normalizer and the key-holding
 broker kept their process/container identities. No app build or schema migration
 was needed; existing TestFlight build 19 uses the repaired API.
+
+### Source Trash and locked-folder listings — November 18, 2026
+
+The companion runs `filebeans-companion:05bcd79-vaults`; Quantum runs
+`filebeans-quantum:f334c3a-vaults`. Normalizer `87ae6ef` and the host broker
+were preserved. Protected Trash payloads are in encrypted `private/trash/<id>`,
+outside the public folder tree. Source Trash lists original names directly and
+omits records belonging to locked vaults. Old failed/restored/purged records no
+longer appear as navigable Trash entries.
+
+The migration persists location intent before its no-overwrite rename and
+reconciles interrupted intent/rename states. Only tracked empty legacy
+directories are cleaned up. The live retained item matched its pre-migration
+fingerprint, and its public per-folder Trash directory was removed. Recovery
+metadata was saved inside encrypted `private/trash-layout-before-05bcd79`.
+Rollback requires reversing the layout migration before using an older server
+that does not understand the new locations.
+
+Prepared archive SHA-256 values:
+
+- Companion: `3b9d764aa38ffc1fff763ce6385c525c20dd310fe2f9dbcfcb8e4896ab927ac9`.
+- Quantum: `a6678e6c99a818375708d6dc4b0868749077ec73aab693d6a3913aa78302e483`.
+
+Compose backups and image manifests are retained under
+`/opt/services/filebeans/deploy/browser-05bcd79`. Focused race/MariaDB, shared-user
+FUSE/CIFS, migration/recovery, scope/visibility and live batch/Trash checks pass.
+See [the testing record](../docs/TESTING.md#six-file-management-changes--november-18-2026).
+TestFlight build 20 is available for the corresponding browser controls and
+operation feedback.

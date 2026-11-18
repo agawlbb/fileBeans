@@ -68,6 +68,37 @@ breadcrumb heading in place of the folder title.
 - This initial build skipped upload; subsequent explicitly authorized publication
   is recorded below. No VPS deployment is needed.
 
+## File-management updates — 0.1.0 (20)
+
+**0.1.0 (20)** is **VALID / IN_BETA_TESTING** for the existing internal
+TestFlight group. Apple build ID:
+`2c442a28-9e9f-419e-8b37-8920fab5bb6b`.
+
+- Release source: `708525a25b91f2e77be3798abe6c2bbe53a7d829`, tag
+  `testflight/0.1.0-20`, on `feature/encrypted-vaults`.
+- [Final validation](https://github.com/agawlbb/fileBeans/actions/runs/44330888062)
+  passed the simulator suite, including all eight file-operation-state tests
+  and the batch-submission regression, followed by the unsigned device archive.
+- [Signed publication](https://github.com/agawlbb/fileBeans/actions/runs/44336852425)
+  passed signing, export, upload and temporary credential cleanup. The first
+  publication dispatch 44335959946 was cancelled while waiting for a runner,
+  before signing or upload.
+- The app provides one flat Trash view per source, hides locked protected
+  folders and their Trash entries, exposes Select/Select All for batch file
+  operations, shows pending destination tiles and immediate deletion progress,
+  and lists existing files in the destination picker.
+- Source `05bcd79` is deployed in the companion and `f334c3a` in Quantum.
+  Locked-root listing and private Trash behavior passed real local/CIFS/FUSE
+  tests. Live HTTPS verified all six file/folder Trash lifecycle combinations
+  across VPS, ordinary Samba and protected Samba, plus three-file copy/move
+  jobs with matching contents and original retention/removal.
+- The existing retained protected item migrated without a fingerprint change;
+  the old public per-folder Trash directory was removed. Encrypted rollback
+  metadata is in the originating vault's private area. The normalizer container
+  and key-holding broker were preserved, with the existing vault unlocked.
+- No schema migration, replacement encryption key, tester-group change or
+  signing-identity change was required. The feature remains unmerged into main.
+
 ## Protected-folder moves and merged normalizer — November 18, 2026
 
 **0.1.0 (19)** is available to the existing internal TestFlight group:
