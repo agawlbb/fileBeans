@@ -311,17 +311,24 @@ Samba-to-VPS copy, both storages' trash/restore/conflict/purge, and Drive-browsi
 smoke checks also passed. Synthetic smoke-test files and their isolated history
 were removed; the two performance-probe completion records remain as audit data.
 
-## Sequential VPS media normalization
+## VPS media normalization
 
-An optional dedicated worker normalizes one file completely before the next
-Drive media request. It never mounts or reads Samba. Configure `normalization`
+An optional dedicated worker normalizes media through a bounded pipeline. It
+never mounts or reads Samba. Configure `normalization`
 in private config with `enabled`, local root `source` (for example `VPS`),
 `path` (`pics`), optional `driveFolder`, `minFreeBytes` (default 2 GiB), and
 `stableSeconds` (default 60). The API process needs no encoder. Run a separate
 FFmpeg-enabled image with `-config /config/config.json -normalize-worker`, sharing
-private state, MariaDB and the VPS root only. Give the worker a 1.5 GiB memory
-limit and one CPU initially; use one worker replica. An advisory database lock
-and a single owned workspace enforce serialization even across replicas.
+private state, MariaDB and the VPS root only. Use one worker replica with a
+**4 GiB memory limit**, no swap, uncapped CPU,
+and CPU shares 128. Merge `deploy/compose.normalization-resources.yaml` into the
+existing stack for an explicitly requested deployment. The global advisory lock
+and filesystem fence prevent duplicate coordinators across replicas. Each job
+owns a private scratch directory; preparation/download, encoding, and validation
+can overlap, with at most one job in each stage and three admitted jobs total.
+The encoder uses a four-thread x265 pool (one frame thread); validation uses two
+decoding threads. Set `normalization.sequential: true` to disable stage overlap
+without changing encoding quality.
 
 POST `/v1/normalization/jobs` accepts `{source:"drive",path:"DRIVE_ID"}` for a
 file or folder; folder requests require `Idempotency-Key`. Folder inventory reads
@@ -336,16 +343,35 @@ POST `/jobs/{id}/cancel`, `/jobs/{id}/retry` and `/batches/{id}/cancel` control 
 The existing copy-job API remains unchanged. In the app use Transfers → Media
 Normalization, or a Drive item's “Normalize to VPS pics” context action.
 
-A Drive file downloads into `.filebeans-stage/normalization/input`, is checked
-against available SHA-256/MD5 and its pinned Drive version, encoded, fully decoded
-for validation, published with no-overwrite renames, and cleaned before another
-file downloads. Space admission reserves the input plus output allowance above
-the free-space floor. A running encoder is cancelled if free space reaches that
+A Drive file downloads into `.filebeans-stage/normalization-jobs/JOB_ID/input`,
+is checked against available SHA-256/MD5 and its pinned Drive version, encoded,
+fully decoded for validation, published with no-overwrite renames, and cleaned.
+Only one input can prepare ahead of the encoder. Space admission reserves the
+input plus output allowance across all admitted jobs above the free-space floor.
+A running encoder is cancelled if free space reaches that
 floor. Disk-space waits pause all normalization downloads. Interrupted downloads
 and encodes restart that one file; completed publications are fingerprinted and
 never repeated. A private owner marker fences recovery and cleanup.
 
-New stable files in VPS `pics` are discovered by 30-second reconciliation scans.
+The worker stops admitting jobs at 3.25 GiB working memory. Above 3.5 GiB it
+cancels the newest unpublished task and switches to sequential execution for the
+rest of that worker session; the task retries with its source intact. Working
+memory uses cgroup v2 accounting minus reclaimable inactive file cache. Missing
+cgroup accounting also restricts execution to one job. Per-job logs record elapsed
+time and current working memory. Interrupted inputs and encodes may restart;
+completed files are never re-encoded by this upgrade.
+
+Before rollout, let the active file finish and stop the old worker before starting
+the new image. Keep the existing database, state directory, and library mounts.
+The worker recovers the legacy shared workspace before admitting new jobs, and
+recovers any isolated job workspaces after a restart. Do not change the quality
+profile ID or recreate import batches. Observe the first three files for memory,
+progress, and publication; use sequential mode if overlap reduces throughput.
+This source branch does not include the newer vault integration: merge these
+commits into that branch before building for the currently deployed vault stack.
+
+New stable files in VPS `pics` are discovered by 30-second reconciliation scans
+when the pipeline is drained, avoiding races with publication.
 Source fingerprints and completed output versions prevent conversion loops.
 Publication records intent before moving a local input into protected staging;
 failed publication restores it without overwriting a competing file. Unresolved

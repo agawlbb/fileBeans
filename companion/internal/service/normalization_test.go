@@ -385,9 +385,8 @@ func testNormalizationWorkflow(t *testing.T, s *Service) {
 			}
 		}
 	})
-	t.Run("serial-drive-download-convert-cleanup", func(t *testing.T) {
-		// Use the actual advisory-lock worker with two files; the second media GET
-		// must observe an empty input and no first-file conversion artifacts.
+	t.Run("pipeline-drive-download-convert-cleanup", func(t *testing.T) {
+		// Use the actual advisory-lock worker; each download must own a private, empty input.
 		for _, name := range []string{"owner-a.png", "owner-b.png", "collision.png", "collision.jpg", "restore.png"} {
 			os.Remove(filepath.Join(base, "pics", name))
 		}
@@ -401,19 +400,26 @@ func testNormalizationWorkflow(t *testing.T, s *Service) {
 		var downloads atomic.Int32
 		googleHTTP = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
 			if r.URL.Query().Get("alt") == "media" {
-				stage := filepath.Join(base, normWorkspace)
-				entries, e := os.ReadDir(stage)
+				jobs, e := s.normalizationJobs()
 				if e != nil {
 					t.Error(e)
 				}
-				for _, entry := range entries {
-					if entry.Name() != "owner.json" && entry.Name() != "input" {
-						t.Errorf("previous scratch retained: %s", entry.Name())
+				found := false
+				for _, job := range jobs {
+					if job.Request.Path != filepath.Base(r.URL.Path) || job.Phase != "inspecting" {
+						continue
 					}
+					if !job.IsolatedWorkspace {
+						t.Error("download did not use isolated scratch")
+					}
+					st, e := os.Stat(filepath.Join(base, normWorkspaceFor(&job), "input"))
+					if e != nil || st.Size() != 0 {
+						t.Error("download input is missing or reused")
+					}
+					found = true
 				}
-				st, e := os.Stat(filepath.Join(stage, "input"))
-				if e != nil || st.Size() != 0 {
-					t.Error("download overlaps an existing input")
+				if !found {
+					t.Error("download has no matching workspace owner")
 				}
 				downloads.Add(1)
 			}
@@ -460,7 +466,7 @@ func testNormalizationWorkflow(t *testing.T, s *Service) {
 			}
 			time.Sleep(30 * time.Millisecond)
 		}
-		t.Fatal("serial worker did not finish")
+		t.Fatal("pipeline worker did not finish")
 	})
 	googleHTTP = &http.Client{Transport: roundTrip(f.serve)}
 	t.Run("space-check-precedes-content-download", func(t *testing.T) {

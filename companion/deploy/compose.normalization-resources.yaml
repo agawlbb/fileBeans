@@ -1,0 +1,8 @@
+# Merge with the existing stack when deployment is requested.
+services:
+  normalizer:
+    mem_limit: 4g
+    memswap_limit: 4g
+    cpus: 0
+    cpu_quota: 0
+    cpu_shares: 128

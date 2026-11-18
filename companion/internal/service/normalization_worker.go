@@ -94,22 +94,39 @@ func hashNormFile(root *os.Root, path string) (string, error) {
 	_, e = io.Copy(h, f)
 	return hex.EncodeToString(h.Sum(nil)), e
 }
-func (s *Service) normStagePath() string {
+func normWorkspaceFor(j *NormalizationJob) string {
+	if j != nil && j.IsolatedWorkspace {
+		return filepath.Join(normJobsWorkspace, j.ID)
+	}
+	return normWorkspace
+}
+
+func (s *Service) normStagePath(jobs ...*NormalizationJob) string {
+	workspace := normWorkspace
+	if len(jobs) != 0 {
+		workspace = normWorkspaceFor(jobs[0])
+	}
 	for _, r := range s.config.Roots {
 		if r.Name == s.config.Normalization.defaults().Source {
-			return filepath.Join(r.Path, normWorkspace)
+			return filepath.Join(r.Path, workspace)
 		}
 	}
 	return ""
 }
 func (s *Service) normPrepare(root *os.Root, j *NormalizationJob) error {
-	if e := mkdir(root, normWorkspace); e != nil {
+	if j.IsolatedWorkspace {
+		id, err := hex.DecodeString(j.ID)
+		if err != nil || len(id) != 16 {
+			return ErrUnsafe
+		}
+	}
+	if e := mkdir(root, normWorkspaceFor(j)); e != nil {
 		return e
 	}
-	if e := root.Chmod(normWorkspace, 0700); e != nil {
+	if e := root.Chmod(normWorkspaceFor(j), 0700); e != nil {
 		return e
 	}
-	marker := filepath.Join(s.normStagePath(), "owner.json")
+	marker := filepath.Join(s.normStagePath(j), "owner.json")
 	if data, e := os.ReadFile(marker); e == nil {
 		var owner string
 		if json.Unmarshal(data, &owner) != nil || owner != j.ID {
@@ -118,7 +135,7 @@ func (s *Service) normPrepare(root *os.Root, j *NormalizationJob) error {
 	} else if !errors.Is(e, os.ErrNotExist) {
 		return e
 	} else {
-		list, e := os.ReadDir(s.normStagePath())
+		list, e := os.ReadDir(s.normStagePath(j))
 		if e != nil {
 			return e
 		}
@@ -132,7 +149,7 @@ func (s *Service) normPrepare(root *os.Root, j *NormalizationJob) error {
 	return nil
 }
 func (s *Service) normCleanup(root *os.Root, j *NormalizationJob) error {
-	data, markerError := root.ReadFile(filepath.Join(normWorkspace, "owner.json"))
+	data, markerError := root.ReadFile(filepath.Join(normWorkspaceFor(j), "owner.json"))
 	if errors.Is(markerError, os.ErrNotExist) {
 		return nil
 	}
@@ -143,7 +160,7 @@ func (s *Service) normCleanup(root *os.Root, j *NormalizationJob) error {
 	if json.Unmarshal(data, &owner) != nil || owner != j.ID {
 		return errNormalizationBlocked
 	}
-	raw := filepath.Join(normWorkspace, "original")
+	raw := filepath.Join(normWorkspaceFor(j), "original")
 	if _, e := root.Stat(raw); e == nil {
 		h, e := hashNormFile(root, raw)
 		if e != nil {
@@ -174,7 +191,7 @@ func (s *Service) normCleanup(root *os.Root, j *NormalizationJob) error {
 		return e
 	}
 	// Only this worker's fixed scratch files may be removed.
-	entries, e := os.ReadDir(s.normStagePath())
+	entries, e := os.ReadDir(s.normStagePath(j))
 	if errors.Is(e, os.ErrNotExist) {
 		return nil
 	}
@@ -192,15 +209,21 @@ func (s *Service) normCleanup(root *os.Root, j *NormalizationJob) error {
 	}
 	for _, entry := range entries {
 		if entry.Name() != "owner.json" {
-			if e = root.Remove(filepath.Join(normWorkspace, entry.Name())); e != nil {
+			if e = root.Remove(filepath.Join(normWorkspaceFor(j), entry.Name())); e != nil {
 				return e
 			}
 		}
 	}
-	if e = root.Remove(filepath.Join(normWorkspace, "owner.json")); e != nil && !errors.Is(e, os.ErrNotExist) {
+	if e = root.Remove(filepath.Join(normWorkspaceFor(j), "owner.json")); e != nil && !errors.Is(e, os.ErrNotExist) {
 		return e
 	}
-	return syncDir(root, normWorkspace)
+	if e = syncDir(root, normWorkspaceFor(j)); e != nil {
+		return e
+	}
+	if j.IsolatedWorkspace {
+		return root.Remove(normWorkspaceFor(j))
+	}
+	return nil
 }
 func (s *Service) recoverNormOwner(ctx context.Context, lease *sql.Conn) error {
 	root, _, e := s.normalizationRoot()
@@ -219,6 +242,15 @@ func (s *Service) recoverNormOwner(ctx context.Context, lease *sql.Conn) error {
 	if json.Unmarshal(data, &id) != nil {
 		return errNormalizationBlocked
 	}
+	return s.recoverNormJob(ctx, lease, id, false)
+}
+
+func (s *Service) recoverNormJob(ctx context.Context, lease *sql.Conn, id string, isolated bool) error {
+	root, _, e := s.normalizationRoot()
+	if e != nil {
+		return e
+	}
+	defer root.Close()
 	lock := "filebeans-norm-" + id
 	var acquired int
 	if e = lease.QueryRowContext(ctx, "SELECT GET_LOCK(?,0)", lock).Scan(&acquired); e != nil || acquired != 1 {
@@ -227,6 +259,9 @@ func (s *Service) recoverNormOwner(ctx context.Context, lease *sql.Conn) error {
 	defer lease.ExecContext(context.Background(), "SELECT RELEASE_LOCK(?)", lock)
 	var j NormalizationJob
 	if e = s.read(id, "normalize", &j); e != nil {
+		return errNormalizationBlocked
+	}
+	if j.ID != id || j.IsolatedWorkspace != isolated {
 		return errNormalizationBlocked
 	}
 	// Active owner always runs before another job or scanner. Publication intents
@@ -264,6 +299,9 @@ func (s *Service) monitorNormalization(parent context.Context, root *os.Root, j 
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+				if p, ok := ctx.Value(normPipelineKey{}).(*normPipeline); ok {
+					p.pressure()
+				}
 				e := s.normCheck(ctx, j)
 				if e == nil {
 					e = s.normFree(root, 0)
@@ -295,7 +333,7 @@ func (s *Service) downloadNorm(ctx context.Context, root *os.Root, j *Normalizat
 	if e := s.normSourceCurrent(ctx, j); e != nil {
 		return nil, e
 	}
-	path := filepath.Join(normWorkspace, "input")
+	path := filepath.Join(normWorkspaceFor(j), "input")
 	f, e := root.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0600)
 	if e != nil {
 		return nil, e
@@ -379,7 +417,7 @@ func (s *Service) normPublish(ctx context.Context, root *os.Root, j *Normalizati
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	if _, e := root.Stat(filepath.Join(normWorkspace, "original")); e == nil {
+	if _, e := root.Stat(filepath.Join(normWorkspaceFor(j), "original")); e == nil {
 		j.RawMoved = true
 	} else if !errors.Is(e, os.ErrNotExist) {
 		return e
@@ -410,7 +448,7 @@ func (s *Service) normPublish(ctx context.Context, root *os.Root, j *Normalizati
 		return e
 	}
 	if j.Request.Source != "drive" {
-		raw := filepath.Join(normWorkspace, "original")
+		raw := filepath.Join(normWorkspaceFor(j), "original")
 		if _, e := root.Stat(raw); errors.Is(e, os.ErrNotExist) {
 			if e = s.normSourceCurrent(ctx, j); e != nil {
 				return e
@@ -468,9 +506,9 @@ func (s *Service) executeNormalization(ctx context.Context, j *NormalizationJob,
 	}
 	// Once publication has begun, reconcile it before honouring cancellation.
 	if j.Phase == "publishing" && j.OutputHash != "" {
-		output := filepath.Join(normWorkspace, "output"+filepath.Ext(j.OutputPath))
+		output := filepath.Join(normWorkspaceFor(j), "output"+filepath.Ext(j.OutputPath))
 		_, outputError := root.Stat(output)
-		_, rawError := root.Stat(filepath.Join(normWorkspace, "original"))
+		_, rawError := root.Stat(filepath.Join(normWorkspaceFor(j), "original"))
 		existing, existingError := hashNormFile(root, j.OutputPath)
 		if errors.Is(outputError, os.ErrNotExist) && errors.Is(rawError, os.ErrNotExist) && (existingError != nil || existing != j.OutputHash) {
 			j.Phase = "queued"
@@ -489,6 +527,11 @@ func (s *Service) executeNormalization(ctx context.Context, j *NormalizationJob,
 		}
 		return nil
 	}
+	releasePrepare, e := normStage(ctx, "prepare")
+	if e != nil {
+		return e
+	}
+	defer releasePrepare()
 	if e = s.normCheck(ctx, j); e != nil {
 		return e
 	}
@@ -506,7 +549,7 @@ func (s *Service) executeNormalization(ctx context.Context, j *NormalizationJob,
 		return e
 	}
 	// Interrupted pre-publication conversions are restarted, never appended.
-	entries, e := os.ReadDir(s.normStagePath())
+	entries, e := os.ReadDir(s.normStagePath(j))
 	if e != nil {
 		return e
 	}
@@ -515,7 +558,7 @@ func (s *Service) executeNormalization(ctx context.Context, j *NormalizationJob,
 			if (entry.Name() != "input" && !strings.HasPrefix(entry.Name(), "output.")) || entry.Name() == "original" || entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
 				return errNormalizationBlocked
 			}
-			if e = root.Remove(filepath.Join(normWorkspace, entry.Name())); e != nil {
+			if e = root.Remove(filepath.Join(normWorkspaceFor(j), entry.Name())); e != nil {
 				return e
 			}
 		}
@@ -591,8 +634,8 @@ func (s *Service) executeNormalization(ctx context.Context, j *NormalizationJob,
 	if e = normPublicDirs(root, filepath.Dir(j.OutputPath)); e != nil {
 		return e
 	}
-	outputRel := filepath.Join(normWorkspace, "output"+plan.Extension)
-	outputAbs := filepath.Join(s.normStagePath(), "output"+plan.Extension)
+	outputRel := filepath.Join(normWorkspaceFor(j), "output"+plan.Extension)
+	outputAbs := filepath.Join(s.normStagePath(j), "output"+plan.Extension)
 	j.Phase = "converting"
 	j.Total = int64(plan.Duration * 1000)
 	j.Done = 0
@@ -601,6 +644,11 @@ func (s *Service) executeNormalization(ctx context.Context, j *NormalizationJob,
 	}
 	encodeCtx, finishWatch := s.monitorNormalization(ctx, root, j)
 	defer finishWatch()
+	releaseEncode, e := normStage(encodeCtx, "encode")
+	if e != nil {
+		return e
+	}
+	releasePrepare()
 	e = s.encodeMedia(encodeCtx, input, outputAbs, plan, func(done int64) error {
 		if err := s.normCheck(ctx, j); err != nil {
 			return err
@@ -608,6 +656,7 @@ func (s *Service) executeNormalization(ctx context.Context, j *NormalizationJob,
 		j.Done = min(done, j.Total)
 		return s.normSave(j)
 	})
+	releaseEncode()
 	if e != nil {
 		if monitorError := finishWatch(); monitorError != nil {
 			return monitorError
@@ -621,6 +670,11 @@ func (s *Service) executeNormalization(ctx context.Context, j *NormalizationJob,
 	if e = s.normSave(j); e != nil {
 		return e
 	}
+	releaseValidate, e := normStage(encodeCtx, "validate")
+	if e != nil {
+		return e
+	}
+	defer releaseValidate()
 	// Validation has the same cancellation/disk monitoring as encoding via its context.
 	if e = s.validateMedia(encodeCtx, outputAbs, plan); e != nil {
 		if monitorError := finishWatch(); monitorError != nil {
@@ -679,6 +733,8 @@ func normPublicDirs(root *os.Root, path string) error {
 }
 func normalizationError(e error) string {
 	switch {
+	case errors.Is(e, errNormalizationMemory):
+		return "Normalization memory budget reached. Retrying without overlapping jobs."
 	case errors.Is(e, errNormalizationSpace):
 		return "VPS disk reserve reached. Free space; normalization will retry without another download."
 	case errors.Is(e, errNormalizationBlocked):
@@ -690,6 +746,9 @@ func normalizationError(e error) string {
 	}
 }
 func (s *Service) runNormalizationJob(ctx context.Context, j *NormalizationJob) error {
+	if j.State == "completed" {
+		return nil
+	}
 	var unlockPublication func()
 	guard := func() error {
 		if unlockPublication != nil {
@@ -706,7 +765,10 @@ func (s *Service) runNormalizationJob(ctx context.Context, j *NormalizationJob) 
 	}()
 	e := s.executeNormalization(ctx, j, guard)
 	if ctx.Err() != nil {
-		return ctx.Err()
+		if !errors.Is(context.Cause(ctx), errNormalizationMemory) {
+			return ctx.Err()
+		}
+		e = errNormalizationMemory
 	}
 	root, _, rootErr := s.normalizationRoot()
 	if rootErr != nil {
@@ -768,6 +830,9 @@ func (s *Service) RunNormalization(ctx context.Context) {
 func (s *Service) normalizationLoop(parent context.Context, lease *sql.Conn) {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
+	pipeline := newNormPipeline()
+	pipeline.serial = s.config.Normalization.Sequential
+	ctx = context.WithValue(ctx, normPipelineKey{}, pipeline)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -789,14 +854,21 @@ func (s *Service) normalizationLoop(parent context.Context, lease *sql.Conn) {
 		}
 	}()
 	defer func() { cancel(); <-done }()
+	defer func() { cancel(); pipeline.workers.Wait() }()
 	lastScan := time.Time{}
 	for ctx.Err() == nil {
-		if e := s.recoverNormOwner(ctx, lease); e != nil {
-			if ctx.Err() != nil {
-				return
+		if pipeline.count() == 0 {
+			if e := s.recoverNormWorkspaces(ctx, lease); e != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				log.Print("Normalization workspace recovery is waiting; inspect normalization job status")
+				wait(ctx, 10*time.Second)
+				continue
 			}
-			log.Print("Normalization workspace recovery is waiting; inspect normalization job status")
-			wait(ctx, 10*time.Second)
+		}
+		if !pipeline.admit() {
+			wait(ctx, time.Second)
 			continue
 		}
 		rows, e := s.records("normBatch")
@@ -820,7 +892,7 @@ func (s *Service) normalizationLoop(parent context.Context, lease *sql.Conn) {
 				}
 			}
 		}
-		if time.Since(lastScan) >= 30*time.Second {
+		if pipeline.count() == 0 && time.Since(lastScan) >= 30*time.Second {
 			if e = s.scanNormalization(); e != nil {
 				log.Print("Normalization scan deferred; check configured VPS library and database")
 			}
@@ -853,22 +925,18 @@ func (s *Service) normalizationLoop(parent context.Context, lease *sql.Conn) {
 		selected := false
 		for i := range jobs {
 			j := &jobs[i]
-			if j.State != "queued" && j.State != "running" && j.State != "waiting" {
+			if pipeline.contains(j.ID) {
+				continue
+			}
+			if !normRunnable(*j) {
 				continue
 			}
 			if j.Next > time.Now().Unix() && !errors.Is(s.normCheck(ctx, j), errCancelled) {
 				continue
 			}
-			lock := "filebeans-norm-" + j.ID
-			var got int
-			if e = lease.QueryRowContext(ctx, "SELECT GET_LOCK(?,0)", lock).Scan(&got); e != nil || got != 1 {
+			if e = s.startNormJob(ctx, lease, pipeline, *j); e != nil {
 				continue
 			}
-			// Re-read after acquiring the per-job lock shared with retry requests.
-			if s.read(j.ID, "normalize", j) == nil {
-				_ = s.runNormalizationJob(ctx, j)
-			}
-			lease.ExecContext(context.Background(), "SELECT RELEASE_LOCK(?)", lock)
 			selected = true
 			break
 		}
