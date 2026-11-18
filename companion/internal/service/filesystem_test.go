@@ -410,3 +410,42 @@ func TestFilesystemThumbnailOverrideConfiguration(t *testing.T) {
 		t.Fatal(cfg.Filesystem.ThumbnailCacheOverrides, e)
 	}
 }
+
+func TestFilesystemDisableThumbnailsWithoutReadingSource(t *testing.T) {
+	s, base := filesystemFixture(t)
+	os.WriteFile(filepath.Join(base, "photo.txt"), []byte("synthetic original"), 0660)
+	s.config.Filesystem.DisabledThumbnailSources = []string{"samba"}
+	for _, p := range []string{"/", "/photo.txt"} {
+		out := fsRequest(t, s, "GET", "resources", p, nil, nil)
+		if out.Code != 200 {
+			t.Fatal(out.Code)
+		}
+		var entry filesystemEntry
+		json.Unmarshal(out.Body.Bytes(), &entry)
+		if entry.HasPreview {
+			t.Fatal("disabled preview advertised")
+		}
+		for _, child := range entry.Children {
+			if child.HasPreview {
+				t.Fatal("disabled child preview advertised")
+			}
+		}
+	}
+	out := fsRequest(t, s, "GET", "thumbnail", "/photo.txt", nil, nil)
+	if out.Code != 415 {
+		t.Fatal(out.Code)
+	}
+	if _, e := os.Stat(filepath.Join(base, thumbnailDirectory)); !os.IsNotExist(e) {
+		t.Fatal("cache created while disabled", e)
+	}
+	// Even an unavailable share must be rejected before opening its root/original.
+	s.config.Roots[0].Path = filepath.Join(base, "unavailable")
+	if out := fsRequest(t, s, "GET", "thumbnail", "/photo.txt", nil, nil); out.Code != 415 {
+		t.Fatal("attempted source access", out.Code)
+	}
+	s.config.Roots[0].Path = base
+	s.config.Filesystem.DisabledThumbnailSources = nil
+	if out := fsRequest(t, s, "GET", "thumbnail", "/photo.txt", nil, nil); out.Code != 200 {
+		t.Fatal("could not re-enable thumbnails", out.Code)
+	}
+}

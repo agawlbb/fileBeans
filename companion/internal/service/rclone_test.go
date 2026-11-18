@@ -335,3 +335,126 @@ func testRcloneIntegration(t *testing.T, s *Service) {
 		}
 	})
 }
+
+// These tests exercise the actual transfer flags and descriptor-based paths
+// without needing SQL. FILEBEANS_TEST_RCLONE must point to the packaged tool.
+func TestRcloneSingleFileAndDirectoryTransfers(t *testing.T) {
+	binary := testRcloneBinary(t)
+	for _, directory := range []bool{false, true} {
+		name := "single-file"
+		if directory {
+			name = "directory"
+		}
+		t.Run(name, func(t *testing.T) {
+			source, destination, private := t.TempDir(), t.TempDir(), t.TempDir()
+			from := "a + b.jpg"
+			to := "copied.jpg"
+			payload := []byte("synthetic image contents")
+			if directory {
+				from = "tree"
+				to = "copied-tree"
+				for _, p := range []string{"tree/nested", "tree/empty", "tree/" + thumbnailDirectory, "tree/nested/" + thumbnailDirectory} {
+					if e := os.MkdirAll(filepath.Join(source, p), 0770); e != nil {
+						t.Fatal(e)
+					}
+				}
+				os.WriteFile(filepath.Join(source, "tree", thumbnailDirectory, "cache.jpg"), []byte("cache"), 0660)
+				os.WriteFile(filepath.Join(source, "tree/nested", thumbnailDirectory, "cache.jpg"), []byte("cache"), 0660)
+				os.WriteFile(filepath.Join(source, "tree/nested/a + b.jpg"), payload, 0660)
+			} else {
+				os.WriteFile(filepath.Join(source, from), payload, 0660)
+			}
+			config := filepath.Join(private, "rclone.conf")
+			os.WriteFile(config, nil, 0600)
+			src, e := os.Open(source)
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer src.Close()
+			dst, e := os.Open(destination)
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer dst.Close()
+			args := rcloneTransferOptions(config, private, directory)
+			operation := "copyto"
+			if directory {
+				operation = "copy"
+			}
+			args = append(args, operation)
+			if directory {
+				args = append(args, "--create-empty-src-dirs")
+			}
+			args = append(args, "--", "/proc/self/fd/4/"+from, "to:/proc/self/fd/3/"+to)
+			command := exec.Command(binary, args...)
+			command.ExtraFiles = []*os.File{dst, src}
+			command.Env = append(os.Environ(), "RCLONE_CONFIG_TO_TYPE=local")
+			if output, e := command.CombinedOutput(); e != nil {
+				t.Fatalf("real transfer failed: %v %s", e, output)
+			}
+			copied := filepath.Join(destination, to)
+			original := filepath.Join(source, from)
+			if directory {
+				copied = filepath.Join(copied, "nested/a + b.jpg")
+				original = filepath.Join(original, "nested/a + b.jpg")
+			}
+			for _, p := range []string{copied, original} {
+				data, e := os.ReadFile(p)
+				if e != nil || !bytes.Equal(data, payload) {
+					t.Fatal("content changed or missing", p, e)
+				}
+			}
+			if directory {
+				if st, e := os.Stat(filepath.Join(destination, to, "empty")); e != nil || !st.IsDir() {
+					t.Fatal("empty folder lost", e)
+				}
+				filepath.WalkDir(filepath.Join(destination, to), func(p string, d os.DirEntry, e error) error {
+					if e != nil {
+						t.Fatal(e)
+					}
+					if d.Name() == thumbnailDirectory {
+						t.Error("thumbnail cache was copied", p)
+					}
+					return nil
+				})
+			}
+		})
+	}
+}
+
+func TestRcloneCriticalErrorsAreReportedAndRedacted(t *testing.T) {
+	if detail := rcloneErrorDetail(rcloneEvent{Level: "critical", Message: "fixture-secret failed"}, []string{"fixture-secret"}); detail != "[redacted] failed" {
+		t.Fatal(detail)
+	}
+	binary := testRcloneBinary(t)
+	private := t.TempDir()
+	source := filepath.Join(private, "private-fixture-name.jpg")
+	os.WriteFile(source, []byte("fixture"), 0600)
+	config := filepath.Join(private, "rclone.conf")
+	os.WriteFile(config, nil, 0600)
+	// Exercise the exact single-file/filter error that previously disappeared.
+	args := rcloneTransferOptions(config, private, true)
+	args = append(args, "copyto", source, filepath.Join(private, "destination.jpg"))
+	output, e := exec.Command(binary, args...).CombinedOutput()
+	if e == nil {
+		t.Fatal("expected rejection of filters on single file")
+	}
+	found := false
+	for _, line := range bytes.Split(output, []byte("\n")) {
+		var event rcloneEvent
+		if json.Unmarshal(line, &event) != nil {
+			continue
+		}
+		if strings.ToLower(event.Level) != "critical" && strings.ToLower(event.Level) != "fatal" && strings.ToLower(event.Level) != "error" {
+			continue
+		}
+		found = true
+		detail := rcloneErrorDetail(event, []string{"private-fixture-name"})
+		if !strings.Contains(detail, "filters") || strings.Contains(detail, "private-fixture-name") || !strings.Contains(detail, "[redacted]") {
+			t.Fatal(detail)
+		}
+	}
+	if !found {
+		t.Fatalf("expected actual critical log: %s", output)
+	}
+}

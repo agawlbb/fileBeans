@@ -26,10 +26,11 @@ type ThumbnailCacheOverride struct {
 }
 
 type FilesystemConfig struct {
-	ThumbnailCacheOverrides []ThumbnailCacheOverride `json:"thumbnailCacheOverrides,omitempty"`
-	Enabled                 bool                     `json:"enabled"`
-	FFmpeg                  string                   `json:"ffmpeg,omitempty"`
-	PDFToPPM                string                   `json:"pdftoppm,omitempty"`
+	DisabledThumbnailSources []string                 `json:"disabledThumbnailSources,omitempty"`
+	ThumbnailCacheOverrides  []ThumbnailCacheOverride `json:"thumbnailCacheOverrides,omitempty"`
+	Enabled                  bool                     `json:"enabled"`
+	FFmpeg                   string                   `json:"ffmpeg,omitempty"`
+	PDFToPPM                 string                   `json:"pdftoppm,omitempty"`
 }
 
 type filesystemEntry struct {
@@ -170,6 +171,9 @@ func (s *Service) filesystemResource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	entry := filesystemInfo(p, st)
+	if s.thumbnailsDisabled(r.URL.Query().Get("source")) {
+		entry.HasPreview = false
+	}
 	if p == "." {
 		entry.Path = "/"
 	}
@@ -200,7 +204,11 @@ func (s *Service) filesystemResource(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			if info.IsDir() || info.Mode().IsRegular() {
-				entry.Children = append(entry.Children, filesystemInfo(cp, info))
+				childInfo := filesystemInfo(cp, info)
+				if s.thumbnailsDisabled(r.URL.Query().Get("source")) {
+					childInfo.HasPreview = false
+				}
+				entry.Children = append(entry.Children, childInfo)
 			}
 		}
 	}
@@ -230,6 +238,9 @@ func (s *Service) filesystemContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	entry := filesystemInfo(p, st)
+	if s.thumbnailsDisabled(r.URL.Query().Get("source")) {
+		entry.HasPreview = false
+	}
 	w.Header().Set("Content-Type", entry.Type)
 	w.Header().Set("ETag", `"`+entry.Revision+`"`)
 	// The root and broker lease stay alive until streaming completes. Stop stalled
@@ -461,4 +472,13 @@ func (r filesystemReader) Read(p []byte) (int, error) {
 	}
 	_ = r.controller.SetReadDeadline(time.Now().Add(2 * time.Minute))
 	return r.body.Read(p)
+}
+
+func (s *Service) thumbnailsDisabled(source string) bool {
+	for _, name := range s.config.Filesystem.DisabledThumbnailSources {
+		if name == source {
+			return true
+		}
+	}
+	return false
 }
