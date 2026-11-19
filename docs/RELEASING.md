@@ -744,3 +744,36 @@ already-visible thumbnail task failed before the update.
 Requested correction and API deployment are finished and verified. Remaining
 VPS thumbnails are generated on demand as the owner browses; no bulk archive scan
 or background thumbnail worker was started.
+
+## Adjacent VPS and Samba thumbnail caches — November 19, 2026 UTC
+
+At the owner's request, deployed feature source
+`7d68475a5478004d24a3c02e7fbb6135b09e3809` as
+`filebeans-api:7d68475-thumbnails`. Removed the obsolete
+`thumbnailCacheOverrides` and `disabledThumbnailSources` keys from the private
+API configuration. All folders now use adjacent `.filebeans-thumbnails` caches;
+Samba previews are enabled. No app build or release was needed.
+
+- Prepared and built the API image on VM-laptop. Manifest:
+  `sha256:ba30d5a04540b779d1ae81d2e22861888fc89ce0f14947a02a28a7283f7e07af`.
+  Archive SHA-256:
+  `539d29515c71e6a664469ca19fc57fc06ffd53b498c0a9c042c4435640fc0ebd`.
+  Verified the transferred archive and loaded image identity before cutover.
+- Recreated only `companion` with `--no-build --no-deps`. The initial health
+  check incorrectly used host loopback, causing automatic API rollback; the
+  corrected Docker-network check passed on retry.
+- Live VPS and Samba video previews produced JPEGs in adjacent hidden caches.
+  Repeated responses matched cached bytes; original inode, size and modification
+  time were unchanged. API listings hid cache folders. Both video sources passed
+  HTTP range requests, and authenticated public HTTPS source discovery passed.
+- The separately deployed `filebeans-normalizer:3644c21-recovery` container ID,
+  PID, start time, image, command and restart count were unchanged across API
+  deployment and verification. The broker process was also preserved. This
+  deployment made no encoder or main-branch changes.
+
+Rollback image/configuration snapshots and verification reports are retained in
+root-only `/opt/services/filebeans/deploy/thumbnails-7d68475/` and
+`/opt/services/filebeans/deploy/thumbnails-7d68475-retry1/`. Restore the saved API
+configuration/overlay and recreate only `companion` to roll back; preserve the
+normalizer and media/cache files. Thumbnails continue to generate on demand as
+folders are browsed; no bulk media scan was started.
