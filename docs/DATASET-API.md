@@ -1,4 +1,4 @@
-# Dataset originals API (feature trial)
+# Dataset originals API
 
 `datasetOriginalsV1` provides direct original access and export-only rendering.
 Routes require the existing Bearer credential and configured filesystem roots,
