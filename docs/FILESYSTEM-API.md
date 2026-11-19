@@ -22,7 +22,8 @@ Enable only in the trial companion configuration:
   "enabled": true,
   "ffmpeg": "/usr/bin/ffmpeg",
   "pdftoppm": "/usr/bin/pdftoppm",
-  "thumbnailCacheOverrides": [{"source": "VPS", "path": "/pics"}]
+  "thumbnailCacheOverrides": [{"source": "VPS", "path": "/pics"}],
+  "disabledThumbnailSources": ["Samba"]
 }
 ```
 
@@ -59,6 +60,14 @@ exposed. There is no recursive search, continuous polling or persistent filename
 index.
 
 ## Thumbnails and protection
+
+`disabledThumbnailSources` temporarily disables previews for named sources.
+The trial uses `["Samba"]` while the owner prepares its archive. Listings mark
+previews unavailable and the thumbnail endpoint returns before checking caches,
+opening originals or accessing the share. Browsing, copying, downloads and media
+streaming remain available. Existing cache files are retained. Remove `Samba`
+from this setting and restart only the API to resume generation; no app update
+is required. The separate `/pics` cache override remains in effect.
 
 During the long-running transcoding job, configure `thumbnailCacheOverrides`
 for its actual source name and watched `/pics` path. Ordinary thumbnails and
@@ -188,3 +197,19 @@ override prevents broker restart dependencies from stopping that worker.
 See `RELEASING.md` for hashes, Apple workflow links, backups and rollback details.
 Main remains unchanged until owner acceptance. Physical-device playback, Files
 interaction and real-key unlock still require owner acceptance on their devices.
+
+### Server-only copy correction and Samba preview suspension
+
+Runtime source `eda5913` fixes single-file copies by applying thumbnail exclusions
+only to directory traversal. Explicit root and nested cache exclusions keep folder
+copies free of preview caches, including empty cache directories. Rclone critical
+errors now reach the existing redacted error handler. Real-tool regressions run
+without SQL, using the same packaged rclone and inherited-descriptor paths.
+
+The owner requested the API stopped during diagnosis, then authorized deployment
+and restart with Samba thumbnail generation disabled. The updated runtime is
+serving with `disabledThumbnailSources: ["Samba"]`. Live VPS-only single-file and
+folder-copy jobs passed; the reported failed copy completed on retry with original
+metadata unchanged and matching source/destination contents. Verification made no
+Samba file writes. The transcoder container and broker PID stayed unchanged.
+TestFlight build 23 remains compatible; no app build or release was needed.

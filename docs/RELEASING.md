@@ -663,3 +663,42 @@ requested. No SQL migration or ciphertext conversion was performed.
 
 Trial deployment and the authorized TestFlight release are finished and verified;
 physical-device acceptance and the owner's permanent-merge decision remain open.
+
+
+### Copy correction and temporary Samba thumbnail suspension (2026-11-18)
+
+The owner stopped the API during diagnosis, then requested the copy fix, temporary
+Samba thumbnail suspension, deployment and restart. Source
+`eda5913c22be1908bee4ef924d038e6205a99c29` remains isolated on the filesystem API
+feature branch. Main was not changed.
+
+- Single-file copies no longer receive directory filter flags, which rclone
+  rejects. Folder copies still exclude root/nested thumbnail caches and preserve
+  empty user folders. Critical-level errors are now surfaced through redaction.
+- `disabledThumbnailSources: ["Samba"]` is set in the private API configuration.
+  Metadata advertises no previews for that source; thumbnail requests return
+  before mount/cache/original access. Existing cache files are retained. The
+  ordinary `/pics` cache override remains unchanged.
+- VM Go race tests and vet passed. The exact pinned rclone exercised single-file
+  copies, nested folder copies, empty folders, cache exclusions and real critical
+  error output without requiring SQL. The built image passed those tests and
+  ordinary API/renderer/thumbnail-policy regressions in an isolated VM container.
+- Deployed `filebeans-api:eda5913-copyfix`, VM-built and checksum-verified.
+  Manifest: `sha256:2afee6084e8545b7fd80201aa81d7cb6754357098268ac983acc855c5b5f1266`.
+  Archive SHA-256:
+  `8ffd3fb0bcca690ef2a389f59cf6fa131694c7bbee4dd8575c82598baea0df9d`.
+  Only the companion/API container was recreated with `--no-build --no-deps`;
+  the normalizer container identity, start time, PID, image and restart count,
+  and the broker PID stayed unchanged.
+- Live authenticated HTTPS and VPS-only single-file/folder copy jobs passed.
+  The reported failed copy was retried only after checking its original request
+  and absent destination. It completed; source metadata remained unchanged and
+  source/destination content hashes matched. Synthetic probes were removed.
+  No Samba files were created or modified by verification.
+- Existing TestFlight **0.1.0 (23)** is compatible. No Apple build or upload was
+  needed for this server-only correction.
+
+Prepared archives, previous API configuration/overlay and worker snapshots are
+retained under root-only `/opt/services/filebeans/deploy/copyfix-eda5913/`.
+`verification.json` records live checks. The API is running; the worker and broker
+were not restarted. This requested deployment is finished and verified.
