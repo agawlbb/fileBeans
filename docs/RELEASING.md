@@ -1014,3 +1014,24 @@ required. Generation code and its existing retry timer remain unchanged.
 Go race/vet checks, database-backed dataset recovery/upload tests, encrypted
 local/Samba preparation and inactivity tests, and isolated runtime smoke tests
 passed before deployment. Physical-device dataset acceptance follows cutover.
+
+## Dataset original streaming deployment — November 19, 2026
+
+Deployed `filebeans-api:b5c4c7f-originals` from feature commit `b5c4c7f`, preserving
+the Drive fixes. It advertises `datasetOriginalsV1`. MakeLORA server `3fdbcf6`
+uses original references, read-only inspection, and original-byte streaming.
+Preparation requests are rejected and old preparation jobs cannot execute.
+Encoding occurs only for explicit export and writes directly into the chosen
+output destination. Existing originals and published outputs are retained.
+
+Verification passed: full Go race suite, vet, original-byte/range/revision tests,
+real FFmpeg export/recovery with original-byte preservation, and protected local
+and Samba original access with locked errors and inactivity renewal. Live checks
+verified the loaded manifest, authenticated capability/source discovery, HTTP 401
+without authentication, and zero API restarts. Broker and normalizer were preserved.
+This server change requires no FileBeans app release. Feature branches stay unmerged.
+
+Transferred archives and the preceding MakeLORA application directory remain in
+`/opt/services/filebeans/deploy/originals-b5c4c7f/` and
+`private/makelora/app-originals-3fdbcf6`; automatic approval review rejected their
+removal to preserve recovery evidence. Earlier trial recovery files remain intact.
