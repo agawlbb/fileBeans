@@ -147,6 +147,10 @@ func (s *Service) startNormJob(ctx context.Context, lease *sql.Conn, p *normPipe
 		release()
 		return err
 	}
+	if normalizationInternalJob(job) {
+		defer release()
+		return s.excludeNormalization(&job)
+	}
 	if !normRunnable(job) {
 		release()
 		return ErrConflict
@@ -224,7 +228,7 @@ func (s *Service) startNormJob(ctx context.Context, lease *sql.Conn, p *normPipe
 	return nil
 }
 func normRunnable(j NormalizationJob) bool {
-	return j.State == "queued" || j.State == "running" || j.State == "waiting"
+	return !normalizationInternalJob(j) && (j.State == "queued" || j.State == "running" || j.State == "waiting")
 }
 
 // Drain legacy scratch first, then recover isolated owners before new admissions.

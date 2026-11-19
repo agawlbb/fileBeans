@@ -275,6 +275,9 @@ func (s *Service) recoverNormJob(ctx context.Context, lease *sql.Conn, id string
 	if j.ID != id || j.IsolatedWorkspace != isolated {
 		return errNormalizationBlocked
 	}
+	if normalizationInternalJob(j) {
+		return s.excludeNormalization(&j)
+	}
 	// Active owner always runs before another job or scanner. Publication intents
 	// are reconciled before cancellation or scratch cleanup.
 	if j.State == "completed" || j.State == "cancelled" || j.State == "failed" {
@@ -515,6 +518,9 @@ func (s *Service) normPublish(ctx context.Context, root rootFS, j *Normalization
 	return s.normSave(j)
 }
 func (s *Service) executeNormalization(ctx context.Context, j *NormalizationJob, publicationGuard func() error) error {
+	if normalizationInternalJob(*j) {
+		return ErrUnsafe
+	}
 	root, c, e := s.normalizationRoot()
 	if e != nil {
 		return e
@@ -774,6 +780,9 @@ func (s *Service) runNormalizationJob(ctx context.Context, j *NormalizationJob) 
 	if j.State == "completed" {
 		return nil
 	}
+	if normalizationInternalJob(*j) {
+		return s.excludeNormalization(j)
+	}
 	var unlockPublication func()
 	guard := func() error {
 		if unlockPublication != nil {
@@ -939,6 +948,13 @@ func (s *Service) normalizationLoop(parent context.Context, lease *sql.Conn) {
 		if e != nil {
 			wait(ctx, 5*time.Second)
 			continue
+		}
+		for i := range jobs {
+			if normalizationInternalJob(jobs[i]) && !pipeline.contains(jobs[i].ID) {
+				if err := s.excludeNormalization(&jobs[i]); err != nil {
+					jobs[i].State = "waiting"
+				}
+			}
 		}
 		classificationPending := s.classifyNormalizationJobs(ctx, jobs)
 		picturesPending := orderNormalizationJobs(jobs)

@@ -117,7 +117,7 @@ func (s *Service) normalizationRoot() (rootFS, NormalizationConfig, error) {
 		}
 		defer lease.Close()
 	}
-	if s.vaults.pathVault(c.Source, c.Path) != nil {
+	if normalizationInternalPath(c.Path) || s.vaults.pathVault(c.Source, c.Path) != nil {
 		return nil, c, ErrUnsafe
 	}
 	for _, r := range s.config.Roots {
@@ -137,11 +137,14 @@ func (s *Service) normalizationRoot() (rootFS, NormalizationConfig, error) {
 	return root, c, e
 }
 func (s *Service) enqueueNormalization(req NormalizationRequest, batch, connection string, meta *DriveItem) (NormalizationJob, error) {
+	if normalizationInternalPath(req.Path) || normalizationInternalPath(req.RelativePath) || (meta != nil && normalizationInternalPath(meta.Name)) {
+		return NormalizationJob{}, ErrUnsafe
+	}
 	if s.vaults.pathVault(req.Source, req.Path) != nil {
 		return NormalizationJob{}, ErrUnsafe
 	}
 	c := s.config.Normalization.defaults()
-	if s.vaults.pathVault(c.Source, c.Path) != nil {
+	if normalizationInternalPath(c.Path) || s.vaults.pathVault(c.Source, c.Path) != nil {
 		return NormalizationJob{}, ErrUnsafe
 	}
 	j := NormalizationJob{ID: ID(), Request: req, State: "queued", Phase: "queued", Profile: normalizationProfile, LibrarySource: c.Source, LibraryPath: c.Path, Batch: batch, Connection: connection, Created: time.Now().Unix()}
@@ -292,6 +295,10 @@ func (s *Service) normalizationRoutes(mux *http.ServeMux) {
 			meta, e := s.driveMeta(r.Context(), req.Path, g.Connection)
 			if e != nil {
 				fail(w, e)
+				return
+			}
+			if normalizationInternalPath(meta.Name) {
+				fail(w, ErrUnsafe)
 				return
 			}
 			if meta.Mime == "application/vnd.google-apps.folder" {
@@ -467,6 +474,14 @@ func (s *Service) normalizationRoutes(mux *http.ServeMux) {
 	})
 }
 func (s *Service) discoverNormalization(ctx context.Context, b *NormalizationBatch) error {
+	// Existing batches may have selected a cache folder before exclusions existed.
+	meta, err := s.driveMeta(ctx, b.Request.Path, b.Connection)
+	if err != nil {
+		return err
+	}
+	if normalizationInternalPath(meta.Name) {
+		return ErrUnsafe
+	}
 	root, c, e := s.normalizationRoot()
 	if e != nil {
 		return e
@@ -510,6 +525,9 @@ func (s *Service) discoverNormalization(ctx context.Context, b *NormalizationBat
 					return ErrUnsafe
 				}
 				path := filepath.Join(prefix, f.Name)
+				if normalizationInternalPath(path) {
+					continue
+				}
 				if names[path] {
 					return ErrConflict
 				}
@@ -596,7 +614,7 @@ func (s *Service) scanNormalization() error {
 			known[j.OutputPath+":"+j.OutputVersion] = true
 		}
 	}
-	return fs.WalkDir(root.FS(), c.Path, func(path string, d fs.DirEntry, e error) error {
+	return walkNormalizationOriginals(root.FS(), c.Path, func(path string, d fs.DirEntry, e error) error {
 		if e != nil {
 			return e
 		}

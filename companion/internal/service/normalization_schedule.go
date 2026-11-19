@@ -31,7 +31,7 @@ func normalizationPicture(j NormalizationJob) bool {
 func orderNormalizationJobs(jobs []NormalizationJob) bool {
 	picturesPending := false
 	for _, j := range jobs {
-		if normalizationPicture(j) && j.State != "completed" && j.State != "cancelled" {
+		if !normalizationInternalJob(j) && normalizationPicture(j) && j.State != "completed" && j.State != "cancelled" {
 			picturesPending = true
 		}
 	}
