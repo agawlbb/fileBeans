@@ -15,6 +15,41 @@ func testMoveIntegration(t *testing.T, s *Service) {
 	defer src.Close()
 	dst, _ := s.root("vps")
 	defer dst.Close()
+	t.Run("mixed-rename-and-copy-with-normalized-path", func(t *testing.T) {
+		path, err := os.MkdirTemp("/dev/shm", "filebeans-mixed-move-")
+		if err != nil {
+			t.Skip("second filesystem unavailable")
+		}
+		defer os.RemoveAll(path)
+		previous := s.config.Roots
+		s.config.Roots = append(append([]Root{}, previous...), Root{Name: "other", Path: path})
+		defer func() { s.config.Roots = previous }()
+		if err = src.WriteFile("mixed-native", []byte("rename"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		before, _ := src.Stat("mixed-native")
+		if err = os.WriteFile(filepath.Join(path, "mixed-copy"), []byte("copy"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		j := Job{ID: ID(), State: "queued", Request: CopyRequest{Operation: "move", Items: []Item{{Source: "samba", Path: "./mixed-native"}, {Source: "other", Path: "mixed-copy"}}, Destination: Item{Source: "vps", Path: "."}}}
+		if err = s.insert(j.ID, "copy", j.State, "", j); err != nil {
+			t.Fatal(err)
+		}
+		s.runJob(context.Background(), &j)
+		if j.State != "completed" || !j.Move.Selections[0].Rename || j.Move.Selections[1].Rename {
+			t.Fatal(j.State, j.Error)
+		}
+		after, err := dst.Stat("mixed-native")
+		if err != nil || !os.SameFile(before, after) {
+			t.Fatal("native selection copied", err)
+		}
+		if data, err := dst.ReadFile("mixed-copy"); err != nil || string(data) != "copy" {
+			t.Fatal("copy destination", err)
+		}
+		if _, err = os.Stat(filepath.Join(path, "mixed-copy")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("copy source retained", err)
+		}
+	})
 	t.Run("cross-filesystem-copy-fallback", func(t *testing.T) {
 		path, err := os.MkdirTemp("/dev/shm", "filebeans-move-copy-")
 		if err != nil {

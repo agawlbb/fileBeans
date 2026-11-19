@@ -96,9 +96,10 @@ func (s *Service) executeRclone(ctx context.Context, j *Job) error {
 		}
 		for _, item := range j.Request.Items {
 			if j.Move != nil {
+				path, _ := clean(item.Path)
 				renamed := false
 				for _, selection := range j.Move.Selections {
-					if selection.Rename && selection.Source == item.Source && selection.Path == strings.TrimPrefix(item.Path, "/") {
+					if selection.Rename && selection.Source == item.Source && selection.Path == path {
 						renamed = true
 						break
 					}
