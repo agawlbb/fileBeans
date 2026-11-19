@@ -215,7 +215,7 @@ func (s *Service) checkDriveMoveDestination(ctx context.Context, j *Job, m *Move
 		if err != nil {
 			return err
 		}
-		if meta.Trashed || !contains(meta.Parents, parent.ID) || !reflect.DeepEqual(current, m.DestinationDrive) {
+		if meta.Trashed || !contains(meta.Parents, parent.ID) || !sameDriveMoveDestination(current, m.DestinationDrive) {
 			return ErrConflict
 		}
 		return nil
@@ -233,4 +233,28 @@ func (s *Service) checkDriveMoveDestination(ctx context.Context, j *Job, m *Move
 		return ErrConflict
 	}
 	return nil
+}
+
+// Drive versions include invisible server metadata changes after publication.
+// Keep source checks strict, but allow destination version changes when bytes
+// match. Old journals and files without checksums still require the same version.
+func sameDriveMoveDestination(current, saved []File) bool {
+	if len(current) != len(saved) {
+		return false
+	}
+	for i, before := range saved {
+		after := current[i]
+		if after.Directory && before.Directory || before.Hash != "" && after.Hash == before.Hash {
+			after.Version = before.Version
+		}
+		// Checksums can become available after publication. A legacy snapshot
+		// without one can only be accepted if its version is unchanged.
+		if before.Hash == "" {
+			after.Hash = ""
+		}
+		if !reflect.DeepEqual(after, before) {
+			return false
+		}
+	}
+	return true
 }
