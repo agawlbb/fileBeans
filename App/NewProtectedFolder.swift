@@ -40,7 +40,6 @@ struct NewProtectedFolder: View {
         NavigationStack {
             Form {
                 Section { TextField("Name", text: $draft.name).autocorrectionDisabled() }
-                if !keys.hasKey || !keys.backupConfirmed { VaultKeyControls(session: keys) }
             }
             .navigationTitle("Protected Folder")
             .toolbar {

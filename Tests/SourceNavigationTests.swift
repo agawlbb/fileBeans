@@ -9,6 +9,7 @@ private final class NavigationFixture: ObservableObject {
     var loaded: [String] = []
     var loadFinished: XCTestExpectation?
     var cancelled: XCTestExpectation?
+    var navigate: ((Int) -> Void)?
 
     func load(_ source: SourceDestination) async {
         do {
@@ -24,13 +25,21 @@ private final class NavigationFixture: ObservableObject {
     }
 }
 
+private struct BreadcrumbProbe: View {
+    let fixture: NavigationFixture
+    @Environment(\.folderBreadcrumbs) private var trail
+    var body: some View {
+        Text("Sources").onAppear { fixture.navigate = trail.navigate }
+    }
+}
+
 private struct NavigationHarness: View {
     @ObservedObject var fixture: NavigationFixture
     var compact = true
     @State private var visibility: NavigationSplitViewVisibility = .all
     var body: some View {
         SourceNavigation(compact: compact, path: $fixture.path, selected: $fixture.selected,
-                         columnVisibility: $visibility, sidebar: Text("Sources")) { source in
+                         columnVisibility: $visibility, sidebar: BreadcrumbProbe(fixture: fixture)) { source in
             Text(source.name).task { await fixture.load(source) }
         }
     }
@@ -38,6 +47,28 @@ private struct NavigationHarness: View {
 
 @MainActor
 final class SourceNavigationTests: XCTestCase {
+    func testIPadTappingCurrentSidebarPathReplacesTheDetailStack() async throws {
+        let fixture = NavigationFixture()
+        let connection = Connection(name: "Synthetic", url: URL(string: "https://example.invalid")!)
+        let item = StoredItem(id: "disk", parent: "root", source: "disk",
+            file: RemoteFile(name: "Disk", path: "/", type: "directory"), permissions: Permissions(), isSource: true)
+        fixture.selected = SourceDestination(connection: connection, kind: .local(item))
+        let controller = UIHostingController(rootView: NavigationHarness(fixture: fixture, compact: false))
+        controller.traitOverrides.horizontalSizeClass = .regular
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 1024, height: 768))
+        window.rootViewController = controller
+        let initial = expectation(description: "Initial folder loads")
+        fixture.loadFinished = initial
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        await fulfillment(of: [initial], timeout: 5)
+        let reopened = expectation(description: "Current path recreates folder detail")
+        fixture.loadFinished = reopened
+        try XCTUnwrap(fixture.navigate)(0)
+        await fulfillment(of: [reopened], timeout: 5)
+        XCTAssertEqual(fixture.loaded, ["Disk", "Disk"])
+    }
+
     func testBackThenDifferentSourceLoads() async {
         await checkReopening(names: ["Samba", "VPS", "Google Drive"])
     }

@@ -21,7 +21,11 @@ final class BrowserModel: ObservableObject {
             if repository == nil { repository = try Repository(connection: connection, store: SharedStore()) }
             guard let repository else { return }
             if let companion = repository.companion {
-                canCreateProtectedFolder = (try? await companion.capabilities().features?.contains("protectedFoldersCreate")) == true
+                canCreateProtectedFolder = false
+                let protection = try? JSONDecoder().decode(ProtectionStatus.self, from: await companion.request("protection"))
+                if protection?.state == "unlocked" {
+                    canCreateProtectedFolder = (try? await companion.capabilities().features?.contains("protectedFoldersCreate")) == true
+                }
             }
             let transferJobs = try? await repository.companion?.jobs()
             if let parent {

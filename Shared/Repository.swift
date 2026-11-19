@@ -6,8 +6,11 @@ final class Repository {
     let client: FilesystemClient
     let companion: CompanionClient?
     let store: SharedStore
-    init(connection: Connection, store: SharedStore, token: String? = nil) throws {
+    let fileProvider: Bool
+    private var protectionAvailable = false
+    init(connection: Connection, store: SharedStore, token: String? = nil, fileProvider: Bool = false) throws {
         let connection = connection.unified
+        self.fileProvider = fileProvider
         self.connection = connection; self.store = store
         client = FilesystemClient(connection: connection, token: token)
         companion = CompanionClient(connection: connection, credential: token, store: store)
@@ -15,12 +18,19 @@ final class Repository {
     deinit { client.close(); companion?.close() }
     func refreshProtection() async {
         guard let companion else { return }
-        do { try store.setVaults(await companion.vaults(), connection: connection.id) }
+        do {
+            try store.setVaults(await companion.vaults(), connection: connection.id)
+            protectionAvailable = true
+        }
         catch {
+            protectionAvailable = false
             if let known = try? store.vaults(connection.id), !known.isEmpty {
                 try? store.setVaults(known.map { var v = $0; v.state = "unknown"; return v }, connection: connection.id)
             }
         }
+    }
+    func requireProviderAccess(_ item: StoredItem) throws {
+        if fileProvider && protectedItem(item).protection != nil { throw APIError.missing }
     }
     func requireUnlocked(_ item: StoredItem) throws {
         if let protection = protectedItem(item).protection, !protection.unlocked {
@@ -52,12 +62,15 @@ final class Repository {
             }
         }
         await refreshProtection()
-        return result.map(protectedItem)
+        if fileProvider && !protectionAvailable { throw APIError.forbidden }
+        return result.map(protectedItem).filter { !fileProvider || $0.protection == nil }
     }
     func children(_ parent: StoredItem?) async throws -> [StoredItem] {
         guard let parent else { return try await roots() }
         _ = try item(parent.id)
         await refreshProtection()
+        if fileProvider && !protectionAvailable { throw APIError.forbidden }
+        try requireProviderAccess(parent)
         try requireUnlocked(parent)
         let resource = try await client.resource(source: parent.source, path: parent.file.path)
         let vaults = try store.vaults(connection.id)
@@ -75,7 +88,7 @@ final class Repository {
         }
         let children = try store.reconcile(connection: connection.id, parent: parent.id, source: parent.source,
                                            files: files, permissions: permissions)
-        return children.map(protectedItem)
+        return children.map(protectedItem).filter { !fileProvider || $0.protection == nil }
     }
     func protectedItem(_ value: StoredItem) -> StoredItem {
         var item = value
@@ -90,13 +103,14 @@ final class Repository {
     }
     func item(_ id: String) throws -> StoredItem {
         guard let item = try store.items(connection.id)[id] else { throw APIError.missing }
+        try requireProviderAccess(item)
         return protectedItem(item)
     }
     func refreshKnownFolders() async throws {
         _ = try await roots()
         let ids = try store.transaction { $0.enumerated[connection.id.uuidString] ?? [] }
         for id in ids {
-            if let parent = try store.items(connection.id)[id], parent.protection?.unlocked != false { _ = try await children(parent) }
+            if let parent = try store.items(connection.id)[id], parent.protection?.unlocked != false, !fileProvider || parent.protection == nil { _ = try await children(parent) }
         }
     }
     func notify(_ parent: String = "root") {
@@ -106,6 +120,11 @@ final class Repository {
         manager?.signalEnumerator(for: .workingSet) { _ in }
     }
     func move(_ item: StoredItem, to parent: StoredItem, name: String) async throws {
+        try requireProviderAccess(item)
+        try requireProviderAccess(parent)
+        var target = parent
+        target.file.path = try FilePath.child(name, in: parent.file.path)
+        try requireProviderAccess(target)
         guard !item.isSource, (item.source == parent.source || companion != nil), item.permissions.modify,
               (item.parent == parent.id || parent.permissions.create) else { throw APIError.forbidden }
         let path = try FilePath.child(name, in: parent.file.path)

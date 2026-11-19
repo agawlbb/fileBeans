@@ -26,6 +26,7 @@ struct BrowserView: View {
     @State private var importing = false
     @State private var preview: URL?
     @State private var movie: Movie?
+    @State private var pickingPhotos = false
     @State private var photos: [PhotosPickerItem] = []
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.folderBreadcrumbs) private var trail
@@ -66,6 +67,7 @@ struct BrowserView: View {
     private var chosen: [StoredItem] { model.items.filter { selected.contains($0.id) } }
     var body: some View {
         browserWithActions
+        .photosPicker(isPresented: $pickingPhotos, selection: $photos, matching: .any(of: [.images, .videos]))
         .fileImporter(isPresented: $importing, allowedContentTypes: [.data], allowsMultipleSelection: true) { result in
             do { if let parent { model.enqueue(urls: try result.get(), parent: parent) } }
             catch { model.error = error.localizedDescription }
@@ -74,7 +76,8 @@ struct BrowserView: View {
             Task {
                 for pick in picks {
                     do {
-                        if let file = try await pick.loadTransferable(type: ImportedMedia.self), let parent {
+                        guard let file = try await pick.loadTransferable(type: ImportedMedia.self) else { throw CocoaError(.fileReadUnknown) }
+                        if let parent {
                             model.enqueue(urls: [file.url], parent: parent, scoped: false)
                             try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent())
                         }
@@ -85,6 +88,10 @@ struct BrowserView: View {
         }
         .onChange(of: model.parentProtection?.unlocked) { _, unlocked in
             if unlocked == false { trail.showSources() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .fileBeansProtectionChanged)) { _ in
+            model.canCreateProtectedFolder = false
+            Task { await reload() }
         }
         .quickLookPreview($preview)
         .onChange(of: preview) { previous, current in
@@ -134,13 +141,7 @@ struct BrowserView: View {
             }.disabled(selecting)
         }
     }
-    @ViewBuilder private var companionLinks: some View {
-        if parent == nil {
-            if connection.companionURL != nil {
-                NavigationLink { TransferList(connection: connection) } label: { Label("Transfers", systemImage: "arrow.left.arrow.right") }
-            }
-        }
-    }
+    private var companionLinks: some View { EmptyView() }
     private var browserContent: some View {
         fileContent
         // The hierarchy replaces the large folder heading below the controls.
@@ -275,9 +276,9 @@ struct BrowserView: View {
             }
         }
 
-            if connection.companionURL != nil && parent != nil {
+            if connection.companionURL != nil {
                 ToolbarItem(placement: .topBarLeading) {
-                    NavigationLink { TransferList(connection: connection) } label: { Label("Transfers", systemImage: "arrow.left.arrow.right") }
+                    NavigationLink(value: SourceDestination(connection: connection, kind: .transfers)) { Label("Transfers", systemImage: "arrow.left.arrow.right") }
                 }
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -289,14 +290,11 @@ struct BrowserView: View {
                     if let parent, parent.permissions.create, model.parentProtection?.unlocked != false {
                         Menu {
                             Button("New Folder", systemImage: "folder.badge.plus") { proposedName = ""; newFolder = true }
-                            if connection.companionURL != nil {
+                            if connection.companionURL != nil && model.canCreateProtectedFolder && model.parentProtection == nil {
                                 Button("Add Protected Folder", systemImage: "lock.fill") { newProtectedFolder = true }
-                                    .disabled(!model.canCreateProtectedFolder || model.parentProtection != nil)
                             }
                             Button("Upload Files", systemImage: "arrow.up.doc") { importing = true }
-                            PhotosPicker(selection: $photos, matching: .any(of: [.images, .videos])) {
-                                Label("Upload Photos or Videos", systemImage: "photo")
-                            }
+                            Button("Upload Photos or Videos", systemImage: "photo") { pickingPhotos = true }
                         } label: { Label("Add", systemImage: "plus") }
                     }
                 }

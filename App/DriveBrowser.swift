@@ -82,11 +82,10 @@ struct DriveBrowser: View {
     @State private var choosingDestination = false
     @State private var copying = true
     @State private var importing = false
+    @State private var pickingPhotos = false
     @State private var photos: [PhotosPickerItem] = []
     @State private var preview: URL?
     @State private var movie: Movie?
-    @State private var configuring = false
-    @State private var disconnecting = false
     @State private var normalizing: DriveFile?
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var phase
@@ -110,6 +109,7 @@ struct DriveBrowser: View {
     }
     var body: some View {
         browserWithActions
+            .photosPicker(isPresented: $pickingPhotos, selection: $photos, matching: .any(of: [.images, .videos]))
             .fileImporter(isPresented: $importing, allowedContentTypes: [.data], allowsMultipleSelection: true) { result in
                 do { if let parent = model.current { queue.enqueue(try result.get(), parent: parent.id) } }
                 catch { model.error = error.localizedDescription }
@@ -118,7 +118,8 @@ struct DriveBrowser: View {
                 Task {
                     for pick in picks {
                         do {
-                            if let file = try await pick.loadTransferable(type: ImportedMedia.self), let parent = model.current {
+                            guard let file = try await pick.loadTransferable(type: ImportedMedia.self) else { throw CocoaError(.fileReadUnknown) }
+                            if let parent = model.current {
                                 queue.enqueue([file.url], parent: parent.id, scoped: false)
                                 try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent())
                             }
@@ -171,9 +172,7 @@ struct DriveBrowser: View {
     }
     @ViewBuilder private var header: some View {
         if connection.companionURL == nil {
-            ContentUnavailableView {
-                Label("Set Up Google Drive", systemImage: "externaldrive")
-            } description: { Text("Add this connection’s companion URL and token to enable Google Drive.") } actions: { Button("Set Up Companion") { configuring = true } }
+            ContentUnavailableView("Google Drive", systemImage: "externaldrive")
         } else if !model.capabilitiesLoaded {
             if let error = model.error {
                 VStack(alignment: .leading, spacing: 8) {
@@ -186,13 +185,11 @@ struct DriveBrowser: View {
         } else if !model.connected {
             ContentUnavailableView {
                 Label("Connect Google Drive", systemImage: "externaldrive")
-            } description: { Text("Sign in to the Google account you want to browse and manage.") } actions: { Button("Connect Drive") { connect() } }
+            } description: { Text("Connect Google Drive in Settings.") }
         } else {
             if !model.writable {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(model.modern ? "Drive is connected with read-only access." : "Update the companion service to enable Drive file management.")
-                    if model.modern { Button("Upgrade Drive Access") { connect() } }
-                }.font(.callout)
+                Text(model.modern ? "Drive is connected with read-only access." : "Update the companion service to enable Drive file management.")
+                    .font(.callout)
             }
             if folder == "root" {
                 NavigationLink("Shared with me", value: SourceDestination(connection: connection, kind: .driveFolder("shared", "Shared with me")))
@@ -216,7 +213,7 @@ struct DriveBrowser: View {
         }
 
         ToolbarItem(placement: .topBarLeading) {
-            if connection.companionURL != nil { NavigationLink { TransferList(connection: connection) } label: { Label("Transfers", systemImage: "arrow.left.arrow.right") } }
+            if connection.companionURL != nil { NavigationLink(value: SourceDestination(connection: connection, kind: .transfers)) { Label("Transfers", systemImage: "arrow.left.arrow.right") } }
         }
         ToolbarItemGroup(placement: .topBarTrailing) {
             if selecting {
@@ -228,21 +225,14 @@ struct DriveBrowser: View {
                     Menu {
                         Button("New Folder", systemImage: "folder.badge.plus") { proposedName = ""; newFolder = true }
                         Button("Upload Files", systemImage: "arrow.up.doc") { importing = true }
-                        PhotosPicker(selection: $photos, matching: .any(of: [.images, .videos])) { Label("Upload Photos or Videos", systemImage: "photo") }
+                        Button("Upload Photos or Videos", systemImage: "photo") { pickingPhotos = true }
                     } label: { Label("Add", systemImage: "plus") }
-                }
-                if folder == "root" && connection.companionURL != nil {
-                    Menu {
-                        Button(model.writable ? "Reconnect Drive" : model.connected ? "Upgrade Drive Access" : "Connect Drive") { connect() }
-                        if model.connected { Button("Disconnect Drive", role: .destructive) { disconnecting = true } }
-                    } label: { Label("Drive Connection", systemImage: "person.crop.circle") }
                 }
             }
         }
     }
     private var browserWithAlerts: some View {
         browser
-            .sheet(isPresented: $configuring) { ConnectionEditor(connection: connection) {} }
             .alert("Google Drive", isPresented: Binding(get: { model.error != nil || activity.errors[connection.id] != nil }, set: { if !$0 { model.error = nil; activity.errors[connection.id] = nil } })) {
                 Button("OK") { model.error = nil; activity.errors[connection.id] = nil }
             } message: { Text(model.error ?? activity.errors[connection.id] ?? "") }
@@ -288,14 +278,6 @@ struct DriveBrowser: View {
                         _ = await model.perform { try await client.submit(.init(source: "drive", path: item.id)) }
                     }
                 } }
-            }
-            .confirmationDialog("Disconnect Drive? Existing transfers remain tied to this account and may need reconnection or cancellation.", isPresented: $disconnecting, titleVisibility: .visible) {
-                Button("Disconnect", role: .destructive) {
-                    Task {
-                        let success = await model.perform { _ = try await model.client?.transport.request("drive/disconnect", method: "POST") }
-                        if success { await reload() }
-                    }
-                }
             }
     }
     private var browserWithActions: some View {
@@ -364,13 +346,6 @@ struct DriveBrowser: View {
                         thumbnail: DriveThumbnailView(connection: connection, item: item, enabled: model.modern && !item.id.hasPrefix("pending:")), pending: pending(item))
     }
     private func reload(page: String = "", refreshLoaded: Bool = false) async { await model.load(connection: connection, folder: folder, page: page, refreshLoaded: refreshLoaded) }
-    private func connect() {
-        Task {
-            if model.client == nil { await reload() }
-            guard let client = model.client else { return }
-            _ = await model.perform { openURL(try await client.connect()) }
-        }
-    }
     private func mutate(_ request: DriveMutationRequest) {
         Task {
             guard let client = model.client else { return }

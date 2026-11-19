@@ -139,8 +139,11 @@ struct SourcesView: View {
         .navigationTitle("Sources")
         .searchable(text: $search, prompt: "Search sources")
         .toolbar {
-            Button("Settings", systemImage: "gearshape") { settings = true }
-            Button(grid ? "List" : "Grid", systemImage: grid ? "list.bullet" : "square.grid.2x2") { grid.toggle() }
+            ToolbarItem(placement: .topBarLeading) { transfersButton }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button("Settings", systemImage: "gearshape") { settings = true }
+                Button(grid ? "List" : "Grid", systemImage: grid ? "list.bullet" : "square.grid.2x2") { grid.toggle() }
+            }
         }
         .refreshable { await model.reload(connections.connections) }
         .overlay {
@@ -153,6 +156,20 @@ struct SourcesView: View {
             } else if entries.isEmpty && !model.loading && model.errors.isEmpty {
                 ContentUnavailableView.search(text: search)
             }
+        }
+    }
+    @ViewBuilder private var transfersButton: some View {
+        let available = connections.connections.filter { $0.companionURL != nil }
+        if available.count == 1, let connection = available.first {
+            sourceLink(SourceDestination(connection: connection, kind: .transfers)) {
+                Label("Transfers", systemImage: "arrow.left.arrow.right")
+            }
+        } else if !available.isEmpty {
+            Menu {
+                ForEach(available) { connection in
+                    sourceLink(SourceDestination(connection: connection, kind: .transfers)) { Text(connection.name) }
+                }
+            } label: { Label("Transfers", systemImage: "arrow.left.arrow.right") }
         }
     }
     @ViewBuilder private func sourceLink<Label: View>(_ source: SourceDestination, @ViewBuilder label: () -> Label) -> some View {
@@ -172,14 +189,6 @@ struct SourcesView: View {
                     Button("Retry") { Task { await model.reload(connections.connections) } }
                 }
             }
-            if connection.companionURL != nil {
-                sourceLink(SourceDestination(connection: connection, kind: .protection)) {
-                    Label(connections.connections.count > 1 ? "Protected folders — " + connection.name : "Protected folders", systemImage: "lock.shield")
-                }
-                sourceLink(SourceDestination(connection: connection, kind: .transfers)) {
-                    Label(connections.connections.count > 1 ? "Transfers — " + connection.name : "Transfers", systemImage: "arrow.left.arrow.right")
-                }
-            }
         }
     }
 }
@@ -192,6 +201,7 @@ struct SourceNavigation<Sidebar: View, Detail: View>: View {
     @Binding var selected: SourceDestination?
     @Binding var columnVisibility: NavigationSplitViewVisibility
     let sidebar: Sidebar
+    @State private var navigationID = UUID()
     @State private var detailPath: [SourceDestination] = []
     @ViewBuilder let detail: (SourceDestination) -> Detail
 
@@ -200,9 +210,10 @@ struct SourceNavigation<Sidebar: View, Detail: View>: View {
             NavigationStack(path: $path) {
                 sidebar.navigationDestination(for: SourceDestination.self) { detail($0) }
             }
+            .id(navigationID)
             .environment(\.folderBreadcrumbs, FolderBreadcrumbContext(locations: path,
-                navigate: { path = FolderBreadcrumbContext.prefix(path, through: $0) },
-                showSources: { path = [] }))
+                navigate: { path = FolderBreadcrumbContext.prefix(path, through: $0); navigationID = UUID() },
+                showSources: { path = []; navigationID = UUID() }))
         } else {
             NavigationSplitView(columnVisibility: $columnVisibility) {
                 sidebar
@@ -213,16 +224,17 @@ struct SourceNavigation<Sidebar: View, Detail: View>: View {
                         else { ContentUnavailableView("Choose a source", systemImage: "folder") }
                     }
                     .navigationDestination(for: SourceDestination.self) { detail($0) }
-                }.id(selected)
+                }.id(navigationID)
             }
             .environment(\.folderBreadcrumbs, FolderBreadcrumbContext(
                 locations: selected.map { [$0] + detailPath } ?? [],
                 navigate: { index in
                     guard index >= 0, index <= detailPath.count else { return }
                     detailPath = Array(detailPath.prefix(index))
+                    navigationID = UUID()
                 },
-                showSources: { detailPath = []; selected = nil }))
-            .onChange(of: selected) { _, _ in detailPath = [] }
+                showSources: { detailPath = []; selected = nil; navigationID = UUID() }))
+            .onChange(of: selected) { _, _ in detailPath = []; navigationID = UUID() }
         }
     }
 }

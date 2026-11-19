@@ -35,6 +35,15 @@ struct ConnectionsSettingsView: View {
     @State private var removing: Connection?
     var body: some View {
         List {
+            ForEach(model.connections.filter { $0.companionURL != nil }) { connection in
+                VaultsView(connection: connection, embedded: true)
+            }
+            VaultKeyControls()
+            Section("Google Drive") {
+                ForEach(model.connections.filter { $0.companionURL != nil }) { connection in
+                    NavigationLink(connection.name) { DriveConnectionSettings(connection: connection) }
+                }
+            }
             Section("Connections") {
                 ForEach(model.connections) { connection in
                     HStack {

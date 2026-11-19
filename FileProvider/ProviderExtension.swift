@@ -11,7 +11,7 @@ final class ProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFi
         guard let connection = try store.connections().first(where: { $0.id.uuidString == domain.identifier.rawValue }) else {
             throw APIError.authentication
         }
-        return try Repository(connection: connection, store: store)
+        return try Repository(connection: connection, store: store, fileProvider: true)
     }
     private func root() -> ProviderItem {
         ProviderItem(StoredItem(id: NSFileProviderItemIdentifier.rootContainer.rawValue, parent: "root", source: "",
@@ -67,6 +67,8 @@ final class ProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFi
                 guard parent.permissions.create else { throw APIError.forbidden }
                 try repo.requireUnlocked(parent)
                 let path = try FilePath.child(itemTemplate.filename, in: parent.file.path)
+                var target = parent; target.file.path = path
+                try repo.requireProviderAccess(target)
                 if repo.companion != nil && CompanionClient.protected(path) { throw APIError.forbidden }
                 if itemTemplate.contentType == .folder {
                     try await repo.client.createFolder(source: parent.source, path: path)
@@ -159,6 +161,7 @@ final class ProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFi
         operation {
             do {
                 let repo = try self.repository()
+                _ = try await repo.roots()
                 for id in itemIdentifiers {
                     do {
                         try Task.checkCancellation()

@@ -362,3 +362,33 @@ server-job reconstruction, renamed targets, authenticated scope mapping, queued
 batch-move source state, locked-folder identity and legacy Trash cache removal.
 The tests establish server and application-state behavior; physical-device
 interaction acceptance remains separate.
+# Settings, sidebar navigation, and protected Files exclusion
+
+The source changes include regression tests for protected File Provider access
+in locked, unlocked, unavailable, and scoped-source cases, plus an iPad test
+that taps the current sidebar path and verifies the detail is recreated.
+Apple compilation and simulator/device execution remain pending an authorized
+Apple build. VM static parsing and source/configuration isolation checks passed.
+
+On iPad, open Transfers, Trash, and Media Normalization from a folder, then tap
+that folder or an ancestor in the sidebar. The active detail must return to the
+selected folder, including when the folder path itself did not change. Also
+return to Sources and choose the same or another source.
+
+Verify Settings starts with the connection's Lock/Unlock control, contains
+encryption-key tools and Google Drive connection tools, and contains no Transfers
+entry. Transfers stays in folder top bars and appears in the Sources top bar;
+multiple connections offer a connection chooser. Lock protection and verify
+Add Protected Folder disappears; unlock and verify it returns for eligible
+ordinary folders.
+
+From ordinary folders and writable Drive folders, use Upload Photos or Videos
+to select photos, videos, and multiple items. Verify the picker opens, uploads
+complete, cancellation leaves no upload, and failed media loading shows an error.
+
+With protection both locked and unlocked, verify Apple Files Browse, search,
+working set, and document pickers contain neither protected folders nor their
+descendants. Check an upgraded installation with previously enumerated protected
+items: change enumeration must withdraw those items and cached identifiers must
+not permit metadata, content, thumbnails, edits, or protected move destinations.
+Unlocked protected content must remain usable inside fileBeans.

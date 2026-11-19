@@ -6,6 +6,7 @@ struct ProtectionStatus: Decodable, Equatable {
 
 struct VaultsView: View {
     let connection: Connection
+    var embedded = false
     @State private var status: ProtectionStatus?
     @State private var busy = false
     @State private var revision = 0
@@ -14,9 +15,17 @@ struct VaultsView: View {
 
     private var locking: Bool { status?.state == "unlocked" || status?.state == "error" }
     var body: some View {
-        List {
-            VaultKeyControls(session: keySession)
-            Section("Protected folders") {
+        Group {
+            if embedded { controls }
+            else { List { controls } }
+        }
+        .modifier(ProtectionLifecycle(refresh: refresh))
+        .alert("Protected folders", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+            Button("OK") { error = nil }
+        } message: { Text(error ?? "") }
+    }
+    private var controls: some View {
+            Section(embedded ? connection.name : "Protected folders") {
                 if let status {
                     Button(locking ? "Lock" : "Unlock") { changeProtection() }
                         .disabled(busy || (!locking && !keySession.hasKey))
@@ -25,18 +34,6 @@ struct VaultsView: View {
                 } else if let error { Text(error).foregroundStyle(.red) }
                 else { ProgressView() }
             }
-        }
-        .navigationTitle("Protected folders")
-        .task(id: connection.id) {
-            while !Task.isCancelled {
-                if !busy { await refresh() }
-                do { try await Task.sleep(for: .seconds(5)) } catch { return }
-            }
-        }
-        .refreshable { await refresh() }
-        .alert("Protected folders", isPresented: Binding(get: { error != nil && status != nil }, set: { if !$0 { error = nil } })) {
-            Button("OK") { error = nil }
-        } message: { Text(error ?? "") }
     }
     private func refresh() async {
         let requestedRevision = revision
@@ -66,8 +63,25 @@ struct VaultsView: View {
                 let store = try SharedStore()
                 if status?.state == "locked" { try store.markProtectionLocked(connection: connection.id) }
                 try Repository(connection: connection, store: store).notify()
+                NotificationCenter.default.post(name: .fileBeansProtectionChanged, object: connection.id)
                 error = nil
             } catch { self.error = error.localizedDescription }
+        }
+    }
+}
+
+extension Notification.Name {
+    static let fileBeansProtectionChanged = Notification.Name("fileBeans.protectionChanged")
+}
+
+private struct ProtectionLifecycle: ViewModifier {
+    let refresh: () async -> Void
+    func body(content: Content) -> some View {
+        content.task {
+            while !Task.isCancelled {
+                await refresh()
+                do { try await Task.sleep(for: .seconds(5)) } catch { return }
+            }
         }
     }
 }
