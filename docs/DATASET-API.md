@@ -1,42 +1,41 @@
-# Dataset media API (feature trial)
+# Dataset originals API (feature trial)
 
-The `datasetMediaV1` capability extends filesystem v1. All routes use the existing
-Bearer credential. Sources are configured filesystem roots, including unlocked
-protected folders. Drive roots are not accepted by dataset jobs.
+`datasetOriginalsV1` provides direct original access and export-only rendering.
+Routes require the existing Bearer credential and configured filesystem roots,
+including protected folders. Dataset operations do not use Drive.
 
 | Route | Contract |
 | --- | --- |
-| `POST /v1/datasets/uploads?source=…&path=…` | Raw bytes, required `Idempotency-Key` and `X-Content-SHA256`; maximum 2 GiB, no overwrite. Returns upload ID, location and revision. Retries validate the existing file checksum. |
-| `POST /v1/datasets/jobs` | Required idempotency key; JSON request described below. Returns a durable job. |
-| `GET /v1/datasets/jobs/{id}` | State, error/code, inspection info or published result location. Passive read; no timer reset. |
-| `POST /v1/datasets/jobs/{id}/cancel` | Cancel queued/running work; published outputs remain. |
-| `POST /v1/datasets/jobs/{id}/retry` | Requeue failed, blocked or cancelled work. |
-| `GET /v1/datasets/jobs/{id}/media/{kind}` | Prepared `preview` or `thumb0`…`thumb7`; authenticated ranges, current source revision/protection required. |
-| `POST /v1/datasets/activity` | JSON array of `{source,path}` references. Refresh an already-unlocked global protection session through the broker; never unlock. |
+| `GET /v1/fs/resources?source=…&path=…` | Original path, MIME type, size, revision, optional opaque `vault` identity. Register this reference in MakeLORA; no preparation job. |
+| `GET /v1/datasets/source/info?source=…&path=…&revision=…&vault=…&model=…` | Read-only dimensions, duration, optional UTF-8 sibling caption. Creates no media or cache. |
+| `GET` or `HEAD /v1/datasets/source/content?source=…&path=…&revision=…&vault=…` | Original bytes, ranges, MIME type, ETag, revision validation, and a broker lease through response completion. |
+| `POST /v1/datasets/uploads?source=…&path=…` | Raw original bytes with idempotency key and SHA-256; maximum 2 GiB, no overwrite. Temporary staging is removed after publication or failure. |
+| `POST /v1/datasets/jobs` | Explicit export only: `operation: render`, model, original inputs, edits, destination, and required idempotency key. |
+| `GET /v1/datasets/jobs/{id}` | Export state, error/code, output location. Passive read; no timer reset. |
+| `POST /v1/datasets/jobs/{id}/cancel` | Cancel export; published outputs remain. |
+| `POST /v1/datasets/jobs/{id}/retry` | Retry a failed, blocked, or cancelled export. |
+| `POST /v1/datasets/activity` | Array of `{source,path,vault?}` references. Refresh the existing unlocked one-hour session; never unlock. |
 
-Job requests have `operation` (`prepare` or `render`), `model` (`qwen` or `wan`),
-`inputs` (`id`, `source`, `path`, `revision`), `clips`, and `destination`
-(`source`, `path`). Preparation takes one input and no clips. Rendering takes
-1–500 sources and 1–500 edits. Wan edits contain `id`, `videoID`, `start`, `end`,
-optional normalized `crop`, and UTF-8 `caption`. Qwen edits contain `id`, `control`,
-`target`, optional normalized `controlCrop`/`targetCrop`, and `caption`. Crops have
-`x`, `y`, `width`, `height`, each measured against the oriented display image.
+Inputs contain `id`, `source`, `path`, `revision`, optional `vault`. Its opaque
+identity allows locked errors even while protected locations are hidden. Locked
+access returns HTTP 423 and instructs users to unlock through a FileBeans mobile
+app. Changed revisions return `source_changed`.
 
-States are `queued`, `processing`, `ready`, `failed`, `blocked`, `cancelled`.
-Locked journal/media access returns HTTP 423 with `code: locked`; callers instruct
-users to unlock through a FileBeans mobile app. Source revision conflicts return
-`source_changed`. The worker runs independently of copy jobs under the existing
-single-instance database advisory lease. Active processing holds broker filesystem
-leases and sends activity every 30 seconds. Queued work does not keep folders open.
+Rendering accepts 1–500 sources and edits. Wan edits contain `id`, `videoID`,
+`start`, `end`, optional normalized `crop`, and UTF-8 `caption`. Qwen edits contain
+`id`, `control`, `target`, optional normalized `controlCrop`/`targetCrop`, and
+`caption`. Crops use oriented source coordinates. Only explicit export encodes,
+trims, and crops media. Originals remain unchanged. Encoding writes directly into
+`.filebeans-stage` in the output destination, then publishes by exclusive rename
+into `MakeLORA-<job ID>`.
 
-Previews and scratch live beside source files under hidden `.filebeans-thumbnails`,
-inside encryption for protected sources. Output staging lives in the destination
-boundary under `.filebeans-stage`. Complete datasets publish by exclusive rename
-into `MakeLORA-<job ID>`; the rename is also the crash-recovery publication marker.
-Explicitly selected destinations can export protected source contents under the
-existing personal-server authorization model. No source file is modified.
+Preparation requests are rejected. Old preparation jobs are retired without
+executing them; the old media route returns HTTP 410. Existing originals and
+published outputs are not removed. MakeLORA preview videos and thumbnail files
+are no longer created.
 
-The normalizer excludes final dataset folder names as well as cache/staging
-subtrees so it cannot change training layouts. Deploy the matching normalizer,
-API and broker for the feature trial. Existing FileBeans app builds can still
-unlock and browse content; no FileBeans app release is required.
+Active accesses and exports renew inactivity through the existing broker.
+Exports hold filesystem leases and renew every 30 seconds. Status polling does
+not keep protected content unlocked. The existing normalizer excludes final
+dataset folders and internal staging. Existing FileBeans mobile apps provide
+unlocking; no FileBeans app release is required for this API change.
