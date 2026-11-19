@@ -40,6 +40,9 @@ struct NewProtectedFolder: View {
         NavigationStack {
             Form {
                 Section { TextField("Name", text: $draft.name).autocorrectionDisabled() }
+                if !keys.backupConfirmed {
+                    VaultKeyControls(session: keys)
+                }
             }
             .navigationTitle("Protected Folder")
             .toolbar {
@@ -57,6 +60,7 @@ struct NewProtectedFolder: View {
             } message: { Text(error ?? "") }
         }
         .interactiveDismissDisabled(busy)
+        .onDisappear { draft.finish(); keys.hide() }
     }
     private func create() {
         busy = true

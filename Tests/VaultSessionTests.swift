@@ -122,5 +122,21 @@ final class VaultSessionTests: XCTestCase {
         let cleared = ProtectedFolderDraft(defaults: defaults)
         cleared.begin(connection: connection, parent: parent)
         XCTAssertEqual(cleared.name, "")
+        XCTAssertNotEqual(cleared.requestID, request)
+    }
+
+    func testDismissingCreationDraftClearsNameAndStartsNewRequest() {
+        let connection = UUID()
+        let parent = StoredItem(id: "parent", parent: "root", source: "disk",
+                                file: RemoteFile(name: "Photos", path: "/Photos", type: "directory"),
+                                permissions: Permissions())
+        let draft = ProtectedFolderDraft(defaults: defaults)
+        draft.begin(connection: connection, parent: parent)
+        draft.name = "Private"
+        let request = draft.requestID
+        draft.finish()
+        draft.begin(connection: connection, parent: parent)
+        XCTAssertTrue(draft.name.isEmpty)
+        XCTAssertNotEqual(draft.requestID, request)
     }
 }

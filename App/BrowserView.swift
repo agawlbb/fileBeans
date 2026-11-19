@@ -286,7 +286,10 @@ struct BrowserView: View {
                         Menu {
                             Button("New Folder", systemImage: "folder.badge.plus") { proposedName = ""; newFolder = true }
                             if connection.companionURL != nil && model.canCreateProtectedFolder && model.parentProtection == nil {
-                                Button("Add Protected Folder", systemImage: "lock.fill") { newProtectedFolder = true }
+                                Button("Add Protected Folder", systemImage: "lock.fill") {
+                                    ProtectedFolderDraft.shared.finish()
+                                    newProtectedFolder = true
+                                }
                             }
                             Button("Upload Files", systemImage: "arrow.up.doc") { importing = true }
                             Button("Upload Photos or Videos", systemImage: "photo") { pickingPhotos = true }
