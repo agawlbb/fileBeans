@@ -142,13 +142,29 @@ func (s *Service) datasetRoutes(mux *http.ServeMux) {
 	}
 	mux.HandleFunc("POST /v1/datasets/uploads", s.datasetUpload)
 	mux.HandleFunc("POST /v1/datasets/activity", func(w http.ResponseWriter, r *http.Request) {
-		var items []Item
+		var items []struct {
+			Source string `json:"source"`
+			Path   string `json:"path"`
+			Job    string `json:"job,omitempty"`
+		}
 		if body(r, &items) != nil || len(items) > 501 {
 			datasetFailure(w, ErrUnsafe)
 			return
 		}
 		for _, item := range items {
-			if e := s.datasetActivity(item); e != nil {
+			// Known job references remain identifiable when protected paths are hidden.
+			// Decryption fails closed while locked, before an editor can renew activity.
+			if item.Job != "" {
+				var job DatasetJob
+				s.mu.Lock()
+				e := s.read(item.Job, "dataset", &job)
+				s.mu.Unlock()
+				if e != nil {
+					datasetFailure(w, e)
+					return
+				}
+			}
+			if e := s.datasetActivity(Item{Source: item.Source, Path: item.Path}); e != nil {
 				datasetFailure(w, e)
 				return
 			}
