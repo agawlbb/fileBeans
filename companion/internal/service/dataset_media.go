@@ -329,7 +329,7 @@ func (s *Service) datasetMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "private, no-store")
-	http.ServeContent(w, r, name, st.ModTime(), media)
+	http.ServeContent(filesystemWriter{w}, r, name, st.ModTime(), media)
 }
 func (s *Service) datasetWorker(ctx context.Context) bool {
 	s.mu.Lock()
@@ -605,7 +605,7 @@ func (s *Service) datasetProcess(ctx context.Context, j *DatasetJob) error {
 				return e
 			}
 		}
-		st, e := src.file.Stat()
+		st, e := src.root.Stat(src.path)
 		if e != nil || filesystemRevision(st) != src.ref.Revision {
 			return ErrConflict
 		}
@@ -714,7 +714,7 @@ func (s *Service) datasetProcess(ctx context.Context, j *DatasetJob) error {
 		}
 	}
 	for _, src := range sources {
-		st, e := src.file.Stat()
+		st, e := src.root.Stat(src.path)
 		if e != nil || filesystemRevision(st) != src.ref.Revision {
 			return ErrConflict
 		}
@@ -737,5 +737,9 @@ func (s *Service) datasetProcess(ctx context.Context, j *DatasetJob) error {
 		return e
 	}
 	j.Result = &Item{Source: dest.Source, Path: "/" + strings.TrimPrefix(final, "./")}
-	return syncDir(root, parent)
+	if e = syncDir(root, parent); e != nil {
+		return e
+	}
+	j.State = "ready"
+	return s.save(j.ID, "dataset", j.State, j)
 }

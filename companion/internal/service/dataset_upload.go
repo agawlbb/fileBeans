@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 type datasetUpload struct {
@@ -28,6 +29,7 @@ func fileSHA(f *os.File) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), e
 }
 func (s *Service) datasetUpload(w http.ResponseWriter, r *http.Request) {
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 	hash := r.Header.Get("X-Content-SHA256")
 	decoded, e := hex.DecodeString(hash)
 	if key(r) == "" || e != nil || len(decoded) != 32 || r.ContentLength < 1 || r.ContentLength > 2<<30 {
