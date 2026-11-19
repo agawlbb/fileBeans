@@ -836,3 +836,49 @@ Released **0.1.0 (24)** from main source
 
 The requested TestFlight release is finished and verified. No VPS deployment
 was needed. Physical-device interaction checks remain in `docs/TESTING.md`.
+
+## Sidebar, uploads, and cross-Drive moves — TestFlight 25 (2026-11-19)
+
+Released **0.1.0 (25)** from `2d46435a6e5cd8dc993b82ab5048c939940d3607`,
+pinned by `testflight/0.1.0-25`. Runtime/application changes are in `ad5650b`;
+the release commit only updates test expectations for cross-provider moves.
+
+- [Apple validation 44450075330](https://github.com/agawlbb/fileBeans/actions/runs/44450075330)
+  passed **109 simulator tests**, zero failures, and the iPhone/iPad Release
+  archive. The initial validation caught an outdated assertion forbidding Drive
+  moves; it was corrected before publication.
+- [Signed publication 44451427204](https://github.com/agawlbb/fileBeans/actions/runs/44451427204)
+  passed preflight, archive/export, upload, and temporary credential cleanup.
+  Apple build `3176d0ab-ffdc-48f8-a025-7b2c53c92ac1` is **VALID /
+  IN_BETA_TESTING**, with automatic internal notification enabled. Existing
+  audience and signing settings were preserved; no external review was submitted.
+- Sidebar navigation now tracks local/Drive Trash and Media Normalization along
+  with other main screens. Sources appears in the iPad detail area, and a shared
+  Transfers control stays in the main-content top bar. Transfers includes local
+  and Drive uploads before the server-job phase without duplicate rows.
+- Cross-Drive moves use existing copy engines, revalidate source/destination,
+  then persist a source-cleanup journal. Sources survive failed copies and
+  pre-commit cancellation. Source changes, destination changes, lost responses,
+  account identity, and restart cleanup are checked before removal.
+- VM Go race tests, isolated database recovery tests, vet, and Swift/configuration
+  checks passed. Deployed only `filebeans-api:ad5650b-drive-moves`, built on the
+  VM with manifest
+  `sha256:95c9ccb6ac03c51a2df57486333be7276eb4fd0cf63240695a2fad2b82794551`.
+  Archive SHA-256:
+  `5d1f325dd9b97b56005ef6c66c6caa0e1af62e70dcc5ded320175810bea61bff`.
+  Transfer checksum and loaded image identity were verified before cutover.
+- Authenticated HTTPS source/capability checks and Drive metadata reads passed.
+  API restart count was zero, with no OOM termination. Normalizer container
+  identity/image/PID/start time/restart count, broker PID, and API configuration
+  remained unchanged. No encoder or broker restart or database migration occurred.
+
+Rollback overlay/configuration snapshots and verification reports are retained
+under root-only `/opt/services/filebeans/deploy/drive-moves-ad5650b/`; the image
+archive remains in `/tmp/filebeans-ad5650b/` and on the VM. Restore the saved
+overlay and recreate only `companion` with `--no-build --no-deps` for rollback.
+Do not alter the normalizer, broker, or storage data.
+
+The requested deployment and internal TestFlight release are finished and
+verified. Physical-device acceptance remains separate. Live round-trip move
+verification awaits approval after automatic review rejected the original
+remote move/permanent-purge test; no connected-service data test was executed.

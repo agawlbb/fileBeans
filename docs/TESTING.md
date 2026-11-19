@@ -395,3 +395,36 @@ descendants. Check an upgraded installation with previously enumerated protected
 items: change enumeration must withdraw those items and cached identifiers must
 not permit metadata, content, thumbnails, edits, or protected move destinations.
 Unlocked protected content must remain usable inside fileBeans.
+
+## Sidebar routing, upload transfers, and cross-Drive moves — build 25
+
+[Validation 44450075330](https://github.com/agawlbb/fileBeans/actions/runs/44450075330)
+passed all 109 simulator tests and the iPhone/iPad Release archive. The new
+navigation regression opens local Trash, Drive Trash, Transfers, Media
+Normalization, and protection, then returns to the source through the sidebar.
+The navigation audit leaves direct destination links only inside modal folder
+pickers; main-screen destinations use the tracked source navigation path.
+Upload tests cover connection isolation, progress, identity across the server
+job handoff, and removal after completion. Destination tests cover cross-Drive
+moves and the retained legacy local-source restriction.
+
+VM Go race tests and vet passed, including isolated database-backed move tests:
+local-to-Drive completion, lost upload-response recovery, source changes,
+cancellation, Drive-to-local published-copy cleanup, lost trash-response
+recovery, and changed destination/source retention. The cloud fixture resets
+upload response objects to avoid aliasing previous uploads' metadata.
+
+Production checks verified authenticated public source discovery, the new
+`crossDriveMoves` capability, Drive metadata reads, zero API restarts, and no
+OOM termination. The normalizer, broker, and API configuration were unchanged.
+A live round-trip write test was not run: automatic approval review rejected
+the original remote move/purge test. A revised disposable-file test with cleanup
+to Trash only awaits explicit approval; no test fixtures were created remotely.
+
+Physical-device acceptance: verify sidebar returns from both Trash screens and
+all special screens, including repeated taps on the current folder and Sources.
+Check Transfers stays above main content on iPad Sources, local/Drive folders,
+Trash, and Normalization. Start local and Drive uploads, open Transfers, and
+verify queued/uploading progress and a single row across the server-job handoff.
+Check a failed or cancelled copy retains its original; completed moves remove
+their original only after destination publication.
