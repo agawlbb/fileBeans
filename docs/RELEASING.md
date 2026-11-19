@@ -413,7 +413,7 @@ at each source's top level, with no combined Trash source.
 
 For an unconfigured connection, set companion URL
 `https://files.coffeybean.com/companion` and its separate token from the private
-VPS connection file or the existing `vps_exchange` copy. Never commit or log it.
+VPS connection file or the existing Samba `fileBeans/vps_exchange` copy. Never commit or log it.
 The existing OAuth client and registered callback remain configured. Physical
 device acceptance, real Google write operations and codec compatibility remain
 manual checks after sign-in; simulator success does not claim those checks.
