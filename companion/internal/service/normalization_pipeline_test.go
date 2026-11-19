@@ -86,3 +86,31 @@ func TestNormalizationPipelineBounds(t *testing.T) {
 		t.Fatal("fallback cannot resume alone")
 	}
 }
+
+func TestNormalizationPictureBarrier(t *testing.T) {
+	video := NormalizationJob{ID: "video", State: "queued", Created: 1, Request: NormalizationRequest{Source: "drive", RelativePath: "archive/first.mp4"}}
+	picture := NormalizationJob{ID: "photo", State: "waiting", Created: 2, Next: 9999999999, Request: NormalizationRequest{Source: "drive", RelativePath: "archive/last.JPG"}}
+	jobs := []NormalizationJob{video, picture}
+	if !orderNormalizationJobs(jobs) || jobs[0].ID != "photo" {
+		t.Fatal("waiting picture did not precede video")
+	}
+	jobs[0].State = "failed"
+	if !orderNormalizationJobs(jobs) {
+		t.Fatal("failed picture silently released videos")
+	}
+	jobs[0].State = "completed"
+	if orderNormalizationJobs(jobs) {
+		t.Fatal("completed picture still blocks video")
+	}
+	jobs[0].State = "cancelled"
+	if orderNormalizationJobs(jobs) {
+		t.Fatal("cancelled picture still blocks video")
+	}
+}
+
+func TestNormalizationExtensionlessPicture(t *testing.T) {
+	j := NormalizationJob{ID: "photo", State: "queued", SourceMIME: "image/jpeg", Request: NormalizationRequest{Source: "drive", Path: "opaque-id", RelativePath: "archive/unnamed"}}
+	if !normalizationPicture(j) || !orderNormalizationJobs([]NormalizationJob{j}) {
+		t.Fatal("extensionless Drive picture was not prioritized")
+	}
+}

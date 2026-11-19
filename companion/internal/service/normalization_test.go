@@ -220,6 +220,63 @@ func testNormalizationWorkflow(t *testing.T, s *Service) {
 			}
 		}
 	})
+	t.Run("restart-requeues-before-encoding", func(t *testing.T) {
+		root, _, e := s.normalizationRoot()
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer root.Close()
+		conn, e := s.db.Conn(ctx)
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer conn.Close()
+		for _, isolated := range []bool{false, true} {
+			for _, publication := range []bool{false, true} {
+				name := "legacy"
+				if isolated {
+					name = "isolated"
+				}
+				if publication {
+					name += "-publication"
+				}
+				j := writeNormSource(t, s, "pics/restart-"+name+".png", pngBytes)
+				j.IsolatedWorkspace = isolated
+				j.State, j.Phase = "running", "converting"
+				if e = s.normSave(&j); e != nil {
+					t.Fatal(e)
+				}
+				if e = s.normPrepare(root, &j); e != nil {
+					t.Fatal(e)
+				}
+				if publication {
+					j.Phase = "publishing"
+					j.OutputHash = normHash([]byte("lost output"))
+					j.OutputPath = "pics/restart-" + name + ".jpg"
+					if e = s.normSave(&j); e != nil {
+						t.Fatal(e)
+					}
+				} else {
+					if e = root.WriteFile(filepath.Join(normWorkspaceFor(&j), "output.jpg"), []byte("partial"), 0600); e != nil {
+						t.Fatal(e)
+					}
+				}
+				if e = s.recoverNormWorkspaces(ctx, conn); e != nil {
+					t.Fatal(e)
+				}
+				if e = s.read(j.ID, "normalize", &j); e != nil {
+					t.Fatal(e)
+				}
+				if j.State != "queued" || j.Phase != "queued" || j.Recoveries != 1 || j.Published {
+					t.Fatal("recovery encoded instead of requeueing", j)
+				}
+				if _, e = root.Stat(j.Request.Path); e != nil {
+					t.Fatal("source missing", e)
+				}
+				run(t, &j)
+			}
+		}
+	})
 	t.Run("committed-output-is-not-resurrected", func(t *testing.T) {
 		j := writeNormSource(t, s, "pics/committed.png", normFixturePNG(t, true))
 		run(t, &j)
@@ -330,6 +387,33 @@ func testNormalizationWorkflow(t *testing.T, s *Service) {
 		if j.State != "cancelled" || j.Published {
 			t.Fatal("cancellation ignored", j.State)
 		}
+	})
+	t.Run("legacy-extensionless-picture-classification", func(t *testing.T) {
+		f.add("extensionless-image", "no-extension", "image/png", false)
+		item := f.items["extensionless-image"]
+		item.Size = fmtInt(len(pngBytes))
+		item.SHA256 = normHash(pngBytes)
+		f.items[item.ID] = item
+		f.payloads[item.ID] = pngBytes
+		j, e := s.enqueueNormalization(NormalizationRequest{Source: "drive", Path: item.ID, RelativePath: "no-extension"}, "", "fixture-account", &item)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if j.SourceMIME != "image/png" {
+			t.Fatal("new job did not retain source MIME")
+		}
+		j.SourceMIME = "" // Simulate the existing archive's older queue records.
+		if e = s.normSave(&j); e != nil {
+			t.Fatal(e)
+		}
+		jobs := []NormalizationJob{j}
+		if s.classifyNormalizationJobs(ctx, jobs) || !orderNormalizationJobs(jobs) || jobs[0].SourceMIME != "image/png" {
+			t.Fatal("legacy extensionless picture missed")
+		}
+		if e = s.read(j.ID, "normalize", &j); e != nil {
+			t.Fatal(e)
+		}
+		run(t, &j)
 	})
 	t.Run("inventory-is-metadata-only-and-cancellable", func(t *testing.T) {
 		f.add("album", "Album", "application/vnd.google-apps.folder", false)

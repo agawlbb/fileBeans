@@ -22,6 +22,8 @@ import (
 
 const normWorkspace = ".filebeans-stage/normalization"
 
+var errNormalizationRequeue = errors.New("normalization must return to encoding admission")
+
 func (s *Service) normSave(j *NormalizationJob) error {
 	if s.vaults != nil && s.vaults.guard != nil {
 		lease, e := waitProtection(s.vaults.guard)
@@ -287,6 +289,20 @@ func (s *Service) recoverNormJob(ctx context.Context, lease *sql.Conn, id string
 		j.Error = "The worker restarted repeatedly during this file. The source is retained. Check worker memory/resources, then Retry."
 		return s.normSave(&j)
 	}
+	// Reconcile publication intents synchronously, but never encode inside recovery.
+	// Unpublished scratch is restartable and must re-enter normal admission,
+	// including picture priority, stage concurrency, disk and memory budgets.
+	if !j.Published && (j.Phase != "publishing" || j.OutputHash == "") {
+		if e = s.normCleanup(root, &j); e != nil {
+			return e
+		}
+		j.State = "queued"
+		j.Phase = "queued"
+		j.Done, j.Total = 0, 0
+		j.Error, j.OutputHash = "", ""
+		j.RawMoved = false
+		return s.normSave(&j)
+	}
 	if e = s.normSave(&j); e != nil {
 		return e
 	}
@@ -526,7 +542,7 @@ func (s *Service) executeNormalization(ctx context.Context, j *NormalizationJob,
 			if e = s.normSave(j); e != nil {
 				return e
 			}
-			return s.executeNormalization(ctx, j, publicationGuard)
+			return errNormalizationRequeue
 		}
 		if e = publicationGuard(); e != nil {
 			return e
@@ -791,7 +807,12 @@ func (s *Service) runNormalizationJob(ctx context.Context, j *NormalizationJob) 
 		s.normSave(j)
 		return cleanupErr
 	}
-	if e == nil {
+	if errors.Is(e, errNormalizationRequeue) {
+		j.State, j.Phase = "queued", "queued"
+		j.Done, j.Total = 0, 0
+		j.Error = ""
+		j.Next = 0
+	} else if e == nil {
 		j.State = "completed"
 		j.Phase = "completed"
 		j.Done = j.Total
@@ -888,6 +909,7 @@ func (s *Service) normalizationLoop(parent context.Context, lease *sql.Conn) {
 			wait(ctx, 5*time.Second)
 			continue
 		}
+		inventoryPending := false
 		for _, row := range rows {
 			var b NormalizationBatch
 			if json.Unmarshal(row, &b) == nil && b.State == "queued" {
@@ -902,6 +924,9 @@ func (s *Service) normalizationLoop(parent context.Context, lease *sql.Conn) {
 					s.save(b.ID, "normBatch", b.State, b)
 					wait(ctx, 5*time.Second)
 				}
+				if b.State == "queued" {
+					inventoryPending = true
+				}
 			}
 		}
 		if pipeline.count() == 0 && time.Since(lastScan) >= 30*time.Second {
@@ -915,12 +940,8 @@ func (s *Service) normalizationLoop(parent context.Context, lease *sql.Conn) {
 			wait(ctx, 5*time.Second)
 			continue
 		}
-		sort.SliceStable(jobs, func(i, j int) bool {
-			if jobs[i].Created == jobs[j].Created {
-				return jobs[i].ID < jobs[j].ID
-			}
-			return jobs[i].Created < jobs[j].Created
-		})
+		classificationPending := s.classifyNormalizationJobs(ctx, jobs)
+		picturesPending := orderNormalizationJobs(jobs)
 		spaceBlocked := false
 		for _, job := range jobs {
 			if job.State == "waiting" && job.Error == normalizationError(errNormalizationSpace) && job.Next > time.Now().Unix() && !errors.Is(s.normCheck(ctx, &job), errCancelled) {
@@ -941,6 +962,9 @@ func (s *Service) normalizationLoop(parent context.Context, lease *sql.Conn) {
 				continue
 			}
 			if !normRunnable(*j) {
+				continue
+			}
+			if (picturesPending || inventoryPending || classificationPending) && !normalizationPicture(*j) {
 				continue
 			}
 			if j.Next > time.Now().Unix() && !errors.Is(s.normCheck(ctx, j), errCancelled) {

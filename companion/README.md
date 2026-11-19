@@ -352,6 +352,12 @@ and four admitted jobs total. Each encoder uses a four-thread x265 pool with two
 frame threads; validation uses two decoding threads. Set `normalization.sequential: true` to disable stage overlap
 without changing encoding quality.
 
+Pictures finish before any further videos are admitted. Drive MIME metadata
+identifies extensionless pictures in older queues. Waiting or failed pictures
+hold video admission until completed or explicitly cancelled; incomplete folder
+inventory or unresolved source classification also holds videos. Existing quality
+settings, the profile ID and completed-file fingerprints remain unchanged.
+
 POST `/v1/normalization/jobs` accepts `{source:"drive",path:"DRIVE_ID"}` for a
 file or folder; folder requests require `Idempotency-Key`. Folder inventory reads
 metadata only, preserves hierarchy/empty directories, and records unsupported
@@ -385,9 +391,11 @@ completed files are never re-encoded by this upgrade.
 
 Before rollout, let the active file finish and stop the old worker before starting
 the new image. Keep the existing database, state directory, and library mounts.
-The worker recovers the legacy shared workspace before admitting new jobs, and
-recovers any isolated job workspaces after a restart. Do not change the quality
-profile ID or recreate import batches. Observe the first three files for memory,
+The worker reconciles publication intents first, then cleans restartable scratch
+and returns unfinished jobs to the normal scheduler. Recovery never runs a long
+encode synchronously, so restarts retain parallel admission and picture priority.
+This applies to both legacy shared scratch and isolated job workspaces. Do not
+change the quality profile ID or recreate import batches. Observe the first three files for memory,
 progress, and publication; use sequential mode if overlap reduces throughput.
 The encrypted-vault feature branch combines this pipeline with protected-path
 guards. Normalization remains restricted to the ordinary VPS library.

@@ -59,6 +59,7 @@ type NormalizationRequest struct {
 	RelativePath string `json:"relativePath,omitempty"`
 }
 type NormalizationJob struct {
+	SourceMIME        string               `json:"sourceMime,omitempty"`
 	IsolatedWorkspace bool                 `json:"isolatedWorkspace,omitempty"`
 	Recoveries        int                  `json:"recoveries,omitempty"`
 	LibrarySource     string               `json:"librarySource"`
@@ -161,6 +162,7 @@ func (s *Service) enqueueNormalization(req NormalizationRequest, batch, connecti
 			return j, e
 		}
 		j.SourceSize = size
+		j.SourceMIME = meta.Mime
 		j.SourceVersion = meta.Version
 		j.ExpectedSHA = meta.SHA256
 		j.ExpectedMD5 = meta.MD5
