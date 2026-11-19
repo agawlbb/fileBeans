@@ -9,6 +9,8 @@ import (
 	"syscall"
 )
 
+var errMoveCopyRequired = errors.New("move requires copying")
+
 func moveIdentity(info os.FileInfo) string {
 	if st, ok := info.Sys().(*syscall.Stat_t); ok {
 		return fmt.Sprintf("%d:%d", st.Dev, st.Ino)
@@ -103,9 +105,12 @@ func resumeRename(src, dst rootFS, destination string, m *MoveSelection) error {
 			return err
 		}
 		if !check.Rename {
-			return syscall.EXDEV
+			return errMoveCopyRequired
 		}
 		if err = renameRoots(src, m.Path, dst, target); err != nil {
+			if errors.Is(err, syscall.EXDEV) || errors.Is(err, syscall.EOPNOTSUPP) || errors.Is(err, syscall.ENOSYS) {
+				return errMoveCopyRequired
+			}
 			return err
 		}
 	}

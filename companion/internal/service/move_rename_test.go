@@ -5,8 +5,44 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 )
+
+type failMoveSyncRoot struct {
+	rootFS
+	opens int
+}
+
+func (r *failMoveSyncRoot) Open(path string) (*os.File, error) {
+	r.opens++
+	if r.opens == 2 {
+		return nil, syscall.EOPNOTSUPP
+	}
+	return r.rootFS.Open(path)
+}
+
+func TestMoveRenameSyncFailureKeepsIntent(t *testing.T) {
+	r, err := os.OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	r.MkdirAll("destination", 0700)
+	r.WriteFile("file", []byte("content"), 0600)
+	m := MoveSelection{Path: "file", To: "file"}
+	if err = planRename(r, "file", r, "destination/file", &m); err != nil {
+		t.Fatal(err)
+	}
+	dst := &failMoveSyncRoot{rootFS: r}
+	err = resumeRename(r, dst, "destination", &m)
+	if !errors.Is(err, syscall.EOPNOTSUPP) || errors.Is(err, errMoveCopyRequired) {
+		t.Fatal("sync failure must retain rename intent", err)
+	}
+	if err = resumeRename(r, r, "destination", &m); err != nil || !m.Renamed {
+		t.Fatal("rename recovery failed", err)
+	}
+}
 
 func TestMoveRenameAndRecovery(t *testing.T) {
 	for _, phase := range []string{"fresh", "renamed-before-checkpoint", "replacement-source", "conflicting-target"} {

@@ -334,7 +334,7 @@ func (s *Service) executeMove(ctx context.Context, j *Job) error {
 			return err
 		}
 		err = resumeRename(src, dst, destination, selection)
-		if errors.Is(err, syscall.EXDEV) || errors.Is(err, syscall.EOPNOTSUPP) || errors.Is(err, syscall.ENOSYS) {
+		if errors.Is(err, errMoveCopyRequired) {
 			selection.Rename = false
 			selection.RenameIdentity = ""
 			selection.Entries, err = snapshotMove(ctx, src, selection.Path)
