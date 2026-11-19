@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -246,7 +247,14 @@ func TestFilesystemRendererVideoAndPDF(t *testing.T) {
 		defer root.Close()
 		f, _ := root.Open("clip.mp4")
 		defer f.Close()
-		_, err := s.renderPreview(context.Background(), f, "video/mp4", root, thumbnailDirectory)
+		cacheRoot, cacheDir, cacheError := s.thumbnailCache(root, "samba", "clip.mp4")
+		if cacheError != nil {
+			t.Fatal(cacheError)
+		}
+		if cacheRoot != root {
+			defer cacheRoot.Close()
+		}
+		_, err := s.renderPreview(context.Background(), f, "video/mp4", cacheRoot, cacheDir)
 		t.Fatal("video", out.Code, out.Body.String(), err)
 	}
 	if _, _, e = image.DecodeConfig(bytes.NewReader(out.Body.Bytes())); e != nil {
@@ -447,5 +455,30 @@ func TestFilesystemDisableThumbnailsWithoutReadingSource(t *testing.T) {
 	s.config.Filesystem.DisabledThumbnailSources = nil
 	if out := fsRequest(t, s, "GET", "thumbnail", "/photo.txt", nil, nil); out.Code != 200 {
 		t.Fatal("could not re-enable thumbnails", out.Code)
+	}
+}
+
+// Keep the production PR_SET_DUMPABLE policy isolated to a helper process so
+// it cannot change the process policy of unrelated tests or their helpers.
+func TestFilesystemRendererProtectedProcess(t *testing.T) {
+	if os.Getenv("FILEBEANS_TEST_PROTECTED_RENDERER") != "1" {
+		executable, e := os.Executable()
+		if e != nil {
+			t.Fatal(e)
+		}
+		child := exec.Command(executable, "-test.run=^TestFilesystemRendererProtectedProcess$", "-test.v")
+		child.Env = append(os.Environ(), "FILEBEANS_TEST_PROTECTED_RENDERER=1")
+		if output, e := child.CombinedOutput(); e != nil {
+			t.Fatalf("protected renderer failed: %v\n%s", e, output)
+		}
+		return
+	}
+	if e := unix.Prctl(unix.PR_SET_DUMPABLE, 0, 0, 0, 0); e != nil {
+		t.Fatal(e)
+	}
+	TestFilesystemRendererVideoAndPDF(t)
+	dumpable, e := unix.PrctlRetInt(unix.PR_GET_DUMPABLE, 0, 0, 0, 0)
+	if e != nil || dumpable != 0 {
+		t.Fatal("renderer weakened process privacy", dumpable, e)
 	}
 }

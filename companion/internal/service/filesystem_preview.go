@@ -194,9 +194,11 @@ func (s *Service) renderPreview(ctx context.Context, in *os.File, typ string, ro
 	cmd.ExtraFiles = []*os.File{in, dir}
 	// All subprocess scratch/cache files remain beside the original, inside the
 	// encrypted filesystem for protected media. Input names never enter argv.
-	// chdir occurs before os/exec remaps ExtraFiles in the child. Resolve the
-	// parent's pinned descriptor here; /proc/self/fd/4 is valid only after exec.
-	cmd.Dir = fmt.Sprintf("/proc/%d/fd/%d", os.Getpid(), dir.Fd())
+	// Go changes directory before remapping ExtraFiles. The child initially
+	// inherits this original descriptor number, so resolve its own pinned fd.
+	// Looking through /proc/<parent>/fd is forbidden by PR_SET_DUMPABLE=0.
+	// After exec, the same directory is fd 4 for every scratch/cache setting.
+	cmd.Dir = fmt.Sprintf("/proc/self/fd/%d", dir.Fd())
 	cmd.Env = []string{"PATH=/usr/bin:/bin", "TMPDIR=/proc/self/fd/4", "HOME=/proc/self/fd/4", "XDG_CACHE_HOME=/proc/self/fd/4"}
 	var output limitedPreview
 	cmd.Stdout = &output
