@@ -362,13 +362,16 @@ server-job reconstruction, renamed targets, authenticated scope mapping, queued
 batch-move source state, locked-folder identity and legacy Trash cache removal.
 The tests establish server and application-state behavior; physical-device
 interaction acceptance remains separate.
-# Settings, sidebar navigation, and protected Files exclusion
+
+## Settings, sidebar navigation, and protected Files exclusion
 
 The source changes include regression tests for protected File Provider access
 in locked, unlocked, unavailable, and scoped-source cases, plus an iPad test
 that taps the current sidebar path and verifies the detail is recreated.
-Apple compilation and simulator/device execution remain pending an authorized
-Apple build. VM static parsing and source/configuration isolation checks passed.
+[Apple validation 44441308287](https://github.com/agawlbb/fileBeans/actions/runs/44441308287)
+passed all 107 simulator tests with zero failures and the unsigned iPhone/iPad
+Release archive on source `8f346f9`. VM static parsing and source/configuration
+isolation checks also passed. Physical-device acceptance below remains separate.
 
 On iPad, open Transfers, Trash, and Media Normalization from a folder, then tap
 that folder or an ancestor in the sidebar. The active detail must return to the

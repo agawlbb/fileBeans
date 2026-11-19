@@ -809,3 +809,30 @@ The feature worktree's ignored `.build` artifacts are retained under the main
 checkout's `.build/accepted-filesystem-worktree-artifacts/` before removal of the
 worktree and merged local/remote feature branch. Historical source commits and
 release records remain reachable from main.
+
+## Settings and Files privacy corrections — TestFlight 24 (2026-11-19)
+
+Released **0.1.0 (24)** from main source
+`8f346f9464cbb8ca1ef62fb7d2c3f0badbde0ee6`, pinned by
+`testflight/0.1.0-24`.
+
+- [Validation 44441308287](https://github.com/agawlbb/fileBeans/actions/runs/44441308287)
+  passed all **107 simulator tests**, with zero failures, and the unsigned
+  iPhone/iPad Release archive using Xcode 27.2.
+- [Signed publication 44443690658](https://github.com/agawlbb/fileBeans/actions/runs/44443690658)
+  passed signing preflight, archive/export, TestFlight upload, and temporary
+  credential cleanup. The upload log explicitly reports success with no errors.
+- Apple build `65f242fb-d196-44c4-a6bc-e5826b3051c7` is **VALID /
+  IN_BETA_TESTING**. Automatic internal notification remains enabled. The
+  existing internal group retains access to all builds; no audience settings
+  or signing credentials were changed. External state is
+  `READY_FOR_BETA_SUBMISSION`; no external review was submitted.
+- Protected folders and descendants are excluded from Apple Files even when
+  unlocked, including cached identifier operations and working-set changes.
+  iPad sidebar taps replace the active detail stack; photo/video upload uses
+  a picker attached to the browser. Key and Drive connection tools are in
+  Settings, with Lock/Unlock first. Transfers remains in folder top bars and
+  moves to the Sources top bar. Protected-folder creation is hidden while locked.
+
+The requested TestFlight release is finished and verified. No VPS deployment
+was needed. Physical-device interaction checks remain in `docs/TESTING.md`.
