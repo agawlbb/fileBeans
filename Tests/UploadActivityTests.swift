@@ -18,9 +18,4 @@ final class UploadActivityTests: XCTestCase {
         XCTAssertTrue(activity.entries.isEmpty)
     }
 
-    func testMoveDestinationsIncludeLocalAndDrive() {
-        XCTAssertTrue(DestinationMode.driveMove.allowsLocal)
-        XCTAssertTrue(DestinationMode.localMove(nil).allowsDrive)
-        XCTAssertFalse(DestinationMode.localMove("legacy-source").allowsDrive)
-    }
 }

@@ -39,10 +39,11 @@ final class DriveTests: XCTestCase {
         XCTAssertNil(capabilities.driveWriteAccess)
         XCTAssertNil(capabilities.features)
     }
-    func testDestinationModeRestrictsMovesToOneProvider() {
+    func testDestinationModeAllowsCrossDriveMovesAndRetainsLegacySourceRestriction() {
         XCTAssertTrue(DestinationMode.copy.allowsDrive)
         XCTAssertTrue(DestinationMode.copy.allowsLocal)
         XCTAssertFalse(DestinationMode.localMove("VPS").allowsDrive)
-        XCTAssertFalse(DestinationMode.driveMove.allowsLocal)
+        XCTAssertTrue(DestinationMode.localMove(nil).allowsDrive)
+        XCTAssertTrue(DestinationMode.driveMove.allowsLocal)
     }
 }
