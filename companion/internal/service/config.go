@@ -70,11 +70,6 @@ func Load(path string) (Config, error) {
 	if c.GoogleClientID != "" && (!strings.HasPrefix(c.GoogleRedirect, "https://") || c.GoogleClientSecret == "") {
 		return c, errors.New("Google requires client secret and HTTPS redirect")
 	}
-	for _, source := range c.Filesystem.DisabledThumbnailSources {
-		if !names[source] {
-			return c, errors.New("invalid disabled thumbnail source")
-		}
-	}
 	if c.Filesystem.Enabled {
 		if c.Filesystem.FFmpeg == "" {
 			c.Filesystem.FFmpeg = "/usr/bin/ffmpeg"

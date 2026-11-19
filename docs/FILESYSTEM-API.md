@@ -21,8 +21,7 @@ Enable only in the trial companion configuration:
 "filesystem": {
   "enabled": true,
   "ffmpeg": "/usr/bin/ffmpeg",
-  "pdftoppm": "/usr/bin/pdftoppm",
-  "disabledThumbnailSources": ["Samba"]
+  "pdftoppm": "/usr/bin/pdftoppm"
 }
 ```
 
@@ -60,12 +59,9 @@ index.
 
 ## Thumbnails and protection
 
-`disabledThumbnailSources` temporarily disables previews for named sources.
-The trial uses `["Samba"]` while the owner prepares its archive. Listings mark
-previews unavailable and the thumbnail endpoint returns before checking caches,
-opening originals or accessing the share. Browsing, copying, downloads and media
-streaming remain available. Existing cache files are retained. Remove `Samba`
-from this setting and restart only the API to resume generation; no app update
+Samba uses the same thumbnail behavior as other sources. The temporary
+source suppression has been removed; legacy `disabledThumbnailSources` settings
+are ignored. This takes effect when the updated API is deployed. No app update
 is required.
 
 All folders, including `/pics`, use adjacent hidden caches. The normalizer skips
