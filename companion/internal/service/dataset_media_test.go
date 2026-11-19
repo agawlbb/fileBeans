@@ -106,6 +106,7 @@ func testDatasetDatabase(t *testing.T, s *Service) {
 	old := s.config.Filesystem
 	s.config.Filesystem = FilesystemConfig{Enabled: true, FFmpeg: "/usr/bin/ffmpeg"}
 	testDatasetUpload(t, s)
+	testDatasetProtectedActivity(t, s)
 	defer func() { s.config.Filesystem = old }()
 	base := s.config.Roots[0].Path
 	in := datasetTestImage(t, s, base)
