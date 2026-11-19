@@ -23,6 +23,59 @@ func TestCrossDriveMoveValidation(t *testing.T) {
 	}
 }
 
+func TestDriveMoveDestinationMetadataChanges(t *testing.T) {
+	for _, change := range []string{"version", "folder-version", "checksum", "size", "name", "parent", "missing-checksum", "legacy-checksum"} {
+		t.Run(change, func(t *testing.T) {
+			s := &Service{config: Config{State: t.TempDir()}}
+			fixtureGrant(t, s, true)
+			cloud := newCloudFixture(t)
+			cloud.add("target", "target.dat", "application/octet-stream", false)
+			item := cloud.items["target"]
+			item.SHA256 = "original-content"
+			if change == "folder-version" {
+				item.Mime = "application/vnd.google-apps.folder"
+				item.SHA256 = ""
+			}
+			if change == "missing-checksum" || change == "legacy-checksum" {
+				item.SHA256 = ""
+			}
+			cloud.items[item.ID] = item
+			previous := googleHTTP
+			googleHTTP = &http.Client{Transport: roundTrip(cloud.serve)}
+			defer func() { googleHTTP = previous }()
+			ctx := context.Background()
+			saved, _, err := s.driveTree(ctx, item.ID, "fixture-account", true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			selection := MoveSelection{DestinationID: item.ID, DestinationDrive: saved}
+			job := Job{Connection: "fixture-account", Request: CopyRequest{Destination: Item{Source: "drive", Path: "root"}}}
+			item.Version = "2"
+			switch change {
+			case "checksum":
+				item.SHA256 = "changed-content"
+			case "size":
+				item.Size = "7"
+			case "name":
+				item.Name = "renamed.dat"
+			case "parent":
+				item.Parents = []string{"elsewhere"}
+			case "legacy-checksum":
+				item.SHA256 = "newly-available"
+			}
+			cloud.items[item.ID] = item
+			err = s.checkDriveMoveDestination(ctx, &job, &selection)
+			if change == "version" || change == "folder-version" {
+				if err != nil {
+					t.Fatal("metadata-only version change blocked move", err)
+				}
+			} else if !errors.Is(err, ErrConflict) {
+				t.Fatal("changed or unverifiable destination accepted", err)
+			}
+		})
+	}
+}
+
 func testCrossDriveMoves(t *testing.T, s *Service) {
 	fixtureGrant(t, s, true)
 	previous := googleHTTP
@@ -37,6 +90,46 @@ func testCrossDriveMoves(t *testing.T, s *Service) {
 		}
 		return j
 	}
+	t.Run("drive-metadata-version-change-allows-source-cleanup", func(t *testing.T) {
+		name := "metadata-move.dat"
+		path := filepath.Join(s.config.Roots[1].Path, name)
+		if err := os.WriteFile(path, []byte("abcdef"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		cloud.add("metadata-move", name, "application/octet-stream", false)
+		item := cloud.items["metadata-move"]
+		item.MD5 = "e80b5017098950fc58aad83c8c14978e"
+		cloud.items[item.ID] = item
+		destination, _, err := s.driveTree(ctx, item.ID, "fixture-account", true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		root, err := s.root("samba")
+		if err != nil {
+			t.Fatal(err)
+		}
+		source, err := snapshotMove(ctx, root, name)
+		root.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		j := submit(CopyRequest{Operation: "move", Items: []Item{{Source: "samba", Path: name}}, Destination: Item{Source: "drive", Path: "root"}})
+		j.Move = &MoveState{Published: true, Selections: []MoveSelection{{Source: "samba", Path: name, To: name,
+			Quarantine: filepath.Join(".filebeans-stage", j.ID, "move-0"), Entries: source,
+			DestinationID: item.ID, DestinationDrive: destination}}}
+		if err := s.saveMove(&j); err != nil {
+			t.Fatal(err)
+		}
+		item.Version = "5"
+		cloud.items[item.ID] = item
+		s.runJob(ctx, &j)
+		if j.State != "completed" {
+			t.Fatal(j.State, j.Error)
+		}
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("source retained after verified move", err)
+		}
+	})
 	t.Run("local-to-drive-copy-before-removal-and-restart", func(t *testing.T) {
 		path := filepath.Join(s.config.Roots[0].Path, "drive-move.dat")
 		os.WriteFile(path, []byte("original"), 0600)

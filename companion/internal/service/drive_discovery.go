@@ -88,7 +88,15 @@ func (s *Service) discoverDriveTree(parent context.Context, top DriveItem, conne
 				return nil, ErrUnsafe
 			}
 		}
-		return &driveCopyNode{id: item.ID, file: File{Source: "drive", From: item.ID, To: path, Size: size, Version: item.Version, Directory: dir, Mime: item.Mime}}, nil
+		checksum := ""
+		if !dir {
+			if item.SHA256 != "" {
+				checksum = "sha256:" + item.SHA256
+			} else if item.MD5 != "" {
+				checksum = "md5:" + item.MD5
+			}
+		}
+		return &driveCopyNode{id: item.ID, file: File{Source: "drive", From: item.ID, To: path, Size: size, Version: item.Version, Directory: dir, Mime: item.Mime, Hash: checksum}}, nil
 	}
 	root, err := makeNode(top, top.Name)
 	if err != nil {

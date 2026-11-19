@@ -450,3 +450,25 @@ Ordinary rename retained its inode. Protected copies retained their bytes and
 removed their sources; the return job exposed `preparing` before copying.
 Fixtures were cleaned. The existing cancelled archive job was preserved.
 See the corresponding deployment record in `RELEASING.md`.
+
+## Drive destination version changes — November 19, 2026
+
+Read-only inspection of the reported Samba-to-Drive failures found publication
+complete but source removal not committed. One retained Samba source still
+matched its recorded size, timestamp and inode; its Drive destination retained
+its name and size while the Drive version advanced from 2 to 5. A later copy
+completed. These observations do not establish a live content-checksum match.
+
+Drive destination snapshots now retain the available SHA-256 or MD5 checksum.
+Before move cleanup, equal checksums permit destination version changes;
+directory version changes are also allowed. Identity, path, type, size,
+content and parent checks remain. Source comparisons stay strict. Snapshots
+without a checksum still require the same file version.
+
+The new metadata-change regression reproduces the conflict against the previous
+implementation and passes with the fix. It rejects changed checksum, size, name,
+parent and unverifiable version changes. The isolated MariaDB regression verifies
+Samba source removal after a matching-checksum version change. The full companion
+Go race suite with the pinned rclone and VM test database, and Go vet, passed.
+No production files or jobs were changed. Companion deployment and live acceptance
+remain pending; no app build is required for this server fix.
