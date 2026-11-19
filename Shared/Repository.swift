@@ -3,13 +3,14 @@ import FileProvider
 
 final class Repository {
     let connection: Connection
-    let client: QuantumClient
+    let client: FilesystemClient
     let companion: CompanionClient?
     let store: SharedStore
     init(connection: Connection, store: SharedStore, token: String? = nil) throws {
+        let connection = connection.unified
         self.connection = connection; self.store = store
-        client = QuantumClient(connection: connection, token: token)
-        companion = connection.companionURL == nil ? nil : CompanionClient(connection: connection, store: store)
+        client = FilesystemClient(connection: connection, token: token)
+        companion = CompanionClient(connection: connection, credential: token, store: store)
     }
     deinit { client.close(); companion?.close() }
     func refreshProtection() async {
@@ -159,12 +160,7 @@ final class Repository {
                                                          destination: CopyLocation(source: parent.source, path: parent.file.path)))
             return
         }
-        for item in items {
-            try await client.copy(source: item.source, from: item.file.path, toSource: parent.source,
-                                  to: FilePath.child(item.file.name, in: parent.file.path))
-        }
-        _ = try await children(parent)
-        notify(parent.id)
+        throw APIError.incompatible
     }
     func delete(_ item: StoredItem) async throws {
         guard !item.isSource, item.permissions.delete else { throw APIError.forbidden }
@@ -172,7 +168,7 @@ final class Repository {
             guard !CompanionClient.protected(item.file.path) else { throw APIError.forbidden }
             try await companion.trash(item)
         } else {
-            try await client.delete(source: item.source, path: item.file.path)
+            throw APIError.incompatible
         }
         _ = try await children(try self.item(item.parent))
         notify(item.parent)

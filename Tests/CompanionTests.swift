@@ -8,6 +8,19 @@ final class CompanionTests: XCTestCase {
         XCTAssertNil(connection.companionURL)
         XCTAssertNil(connection.companionTokenID)
     }
+    func testLegacyCompanionBecomesFilesystemEndpointWithoutChangingDomain() throws {
+        let id = UUID(), credential = UUID()
+        let old = Connection(id: id, name: "Files", url: URL(string: "https://files.example/quantum")!,
+                             companionURL: URL(string: "https://files.example/companion")!, companionTokenID: credential)
+        let current = old.unified
+        XCTAssertEqual(current.id, id)
+        XCTAssertEqual(current.url, old.url)
+        XCTAssertEqual(current.filesystemURL, old.companionURL)
+        XCTAssertEqual(current.filesystemTokenID, credential)
+        let direct = Connection(name: "Direct", url: URL(string: "https://files.example/api")!)
+        XCTAssertEqual(direct.unified.companionURL, direct.url)
+        XCTAssertEqual(direct.unified.companionTokenID, direct.id)
+    }
     func testProtectedPathsUseComponentBoundaries() {
         XCTAssertTrue(CompanionClient.protected("/Trash"))
         XCTAssertTrue(CompanionClient.protected("/Trash/id/file"))

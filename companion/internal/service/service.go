@@ -12,6 +12,7 @@ import (
 )
 
 type Service struct {
+	fsMu        sync.Mutex   // serialize API mutation publication and revision checks
 	vaultGate   sync.RWMutex // filesystem operations must finish before an unmount
 	vaults      *vaultManager
 	config      Config

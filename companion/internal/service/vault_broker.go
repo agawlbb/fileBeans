@@ -21,15 +21,16 @@ const brokerStore = ".filebeans-vaults"
 const brokerProtocol = 1
 
 type BrokerConfig struct {
-	LocationBackups []string `json:"locationBackups,omitempty"`
-	State           string   `json:"state"`
-	Runtime         string   `json:"runtime"`
-	Roots           []Root   `json:"roots"`
-	Gocryptfs       string   `json:"gocryptfs"`
-	Fusermount      string   `json:"fusermount"`
-	ControlUID      uint32   `json:"controlUID"`
-	ReaderUID       uint32   `json:"readerUID"`
-	GID             int      `json:"gid"`
+	FilesystemConsumer bool     `json:"filesystemConsumer,omitempty"`
+	LocationBackups    []string `json:"locationBackups,omitempty"`
+	State              string   `json:"state"`
+	Runtime            string   `json:"runtime"`
+	Roots              []Root   `json:"roots"`
+	Gocryptfs          string   `json:"gocryptfs"`
+	Fusermount         string   `json:"fusermount"`
+	ControlUID         uint32   `json:"controlUID"`
+	ReaderUID          uint32   `json:"readerUID"`
+	GID                int      `json:"gid"`
 }
 
 type brokerEntry struct {
@@ -331,7 +332,7 @@ func (b *mountBroker) validateLocation(source, path string, entries []brokerEntr
 		return ErrUnsafe
 	}
 	for _, part := range strings.Split(p, "/") {
-		if part == brokerStore || part == ".filebeans-stage" || part == "Trash" {
+		if filesystemHidden(part) || part == "Trash" {
 			return ErrUnsafe
 		}
 	}

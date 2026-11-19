@@ -119,7 +119,7 @@ func safe(r rootFS, path string) error {
 }
 func protected(path string) bool {
 	p, _ := clean(path)
-	return p == "Trash" || strings.HasPrefix(p, "Trash/") || p == ".filebeans-stage" || strings.HasPrefix(p, ".filebeans-stage/")
+	return filesystemHidden(p) || p == "Trash" || strings.HasPrefix(p, "Trash/") || p == ".filebeans-stage" || strings.HasPrefix(p, ".filebeans-stage/")
 }
 func version(st fs.FileInfo) string { return fmt.Sprintf("%d:%d", st.Size(), st.ModTime().UnixNano()) }
 func mkdir(r rootFS, path string) error {

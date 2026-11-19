@@ -1,7 +1,7 @@
 import AVFoundation
 import UniformTypeIdentifiers
 
-/// Translate AVPlayer's byte requests into bounded Quantum stream requests.
+/// Translate AVPlayer's byte requests into bounded filesystem stream requests.
 /// The delegate and loading-request state are confined to the main queue.
 @MainActor
 final class MediaStream: NSObject, @preconcurrency AVAssetResourceLoaderDelegate {
@@ -13,7 +13,7 @@ final class MediaStream: NSObject, @preconcurrency AVAssetResourceLoaderDelegate
     private(set) var completedRequestCount = 0
     private(set) var suppliedByteCount: Int64 = 0
 
-    init(client: QuantumClient, request: URLRequest, name: String) {
+    init(client: FilesystemClient, request: URLRequest, name: String) {
         self.fetch = { try await client.streamChunk($0, offset: $1, length: $2) }; self.request = request; self.name = name
     }
 

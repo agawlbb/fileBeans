@@ -77,7 +77,7 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
     }()
     init(connection: Connection, credential: String? = nil, configuration: URLSessionConfiguration = .ephemeral,
          store: SharedStore? = nil) {
-        self.connection = connection; self.credential = credential; self.configuration = configuration
+        self.connection = connection.unified; self.credential = credential; self.configuration = configuration
         self.store = store
     }
     func close() { session.invalidateAndCancel() }
@@ -87,7 +87,7 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
                            key: String? = nil, permanent: Bool = false, query: [String: String] = [:],
                            headers: [String: String] = [:]) throws -> URLRequest {
         guard let configured = connection.companionURL, let tokenID = connection.companionTokenID else { throw APIError.authentication }
-        let base = try QuantumClient.validateURL(configured.absoluteString)
+        let base = try FilesystemClient.validateURL(configured.absoluteString)
         var parts = URLComponents(url: base.appendingPathComponent("v1/" + route), resolvingAgainstBaseURL: false)!
         parts.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
         parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
@@ -195,6 +195,8 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
         try JSONDecoder().decode([TrashEntry].self, from: await request("trash", query: source.map { ["source": $0] } ?? [:]))
     }
     static func protected(_ path: String) -> Bool {
-        FilePath.contains(path, in: "/Trash") || FilePath.contains(path, in: "/.filebeans-stage")
+        FilePath.contains(path, in: "/Trash") || path.split(separator: "/").contains {
+            [".filebeans-stage", ".filebeans-vaults", ".filebeans-thumbnails"].contains($0.lowercased())
+        }
     }
 }

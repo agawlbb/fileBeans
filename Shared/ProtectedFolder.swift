@@ -100,7 +100,7 @@ extension SharedStore {
     static func isSystemEntry(_ item: StoredItem, vaults: [ProtectedVault], scope: String) -> Bool {
         guard let canonical = try? FilePath.inSource(item.file.path, scope: scope) else { return true }
         if FilePath.contains(canonical, in: "/Trash") { return true }
-        if canonical.split(separator: "/").contains(where: { $0 == ".filebeans-stage" || $0 == ".filebeans-vaults" }) { return true }
+        if canonical.split(separator: "/").contains(where: { [".filebeans-stage", ".filebeans-vaults", ".filebeans-thumbnails"].contains($0.lowercased()) }) { return true }
         return vaults.contains { $0.source == item.source && FilePath.contains(canonical, in: FilePath.normalized(($0.path ?? "/") + "/Trash")) }
     }
     static func protection(for item: StoredItem, vaults: [ProtectedVault], scope: String = "/") -> FolderProtection? {

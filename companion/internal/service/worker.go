@@ -103,6 +103,12 @@ func (s *Service) discover(ctx context.Context, j *Job) error {
 			}
 			if er == nil {
 				er = fs.WalkDir(root.FS(), from, func(path string, d fs.DirEntry, walkErr error) error {
+					if walkErr == nil && filesystemHidden(path) {
+						if d.IsDir() {
+							return fs.SkipDir
+						}
+						return nil
+					}
 					if walkErr != nil {
 						return walkErr
 					}

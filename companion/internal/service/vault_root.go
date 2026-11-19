@@ -308,7 +308,7 @@ func (f guardedFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	}
 	visible := entries[:0]
 	for _, entry := range entries {
-		if entry.Name() == brokerStore || entry.Name() == ".filebeans-stage" {
+		if filesystemHidden(entry.Name()) {
 			continue
 		}
 		// The scanner callback decides whether to skip a protected directory;

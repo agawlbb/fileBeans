@@ -1,7 +1,11 @@
 # fileBeans companion
 
 Single Linux service for durable server-side copies, local trash, and a full-access
-Google Drive source. Quantum remains responsible for existing file browsing.
+Google Drive source. The standalone filesystem API is the accepted production
+backend for native fileBeans and Apple Files, replacing Quantum. See
+[filesystem API documentation](../docs/FILESYSTEM-API.md) for the current
+connection, runtime, thumbnail and protection configuration. Historical Quantum
+integration notes below describe the retired deployment.
 Drive exists only in the main iOS app, never in its Apple File Provider catalog.
 No live deployment, Google consent, database provisioning, or Apple build is
 performed by these files.

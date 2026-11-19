@@ -30,7 +30,7 @@ private actor ThumbnailFetchGate {
 @MainActor
 final class ThumbnailCacheTests: XCTestCase {
     private func makeKey(connection: UUID = UUID(), revision: String = "1") -> ThumbnailKey {
-        ThumbnailKey(connection: connection, provider: "quantum", source: "VPS", file: "file", revision: revision)
+        ThumbnailKey(connection: connection, provider: "filesystem", source: "VPS", file: "file", revision: revision)
     }
     private func temporaryRoot() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -138,7 +138,7 @@ final class ThumbnailCacheTests: XCTestCase {
         let original = makeKey()
         let alternatives = [makeKey(), makeKey(connection: original.connection, revision: "2"),
             ThumbnailKey(connection: original.connection, provider: "drive", source: "VPS", file: "file", revision: "1"),
-            ThumbnailKey(connection: original.connection, provider: "quantum", source: "Samba", file: "file", revision: "1")]
+            ThumbnailKey(connection: original.connection, provider: "filesystem", source: "Samba", file: "file", revision: "1")]
         XCTAssertTrue(alternatives.allSatisfy { $0.digest != original.digest })
         XCTAssertEqual(original.digest.count, 64)
     }

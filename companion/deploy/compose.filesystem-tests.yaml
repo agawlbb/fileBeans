@@ -1,0 +1,26 @@
+# Synthetic FUSE/CIFS integration only; uses the installed development image.
+services:
+  filesystem-tests:
+    image: vm-laptop-development:local
+    user: "0:0"
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [SYS_ADMIN, CHOWN, DAC_OVERRIDE, FOWNER, SETUID, SETGID]
+    devices: ["/dev/fuse:/dev/fuse:rw"]
+    security_opt: ["no-new-privileges:true", "apparmor:unconfined"]
+    volumes: ["../../.build/fuse-tests:/test-tools:ro"]
+    tmpfs: ["/tmp:rw,nosuid,nodev,noexec,size=128m,mode=1777"]
+    environment:
+      FILEBEANS_TEST_FUSE: "1"
+      FILEBEANS_TEST_GOCRYPTFS: /test-tools/gocryptfs
+      PYTHONPATH: /test-tools/python
+      PATH: /test-tools:/usr/bin:/bin
+    entrypoint: [/test-tools/service.test]
+    command: ["-test.run=^(TestFilesystemProtectedLifecycle|TestFilesystemProtectedSMBLifecycle|TestGocryptfsIndependentRecovery|TestBrokerFolderLifecycle|TestBrokerFolderSMBLifecycle)$", "-test.v", "-test.timeout=90s"]
+    cpus: 1
+    mem_limit: 512m
+    memswap_limit: 512m
+    pids_limit: 64
+    logging:
+      driver: none

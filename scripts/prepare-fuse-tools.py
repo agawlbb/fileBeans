@@ -24,7 +24,7 @@ def install(source, target, mode=None):
         if os.path.exists(temporary):
             os.unlink(temporary)
 
-for name in ["ffmpeg", "ffprobe"]:
+for name in ["ffmpeg", "ffprobe", "pdftoppm"]:
     binary = shutil.which(name)
     if binary is None:
         raise SystemExit(f"Install {name} inside development before filesystem integration tests")

@@ -280,7 +280,7 @@ func (s *Service) runRclone(ctx context.Context, j *Job, f File, dst rootFS, sta
 			env = append(env, "RCLONE_CONFIG_TO_CASE_INSENSITIVE=true")
 		}
 	}
-	args := []string{"--config", config, "--cache-dir", private, "--temp-dir", private, "--use-json-log", "--stats", "1s", "--stats-log-level", "NOTICE", "--log-level", "INFO", "--fast-list"}
+	args := rcloneTransferOptions(config, private, f.Directory)
 	// CIFS can expose fixed ownership through FUSE. Group writers can write
 	// bytes but cannot set another UID's timestamps. Content verification remains
 	// authoritative; do not make protected transfers depend on chtimes.
@@ -373,15 +373,12 @@ func (s *Service) runRclone(ctx context.Context, j *Job, f File, dst rootFS, sta
 			}
 			continue
 		}
-		if event.Level == "error" || event.Level == "fatal" {
-			message := event.Message
-			if event.Object != "" {
-				message = event.Object + ": " + message
-			}
+		if message := rcloneErrorDetail(event, secrets); message != "" {
 			if event.Object != "" || strings.HasPrefix(detail, "rclone stopped") {
-				detail = redactCopyError(message, secrets)
+				detail = message
 			}
 		}
+
 		lower := strings.ToLower(event.Message)
 		// Rclone normally warns and skips these. A copy must not silently omit a
 		// symlink or one of two source objects with the same destination name.
@@ -460,4 +457,27 @@ func redactCopyError(message string, secrets []string) string {
 		message = message[:700]
 	}
 	return message
+}
+
+// Rclone rejects any filter flags on single-file copyto/copyid operations.
+// Direct file selections are validated separately; only directory traversals
+// need to exclude our disposable thumbnail caches.
+func rcloneTransferOptions(config, private string, directory bool) []string {
+	args := []string{"--config", config, "--cache-dir", private, "--temp-dir", private, "--use-json-log", "--stats", "1s", "--stats-log-level", "NOTICE", "--log-level", "INFO", "--fast-list"}
+	if directory {
+		args = append(args, "--exclude", "/"+thumbnailDirectory+"/**", "--exclude", "/"+thumbnailDirectory+"/", "--exclude", "**/"+thumbnailDirectory+"/**", "--exclude", "**/"+thumbnailDirectory+"/")
+	}
+	return args
+}
+func rcloneErrorDetail(event rcloneEvent, secrets []string) string {
+	switch strings.ToLower(event.Level) {
+	case "error", "fatal", "critical":
+		message := event.Message
+		if event.Object != "" {
+			message = event.Object + ": " + message
+		}
+		return redactCopyError(message, secrets)
+	default:
+		return ""
+	}
 }

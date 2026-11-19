@@ -69,7 +69,7 @@ func (b *mountBroker) handler() http.Handler {
 	})
 	mux.HandleFunc("POST /v1/consumer/ready", func(w http.ResponseWriter, r *http.Request) {
 		uid, _ := r.Context().Value(brokerPeer{}).(uint32)
-		if uid != b.config.ReaderUID {
+		if (!b.config.FilesystemConsumer && uid != b.config.ReaderUID) || (b.config.FilesystemConsumer && uid != b.config.ControlUID) {
 			fail(w, ErrAuthorization)
 			return
 		}

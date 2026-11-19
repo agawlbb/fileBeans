@@ -19,112 +19,62 @@ private final class StubProtocol: URLProtocol {
 }
 
 final class TransportTests: XCTestCase {
-    private func client() -> QuantumClient {
+    private func client() -> FilesystemClient {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [StubProtocol.self]
-        return QuantumClient(connection: Connection(name: "Test", url: URL(string: "https://files.example.com/quantum")!),
+        return FilesystemClient(connection: Connection(name: "Test", url: URL(string: "https://files.example.com/companion")!),
                              token: "synthetic-api-token", configuration: config)
     }
     override func tearDown() { StubProtocol.response = nil }
-    func testMoveNeverRequestsOverwriteAndPreservesSource() async throws {
+    func testMoveUsesSourcePaths() async throws {
         StubProtocol.response = { request in
-            XCTAssertEqual(request.httpMethod, "PATCH")
-            XCTAssertEqual(request.url?.path, "/quantum/api/resources")
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/companion/v1/fs/move")
             XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer synthetic-api-token")
-            var body = request.httpBody ?? Data()
+            var data = request.httpBody ?? Data()
             if let stream = request.httpBodyStream {
                 stream.open(); defer { stream.close() }
                 var buffer = [UInt8](repeating: 0, count: 4096)
                 while stream.hasBytesAvailable {
-                    let read = stream.read(&buffer, maxLength: buffer.count)
-                    if read <= 0 { break }
-                    body.append(contentsOf: buffer.prefix(read))
+                    let count = stream.read(&buffer, maxLength: buffer.count)
+                    if count <= 0 { break }
+                    data.append(contentsOf: buffer.prefix(count))
                 }
             }
-            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
-            XCTAssertEqual(json["overwrite"] as? Bool, false)
-            XCTAssertEqual(json["rename"] as? Bool, false)
-            let items = try XCTUnwrap(json["items"] as? [[String: String]])
-            XCTAssertEqual(items[0]["fromSource"], "disk")
-            XCTAssertEqual(items[0]["toSource"], "disk")
-            XCTAssertEqual(items[0]["toPath"], "/new/a & b.txt")
-            return (200, Data())
+            let body = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: String])
+            XCTAssertEqual(body, ["source": "disk", "from": "/a & b.txt", "to": "/new/a & b.txt"])
+            return (204, Data())
         }
         let client = client(); defer { client.close() }
         try await client.move(source: "disk", from: "/a & b.txt", to: "/new/a & b.txt")
     }
-    func testCopySendsOnlyServerPathsWithoutOverwrite() async throws {
-        StubProtocol.response = { request in
-            XCTAssertEqual(request.httpMethod, "PATCH")
-            XCTAssertEqual(request.url?.path, "/quantum/api/resources")
-            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer synthetic-api-token")
-            var body = request.httpBody ?? Data()
-            if let stream = request.httpBodyStream {
-                stream.open(); defer { stream.close() }
-                var buffer = [UInt8](repeating: 0, count: 4096)
-                while stream.hasBytesAvailable {
-                    let read = stream.read(&buffer, maxLength: buffer.count)
-                    if read <= 0 { break }
-                    body.append(contentsOf: buffer.prefix(read))
-                }
-            }
-            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
-            XCTAssertEqual(json["action"] as? String, "copy")
-            XCTAssertEqual(json["overwrite"] as? Bool, false)
-            XCTAssertEqual(json["rename"] as? Bool, false)
-            let items = try XCTUnwrap(json["items"] as? [[String: String]])
-            XCTAssertEqual(items.count, 1)
-            XCTAssertEqual(items[0]["fromPath"], "/a & b.txt")
-            XCTAssertEqual(items[0]["fromSource"], "disk")
-            XCTAssertEqual(items[0]["toSource"], "disk")
-            XCTAssertEqual(items[0]["toPath"], "/new/a & b.txt")
-            return (200, Data())
-        }
-        let client = client(); defer { client.close() }
-        try await client.copy(source: "disk", from: "/a & b.txt", toSource: "disk", to: "/new/a & b.txt")
-    }
-    func testCopyBetweenSourcesSendsDistinctSourcesEvenForIdenticalPaths() async throws {
-        StubProtocol.response = { request in
-            XCTAssertEqual(request.httpMethod, "PATCH")
-            XCTAssertEqual(request.url?.path, "/quantum/api/resources")
-            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer synthetic-api-token")
-            var body = request.httpBody ?? Data()
-            if let stream = request.httpBodyStream {
-                stream.open(); defer { stream.close() }
-                var buffer = [UInt8](repeating: 0, count: 4096)
-                while stream.hasBytesAvailable {
-                    let read = stream.read(&buffer, maxLength: buffer.count)
-                    if read <= 0 { break }
-                    body.append(contentsOf: buffer.prefix(read))
-                }
-            }
-            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
-            XCTAssertEqual(json["action"] as? String, "copy")
-            XCTAssertEqual(json["overwrite"] as? Bool, false)
-            XCTAssertEqual(json["rename"] as? Bool, false)
-            let items = try XCTUnwrap(json["items"] as? [[String: String]])
-            XCTAssertEqual(items.count, 1)
-            XCTAssertEqual(items[0]["fromPath"], "/a & b.txt")
-            XCTAssertEqual(items[0]["fromSource"], "disk")
-            XCTAssertEqual(items[0]["toSource"], "samba")
-            XCTAssertEqual(items[0]["toPath"], "/a & b.txt")
-            return (200, Data())
-        }
-        let client = client(); defer { client.close() }
-        try await client.copy(source: "disk", from: "/a & b.txt", toSource: "samba", to: "/a & b.txt")
-    }
-    func testStreamingUsesScopedViewTokenInsteadOfAPITokenInURL() async throws {
-        StubProtocol.response = { _ in
-            (200, Data(#"{"name":"clip.mp4","path":"/clip.mp4","type":"video/mp4","viewToken":"scoped-view-token"}"#.utf8))
-        }
+    func testStreamingUsesHeaderAuthenticationWithoutViewGrant() async throws {
+        StubProtocol.response = { _ in XCTFail("Streaming must not request a view grant"); return (500, Data()) }
         let client = client(); defer { client.close() }
         let request = try await client.streamRequest(source: "disk", path: "/clip.mp4")
         let url = try XCTUnwrap(request.url)
-        XCTAssertEqual(url.path, "/quantum/api/media/stream")
+        XCTAssertEqual(url.path, "/companion/v1/fs/content")
         XCTAssertFalse(url.absoluteString.contains("synthetic-api-token"))
         let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
-        XCTAssertEqual(components.queryItems?.first { $0.name == "viewToken" }?.value, "scoped-view-token")
+        XCTAssertNil(components.queryItems?.first { $0.name == "viewToken" })
+        XCTAssertEqual(components.queryItems?.first { $0.name == "path" }?.value, "/clip.mp4")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer synthetic-api-token")
+    }
+    func testSourcesRequireSupportedProtocolVersion() async throws {
+        StubProtocol.response = { request in
+            XCTAssertEqual(request.url?.path, "/companion/v1/fs/sources")
+            return (200, Data(#"{"version":2,"scopes":[]}"#.utf8))
+        }
+        let client = client(); defer { client.close() }
+        do { _ = try await client.scopes(); XCTFail("Unsupported protocol accepted") }
+        catch APIError.incompatible { }
+    }
+    func testReplacementRequiresExpectedRevisionBeforeUpload() async throws {
+        let client = client(); defer { client.close() }
+        do {
+            try await client.upload(source: "disk", path: "/doc", file: URL(fileURLWithPath: "/unused"), replacing: true)
+            XCTFail("Unconditional replacement accepted")
+        } catch APIError.conflict { }
     }
     func testExpiredTokenBecomesActionableAuthenticationError() async throws {
         StubProtocol.response = { _ in (401, Data("private server details".utf8)) }

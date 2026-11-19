@@ -1,7 +1,7 @@
 import Foundation
 
 /// Never puts the API token in a URL. Redirects are rejected to avoid credential leakage.
-final class QuantumClient: NSObject, URLSessionTaskDelegate {
+final class FilesystemClient: NSObject, URLSessionTaskDelegate {
     let connection: Connection
     private let token: String?
     private let configuration: URLSessionConfiguration
@@ -33,14 +33,14 @@ final class QuantumClient: NSObject, URLSessionTaskDelegate {
         return url
     }
     func request(_ route: String, query: [String: String] = [:], method: String = "GET") throws -> URLRequest {
-        let base = try Self.validateURL(connection.url.absoluteString)
-        var c = URLComponents(url: base.appendingPathComponent("api/" + route), resolvingAgainstBaseURL: false)!
+        let base = try Self.validateURL(connection.filesystemURL.absoluteString)
+        var c = URLComponents(url: base.appendingPathComponent("v1/fs/" + route), resolvingAgainstBaseURL: false)!
         c.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
-        // Quantum uses Go's form-style query decoder, where an unescaped '+' is a space.
+        // Go query decoding treats an unescaped '+' as a space.
         c.percentEncodedQuery = c.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         var r = URLRequest(url: c.url!)
         r.httpMethod = method
-        r.setValue("Bearer " + (try token ?? TokenStore.read(connection.id)), forHTTPHeaderField: "Authorization")
+        r.setValue("Bearer " + (try token ?? TokenStore.read(connection.filesystemTokenID)), forHTTPHeaderField: "Authorization")
         return r
     }
     func check(_ response: URLResponse) throws {
@@ -61,8 +61,12 @@ final class QuantumClient: NSObject, URLSessionTaskDelegate {
         return data
     }
     func scopes() async throws -> [Scope] {
-        let d = try await data(request("users", query: ["username": "self"]))
-        do { return try JSONDecoder().decode(User.self, from: d).scopes }
+        let d = try await data(request("sources"))
+        do {
+            let result = try JSONDecoder().decode(User.self, from: d)
+            guard result.version == 1 else { throw APIError.incompatible }
+            return result.scopes
+        }
         catch { throw APIError.incompatible }
     }
     func resource(source: String, path: String) async throws -> Resource {
@@ -71,41 +75,21 @@ final class QuantumClient: NSObject, URLSessionTaskDelegate {
         ])))
     }
     func createFolder(source: String, path: String) async throws {
-        _ = try await data(request("resources", query: ["source": source, "path": path, "isDir": "true", "override": "false"], method: "POST"))
-    }
-    func delete(source: String, path: String) async throws {
-        _ = try await data(request("resources", query: ["source": source, "path": path], method: "DELETE"))
+        _ = try await data(request("folders", query: ["source": source, "path": path], method: "POST"))
     }
     func move(source: String, from: String, to: String) async throws {
-        var r = try request("resources", method: "PATCH")
+        var r = try request("move", method: "POST")
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        r.httpBody = try JSONSerialization.data(withJSONObject: [
-            "action": "move", "overwrite": false, "rename": false,
-            "items": [["fromSource": source, "fromPath": from, "toSource": source, "toPath": to]]
-        ])
-        _ = try await data(r)
-    }
-    /// Sends only paths to Quantum; file contents remain on the server.
-    func copy(source: String, from: String, toSource: String, to: String) async throws {
-        var r = try request("resources", method: "PATCH")
-        r.timeoutInterval = 3600
-        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        r.httpBody = try JSONSerialization.data(withJSONObject: [
-            "action": "copy", "overwrite": false, "rename": false,
-            "items": [["fromSource": source, "fromPath": from, "toSource": toSource, "toPath": to]]
-        ])
+        r.httpBody = try JSONSerialization.data(withJSONObject: ["source": source, "from": from, "to": to])
         _ = try await data(r)
     }
     func thumbnail(source: String, file: RemoteFile) async throws -> Data {
-        try await data(request("resources/preview", query: ["source": source, "path": file.path,
-            "size": "small", "key": file.modified ?? ""]))
+        try await data(request("thumbnail", query: ["source": source, "path": file.path]))
     }
     func streamRequest(source: String, path: String) async throws -> URLRequest {
-        let file = try await resource(source: source, path: path)
-        guard let viewToken = file.viewToken, !viewToken.isEmpty else { throw APIError.forbidden }
-        // Quantum requires both a view grant and user authentication on this route.
-        return try request("media/stream", query: ["source": source, "file": path, "viewToken": viewToken])
+        try request("content", query: ["source": source, "path": path])
     }
+
     func streamChunk(_ request: URLRequest, offset: Int64, length: Int) async throws -> MediaChunk {
         guard offset >= 0, length > 0, length <= MediaRange.chunkSize,
               offset <= Int64.max - Int64(length) else { throw URLError(.badURL) }
@@ -120,7 +104,7 @@ final class QuantumClient: NSObject, URLSessionTaskDelegate {
         return try MediaChunk.decode(bytes, response: http, offset: offset, length: length)
     }
     func download(source: String, path: String) async throws -> URL {
-        let (url, response) = try await session.download(for: request("resources/download", query: ["source": source, "file": path]))
+        let (url, response) = try await session.download(for: request("content", query: ["source": source, "path": path]))
         do {
             try check(response)
             let destination = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -131,10 +115,14 @@ final class QuantumClient: NSObject, URLSessionTaskDelegate {
             throw error
         }
     }
-    func upload(source: String, path: String, file: URL, replacing: Bool = false,
+    func upload(source: String, path: String, file: URL, replacing: Bool = false, expectedRevision: String? = nil,
                 progress: @escaping (Double) -> Void = { _ in }) async throws {
         try Task.checkCancellation()
-        var r = try request("resources", query: ["source": source, "path": path, "override": "false"], method: replacing ? "PUT" : "POST")
+        var r = try request("content", query: ["source": source, "path": path], method: replacing ? "PUT" : "POST")
+        if replacing {
+            guard let expectedRevision, !expectedRevision.isEmpty else { throw APIError.conflict }
+            r.setValue("\"" + expectedRevision + "\"", forHTTPHeaderField: "If-Match")
+        }
         r.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
         let delegate = UploadDelegate(progress)
         let (_, response) = try await session.upload(for: r, fromFile: file, delegate: delegate)

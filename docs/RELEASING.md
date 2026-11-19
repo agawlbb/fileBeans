@@ -604,3 +604,208 @@ Apple build `f4a55d28-c3b4-4132-9cd5-e3d4e6ee7022` is **VALID** and
 External state is `READY_FOR_BETA_SUBMISSION`; no tester groups or external review
 settings were changed. Deployment and the authorized TestFlight release are
 finished and verified.
+
+### Standalone filesystem API trial and TestFlight 23 (2026-11-18)
+
+This is an owner-authorized trial on `feature/filesystem-api`; main was not
+merged or changed. Runtime and app source are
+`8af23930b55bad98ddb2d6363bda931f0e8cca20`, pinned by `testflight/0.1.0-23`.
+
+- [Apple validation 44407837321](https://github.com/agawlbb/fileBeans/actions/runs/44407837321)
+  passed all **104 simulator tests**, with zero failures, and the unsigned device
+  Release archive. Xcode/device/simulator SDK versions are **27.2**.
+- [Signed upload 44410395658](https://github.com/agawlbb/fileBeans/actions/runs/44410395658)
+  reports archive/export success and `UPLOAD SUCCEEDED with no errors` for
+  **0.1.0 (23)**. Apple build `4cf1e3a5-5f67-40fc-8e0a-15922baf2ba6` is
+  **VALID / IN_BETA_TESTING**. Existing automatic internal notification remains
+  enabled; external state is `READY_FOR_BETA_SUBMISSION`. No tester groups,
+  branch protections or external review settings were changed.
+- The VPS runs `filebeans-api:8af2393-trial`, built on VM-laptop with independent
+  Debian/FFmpeg/Poppler/rclone runtime assets. Manifest:
+  `sha256:21fda110568b09ea9e8d42aced43840c13c9f507a1a820b909929f6c43ec6052`.
+  Image archive SHA-256:
+  `8dae096bcfe1e8b97919c227bd5d046bad1b8e7cd5143d02f07b3535f5b72d8e`.
+  The transferred archive and loaded image identity were verified. The matching
+  broker binary was checked against the VM artifact manifest.
+- Quantum is stopped, with its image, configuration and private database retained
+  for rollback. The broker's `filesystemConsumer` mode uses the API's control UID
+  for readiness. Protected folders are locked following broker restart; real-key
+  unlock and physical-device acceptance remain user-device checks.
+- A dedicated `filesystem-trial.json` and companion-only Compose overlay leave
+  the normalizer's configuration untouched. The temporary cache override for
+  source `VPS`, path `/pics`, stores ordinary thumbnails/scratch in private API
+  state outside the scan. Protected thumbnails still stay inside encryption.
+  Remove this override after the old worker is retired; no originals need moving.
+- A trial systemd drop-in excludes the normalizer from stack stop/start commands.
+  The worker remains on `filebeans-normalizer:fed272d-parallel`. Container
+  `a1e4d4109975`, start time, restart count and PID **2167339** stayed unchanged;
+  the same FFmpeg process **2188617** survived. All **743** normalization job IDs
+  and **454** previously completed records were retained. Live progress advanced
+  during and after cutover; no running conversion was restarted by deployment.
+- Go race/vet checks, isolated local/CIFS encrypted-folder tests and the built
+  runtime's synthetic API/renderer tests passed. Live authenticated HTTPS checks
+  covered source discovery, permissions, ranges, conflicts, thumbnails and
+  synthetic VPS/Samba create/upload/edit/rename/Trash/restore/purge. Disposable
+  probes were removed. `/pics` thumbnails were confirmed outside the watched
+  tree. API restart count and OOM count were zero during verification.
+
+VM artifacts remain in this feature worktree's
+`.build/filesystem-runtime/8af23930b55bad98ddb2d6363bda931f0e8cca20/` and
+`.build/filesystem-images/8af2393/`. Root-only VPS rollback files, original
+configuration/broker, images, worker snapshots and deployment scripts are retained
+under `/opt/services/filebeans/deploy/filesystem-8af2393/`.
+
+For a requested rollback during the trial, the retained
+`bundle/deploy.py rollback` restores the prior broker and companion/Quantum
+services without issuing normalizer stop/start commands. It preserves the worker
+present at rollback time. Reinstall the previous native build separately when
+requested. No SQL migration or ciphertext conversion was performed.
+
+Trial deployment and the authorized TestFlight release are finished and verified;
+physical-device acceptance and the owner's permanent-merge decision remain open.
+
+
+### Copy correction and temporary Samba thumbnail suspension (2026-11-18)
+
+The owner stopped the API during diagnosis, then requested the copy fix, temporary
+Samba thumbnail suspension, deployment and restart. Source
+`eda5913c22be1908bee4ef924d038e6205a99c29` remains isolated on the filesystem API
+feature branch. Main was not changed.
+
+- Single-file copies no longer receive directory filter flags, which rclone
+  rejects. Folder copies still exclude root/nested thumbnail caches and preserve
+  empty user folders. Critical-level errors are now surfaced through redaction.
+- `disabledThumbnailSources: ["Samba"]` is set in the private API configuration.
+  Metadata advertises no previews for that source; thumbnail requests return
+  before mount/cache/original access. Existing cache files are retained. The
+  ordinary `/pics` cache override remains unchanged.
+- VM Go race tests and vet passed. The exact pinned rclone exercised single-file
+  copies, nested folder copies, empty folders, cache exclusions and real critical
+  error output without requiring SQL. The built image passed those tests and
+  ordinary API/renderer/thumbnail-policy regressions in an isolated VM container.
+- Deployed `filebeans-api:eda5913-copyfix`, VM-built and checksum-verified.
+  Manifest: `sha256:2afee6084e8545b7fd80201aa81d7cb6754357098268ac983acc855c5b5f1266`.
+  Archive SHA-256:
+  `8ffd3fb0bcca690ef2a389f59cf6fa131694c7bbee4dd8575c82598baea0df9d`.
+  Only the companion/API container was recreated with `--no-build --no-deps`;
+  the normalizer container identity, start time, PID, image and restart count,
+  and the broker PID stayed unchanged.
+- Live authenticated HTTPS and VPS-only single-file/folder copy jobs passed.
+  The reported failed copy was retried only after checking its original request
+  and absent destination. It completed; source metadata remained unchanged and
+  source/destination content hashes matched. Synthetic probes were removed.
+  No Samba files were created or modified by verification.
+- Existing TestFlight **0.1.0 (23)** is compatible. No Apple build or upload was
+  needed for this server-only correction.
+
+Prepared archives, previous API configuration/overlay and worker snapshots are
+retained under root-only `/opt/services/filebeans/deploy/copyfix-eda5913/`.
+`verification.json` records live checks. The API is running; the worker and broker
+were not restarted. This requested deployment is finished and verified.
+
+### VPS video/PDF renderer launch correction (2026-11-18)
+
+Source `e58aa165f3d39448e1872d50425e05e3db2c1447` corrects the subprocess
+working directory without weakening the API's `PR_SET_DUMPABLE=0` policy. The
+renderer now resolves its own inherited directory descriptor before Go remaps
+ExtraFiles, rather than trying to access the protected parent's `/proc` entries.
+Input and scratch/cache directory descriptors, broker leases, encrypted storage
+and bounded renderer concurrency remain in place.
+
+- A helper-process regression reproduced the old launch failure with process
+  privacy enabled, then passed for real video and PDF previews with the fix.
+  It also checks that the API/helper privacy setting remains disabled for dumps
+  after rendering. Go race/vet checks and isolated local/CIFS encrypted-folder
+  tests passed. The exact unprivileged runtime image passed the same regression
+  and ordinary API/preview-policy checks.
+- VM-built image: `filebeans-api:e58aa16-previews`. Manifest:
+  `sha256:0e0426119dd5520a525d0cd133882d55aa663cd4491a9108c93de4da58c28eb9`.
+  Archive SHA-256:
+  `db17b3ba1c9e0f269f80fa5b15004cfe9240810aa1a875a2ea179d5908a61cd6`.
+  Transfer checksum and loaded image identity were verified before cutover.
+- Only the API container was recreated. Its private configuration was preserved
+  byte-for-byte: Samba thumbnail generation remains disabled and ordinary `/pics`
+  thumbnails/scratch still use private state outside the normalization scan.
+  Worker container ID, PID, start time, image/restart count and broker PID were
+  checked unchanged.
+- Live checks generated JPEG previews for three existing VPS videos in distinct
+  folders, verified cache files in private state, verified matching cached
+  responses and confirmed original inode/size/modification time remained
+  unchanged. No Samba originals were accessed by these checks. Authenticated
+  HTTPS source discovery and Samba preview rejection passed.
+
+Rollback overlay/config snapshots, the prepared image/metadata, worker snapshots
+and `verification.json` are retained under root-only
+`/opt/services/filebeans/deploy/previews-e58aa16/`. Source stays on the feature
+branch; main was not changed. No app build or release was needed; TestFlight 23
+is compatible. Reopen a video folder to start new preview requests after an
+already-visible thumbnail task failed before the update.
+
+Requested correction and API deployment are finished and verified. Remaining
+VPS thumbnails are generated on demand as the owner browses; no bulk archive scan
+or background thumbnail worker was started.
+
+## Adjacent VPS and Samba thumbnail caches — November 19, 2026 UTC
+
+At the owner's request, deployed feature source
+`7d68475a5478004d24a3c02e7fbb6135b09e3809` as
+`filebeans-api:7d68475-thumbnails`. Removed the obsolete
+`thumbnailCacheOverrides` and `disabledThumbnailSources` keys from the private
+API configuration. All folders now use adjacent `.filebeans-thumbnails` caches;
+Samba previews are enabled. No app build or release was needed.
+
+- Prepared and built the API image on VM-laptop. Manifest:
+  `sha256:ba30d5a04540b779d1ae81d2e22861888fc89ce0f14947a02a28a7283f7e07af`.
+  Archive SHA-256:
+  `539d29515c71e6a664469ca19fc57fc06ffd53b498c0a9c042c4435640fc0ebd`.
+  Verified the transferred archive and loaded image identity before cutover.
+- Recreated only `companion` with `--no-build --no-deps`. The initial health
+  check incorrectly used host loopback, causing automatic API rollback; the
+  corrected Docker-network check passed on retry.
+- Live VPS and Samba video previews produced JPEGs in adjacent hidden caches.
+  Repeated responses matched cached bytes; original inode, size and modification
+  time were unchanged. API listings hid cache folders. Both video sources passed
+  HTTP range requests, and authenticated public HTTPS source discovery passed.
+- The separately deployed `filebeans-normalizer:3644c21-recovery` container ID,
+  PID, start time, image, command and restart count were unchanged across API
+  deployment and verification. The broker process was also preserved. This
+  deployment made no encoder or main-branch changes.
+
+Rollback image/configuration snapshots and verification reports are retained in
+root-only `/opt/services/filebeans/deploy/thumbnails-7d68475/` and
+`/opt/services/filebeans/deploy/thumbnails-7d68475-retry1/`. Restore the saved API
+configuration/overlay and recreate only `companion` to roll back; preserve the
+normalizer and media/cache files. Thumbnails continue to generate on demand as
+folders are browsed; no bulk media scan was started.
+
+
+## Permanent API acceptance and Quantum retirement — November 19, 2026 UTC
+
+The owner accepted the filesystem API after successful copies, deletes,
+thumbnail generation and streaming, and explicitly requested its merge into
+main, removal of the feature branch/worktree, and Quantum removal from the VPS.
+Merged `feature/filesystem-api` through `bab6a65`, preserving main's encoder
+recovery, picture-priority scheduling, and standalone cache exclusions. The
+single scan conflict was resolved in favor of main's `walkNormalizationOriginals`
+implementation. The merged backend passed Go tests with race detection and vet;
+Swift/Python/plist/assets/project structure and isolation validation passed.
+No app build or API/encoder image deployment was required for this acceptance.
+The observed stale locked-folder listing in Apple Files is deferred at the
+owner's request.
+
+On the VPS, removed the already stopped `filebrowser-quantum` container and all
+five installed Quantum image tags (`filebeans-quantum` versions and the upstream
+stable image). Retired `/opt/services/filebrowser/compose.yaml` into root-only
+`/opt/services/filebeans/deploy/quantum-retired-20261119/`. Preserved all media,
+encrypted storage, Quantum database/configuration files and historical recovery
+archives. The former Quantum proxy fallback now returns HTTP 404; the native
+`/companion` proxy route is unchanged. Caddy configuration validation/reload and
+authenticated HTTPS source discovery passed. API and normalizer container IDs,
+images, PIDs, start times and restart counts remained unchanged. The retirement
+directory retains previous proxy/Compose definitions, container metadata, and
+`verification.json`.
+
+The feature worktree's ignored `.build` artifacts are retained under the main
+checkout's `.build/accepted-filesystem-worktree-artifacts/` before removal of the
+worktree and merged local/remote feature branch. Historical source commits and
+release records remain reachable from main.
