@@ -10,6 +10,8 @@ private final class NavigationFixture: ObservableObject {
     var loadFinished: XCTestExpectation?
     var cancelled: XCTestExpectation?
     var navigate: ((Int) -> Void)?
+    var showSources: (() -> Void)?
+    let navigation = SourceNavigationState()
 
     func load(_ source: SourceDestination) async {
         do {
@@ -29,7 +31,7 @@ private struct BreadcrumbProbe: View {
     let fixture: NavigationFixture
     @Environment(\.folderBreadcrumbs) private var trail
     var body: some View {
-        Text("Sources").onAppear { fixture.navigate = trail.navigate }
+        Text("Sources").onAppear { fixture.navigate = trail.navigate; fixture.showSources = trail.showSources }
     }
 }
 
@@ -39,7 +41,7 @@ private struct NavigationHarness: View {
     @State private var visibility: NavigationSplitViewVisibility = .all
     var body: some View {
         SourceNavigation(compact: compact, path: $fixture.path, selected: $fixture.selected,
-                         columnVisibility: $visibility, sidebar: BreadcrumbProbe(fixture: fixture)) { source in
+                         columnVisibility: $visibility, sidebar: BreadcrumbProbe(fixture: fixture), state: fixture.navigation) { source in
             Text(source.name).task { await fixture.load(source) }
         }
     }
@@ -67,6 +69,37 @@ final class SourceNavigationTests: XCTestCase {
         try XCTUnwrap(fixture.navigate)(0)
         await fulfillment(of: [reopened], timeout: 5)
         XCTAssertEqual(fixture.loaded, ["Disk", "Disk"])
+    }
+
+    func testIPadSidebarLeavesEverySpecialRoute() async throws {
+        let fixture = NavigationFixture()
+        let connection = Connection(name: "Synthetic", url: URL(string: "https://example.invalid")!)
+        let item = StoredItem(id: "disk", parent: "root", source: "disk",
+            file: RemoteFile(name: "Disk", path: "/", type: "directory"), permissions: Permissions(), isSource: true)
+        fixture.selected = SourceDestination(connection: connection, kind: .local(item))
+        let controller = UIHostingController(rootView: NavigationHarness(fixture: fixture, compact: false))
+        controller.traitOverrides.horizontalSizeClass = .regular
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 1024, height: 768))
+        window.rootViewController = controller
+        let initial = expectation(description: "Source loads")
+        fixture.loadFinished = initial; window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        await fulfillment(of: [initial], timeout: 5)
+        for kind in [SourceDestination.Kind.trash("disk"), .driveTrash, .transfers, .normalization, .protection] {
+            let special = SourceDestination(connection: connection, kind: kind)
+            let opened = expectation(description: special.name + " opens")
+            fixture.loadFinished = opened
+            fixture.navigation.path = [special]
+            await fulfillment(of: [opened], timeout: 5)
+            let returned = expectation(description: "Sidebar returns from " + special.name)
+            fixture.loadFinished = returned
+            try XCTUnwrap(fixture.navigate)(0)
+            await fulfillment(of: [returned], timeout: 5)
+            XCTAssertTrue(fixture.navigation.path.isEmpty)
+            XCTAssertEqual(fixture.loaded.last, "Disk")
+        }
+        try XCTUnwrap(fixture.showSources)()
+        XCTAssertNil(fixture.selected)
     }
 
     func testBackThenDifferentSourceLoads() async {

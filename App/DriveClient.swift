@@ -40,7 +40,7 @@ struct DriveFile: Decodable, Identifiable {
     var nativeDocument: Bool { mimeType.hasPrefix("application/vnd.google-apps.") && !folder }
     var downloadable: Bool { !folder && !nativeDocument && capabilities?.canDownload == true }
     var canCopy: Bool { sourceRoot != true && (folder || capabilities?.canCopy == true || downloadable) }
-    var canMove: Bool { sourceRoot != true && (capabilities?.canMoveItemWithinDrive == true || capabilities?.canMoveItemOutOfDrive == true) }
+    var canMove: Bool { sourceRoot != true && (capabilities?.canMoveItemWithinDrive == true || capabilities?.canMoveItemOutOfDrive == true || (canCopy && canTrash && !nativeDocument)) }
     var canRename: Bool { sourceRoot != true && capabilities?.canRename == true }
     var canTrash: Bool { sourceRoot != true && capabilities?.canTrash == true }
     var media: Bool { mimeType.hasPrefix("video/") || mimeType.hasPrefix("audio/") }

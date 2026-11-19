@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TransferList: View {
     let connection: Connection
+    @ObservedObject private var uploads = UploadActivity.shared
     @State private var jobs: [CopyJob] = []
     @State private var error: String?
     @State private var pendingActions: Set<String> = []
@@ -9,7 +10,18 @@ struct TransferList: View {
     var body: some View {
         List {
             if let error { Text(error).foregroundStyle(.red) }
-            if jobs.isEmpty { Text("No transfers") }
+            let activeUploads = uploads.transfers(connection: connection.id)
+            if jobs.isEmpty && activeUploads.isEmpty { Text("No transfers") }
+            ForEach(activeUploads.filter { upload in !jobs.contains { $0.id == upload.job } }) { upload in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(upload.name).lineLimit(2)
+                    Text("To \(upload.destination)").font(.caption).lineLimit(2)
+                    Text(upload.state).font(.caption)
+                    ProgressView(value: upload.progress)
+                    Text("\(ByteCountFormatter.string(fromByteCount: Int64(Double(upload.total) * upload.progress), countStyle: .file)) / \(ByteCountFormatter.string(fromByteCount: upload.total, countStyle: .file))").font(.caption)
+                    if let error = upload.error { Text(error).foregroundStyle(.red).font(.caption) }
+                }
+            }
             ForEach(jobs) { job in
                 VStack(alignment: .leading, spacing: 6) {
                     Text(job.title).lineLimit(2)
@@ -37,10 +49,11 @@ struct TransferList: View {
             }
         }
         .navigationTitle("Transfers")
-        .toolbar { NavigationLink { NormalizationView(connection: connection) } label: { Label("Media Normalization", systemImage: "film.stack") } }
+        .toolbar { NavigationLink(value: SourceDestination(connection: connection, kind: .normalization)) { Label("Media Normalization", systemImage: "film.stack") } }
         .refreshable { await refresh() }
         .task(id: phase) {
             guard phase == .active else { return }
+            DriveUploadQueue.shared(connection: connection).recover()
             while !Task.isCancelled {
                 await refresh()
                 do { try await Task.sleep(for: .seconds(2)) } catch { return }

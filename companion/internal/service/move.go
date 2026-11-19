@@ -24,13 +24,17 @@ type MoveEntry struct {
 	Identity  string `json:"identity"`
 }
 type MoveSelection struct {
-	Source     string      `json:"source"`
-	Path       string      `json:"path"`
-	To         string      `json:"to"`
-	Quarantine string      `json:"quarantine"`
-	Entries    []MoveEntry `json:"entries"`
-	Removing   bool        `json:"removing,omitempty"`
-	Removed    bool        `json:"removed,omitempty"`
+	DriveEntries       []File      `json:"driveEntries,omitempty"`
+	DestinationEntries []MoveEntry `json:"destinationEntries,omitempty"`
+	DestinationDrive   []File      `json:"destinationDrive,omitempty"`
+	DestinationID      string      `json:"destinationId,omitempty"`
+	Source             string      `json:"source"`
+	Path               string      `json:"path"`
+	To                 string      `json:"to"`
+	Quarantine         string      `json:"quarantine"`
+	Entries            []MoveEntry `json:"entries"`
+	Removing           bool        `json:"removing,omitempty"`
+	Removed            bool        `json:"removed,omitempty"`
 }
 type MoveState struct {
 	Selections []MoveSelection `json:"selections"`
@@ -48,10 +52,24 @@ func validateMoveRequest(req CopyRequest) error {
 	if req.Operation != "move" {
 		return nil
 	}
-	if req.Destination.Source == "drive" || req.Destination.Source == "upload" {
+	if hasDrive(req) && req.DestinationName != "" {
+		return ErrUnsafe
+	}
+	if req.Destination.Source == "" || req.Destination.Source == "upload" {
 		return ErrUnsafe
 	}
 	for i, item := range req.Items {
+		if item.Source == "drive" {
+			if req.Destination.Source == "drive" || !driveID(item.Path) || item.Path == "root" {
+				return ErrUnsafe
+			}
+			for _, other := range req.Items[:i] {
+				if other.Source == "drive" && other.Path == item.Path {
+					return ErrUnsafe
+				}
+			}
+			continue
+		}
 		p, e := clean(item.Path)
 		if e != nil || p == "." || protected(p) || item.Source == "drive" || item.Source == "upload" {
 			return ErrUnsafe
@@ -194,6 +212,9 @@ func (s *Service) executeMove(ctx context.Context, j *Job) error {
 	if e := validateMoveRequest(j.Request); e != nil {
 		return e
 	}
+	if hasDrive(j.Request) {
+		return s.executeDriveMove(ctx, j)
+	}
 	if j.Move != nil && j.Move.Committed {
 		ctx = context.WithoutCancel(ctx)
 	}
@@ -331,6 +352,11 @@ func finishMoveSource(ctx context.Context, src, dst rootFS, destination string, 
 	if !sameMoveData(m.Entries, actual, false) {
 		return ErrConflict
 	}
+	return removeMoveSource(ctx, src, m, persist)
+}
+
+func removeMoveSource(ctx context.Context, src rootFS, m *MoveSelection, persist func() error) error {
+	var e error
 	_, quarantineErr := src.Lstat(m.Quarantine)
 	if errors.Is(quarantineErr, os.ErrNotExist) && !m.Removing {
 		current, e := snapshotMove(ctx, src, m.Path)

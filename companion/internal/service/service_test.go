@@ -268,6 +268,7 @@ func TestDatabaseWorkflow(t *testing.T) {
 		}
 	})
 	t.Run("move-integration", func(t *testing.T) { testMoveIntegration(t, s) })
+	t.Run("cross-drive-moves", func(t *testing.T) { testCrossDriveMoves(t, s) })
 	t.Run("rclone-integration", func(t *testing.T) { testRcloneIntegration(t, s) })
 	t.Run("copy-and-idempotency", func(t *testing.T) {
 		req := CopyRequest{Items: []Item{{Source: "samba", Path: "/folder"}}, Destination: Item{Source: "vps", Path: "/"}}

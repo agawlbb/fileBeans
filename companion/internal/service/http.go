@@ -74,7 +74,7 @@ func (s *Service) Handler() http.Handler {
 			roots = append(roots, map[string]string{"source": root.Name, "trash": "/Trash"})
 		}
 		g, e := s.google()
-		features := []string{"protectedFolderMoves", "driveWrite", "driveDestinations", "driveUploads", "driveThumbnails", "driveMedia", "normalization"}
+		features := []string{"protectedFolderMoves", "crossDriveMoves", "driveWrite", "driveDestinations", "driveUploads", "driveThumbnails", "driveMedia", "normalization"}
 		if s.config.Filesystem.Enabled {
 			features = append(features, "filesystemV1")
 		}

@@ -12,7 +12,7 @@ final class BrowserModel: ObservableObject {
     @Published var sourceScope = "/"
     @Published var parentProtection: FolderProtection?
     private var transfer: Task<Void, Never>?
-    private var pending: [(URL, StoredItem)] = []
+    private var pending: [(URL, StoredItem, UUID)] = []
     private(set) var repository: Repository?
 
     func load(connection: Connection, parent: StoredItem?) async {
@@ -99,6 +99,16 @@ final class BrowserModel: ObservableObject {
         let activity = FileActivity.shared
         let ids = activity.begin(values.map { ActivityFile(source: $0.source, path: $0.file.path, name: $0.file.name, folder: $0.file.isDirectory) },
             connection: connection.id, operation: copying ? "copy" : "move", destination: target)
+        if !copying, case .drive = destination, let companion = repository.companion {
+            do {
+                guard values.allSatisfy({ !$0.isSource && $0.permissions.download && $0.permissions.delete }) else { throw APIError.forbidden }
+                guard try await companion.capabilities().features?.contains("crossDriveMoves") == true else { throw APIError.incompatible }
+                let job = try await companion.submit(BackgroundCopy(items: values.map { CopyLocation(source: $0.source, path: $0.file.path) },
+                    destination: target, operation: "move"))
+                activity.attach(job, ids: ids, connection: connection.id)
+            } catch { activity.finish(ids); self.error = error.localizedDescription }
+            return
+        }
         if copying, let companion = repository.companion {
             do {
                 guard values.allSatisfy({ !$0.isSource && $0.permissions.download }), !values.isEmpty else { throw APIError.forbidden }
@@ -164,7 +174,6 @@ final class BrowserModel: ObservableObject {
         let job: CopyJob?
         switch destination {
         case .drive(let parent):
-            guard copying else { throw APIError.forbidden }
             job = try await companion.submit(BackgroundCopy(items:[CopyLocation(source:item.source,path:item.file.path)],
                 destination:CopyLocation(source:"drive",path:parent.id,name:parent.name)))
         case .local(let parent):
@@ -209,7 +218,11 @@ final class BrowserModel: ObservableObject {
                 try FileManager.default.createDirectory(at: container, withIntermediateDirectories: true)
                 let copy = container.appendingPathComponent(url.lastPathComponent)
                 try FileManager.default.copyItem(at: url, to: copy)
-                pending.append((copy, parent))
+                let id = UUID()
+                pending.append((copy, parent, id))
+                UploadActivity.shared.add(UploadTransfer(id: id, connection: repository.connection.id,
+                    name: url.lastPathComponent, destination: parent.source + ": " + parent.file.path,
+                    total: Int64((try? copy.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)))
             }
             startUploads()
         } catch { self.error = error.localizedDescription }
@@ -224,25 +237,27 @@ final class BrowserModel: ObservableObject {
         canRetry = false
         transfer = Task {
             defer { transfer = nil; uploadProgress = nil }
-            while let (url, parent) = pending.first {
+            while let (url, parent, id) = pending.first {
                 uploadName = url.lastPathComponent; uploadProgress = 0
+                UploadActivity.shared.update(id, progress: 0, state: "Uploading")
                 do {
                     try Task.checkCancellation()
                     guard parent.permissions.create else { throw APIError.forbidden }
                     let path = try FilePath.child(url.lastPathComponent, in: parent.file.path)
                     if repository.companion != nil && CompanionClient.protected(path) { throw APIError.forbidden }
                     try await repository.client.upload(source: parent.source, path: path, file: url) { value in
-                        Task { @MainActor in if self.transfer != nil { self.uploadProgress = value } }
+                        Task { @MainActor in if self.transfer != nil { self.uploadProgress = value; UploadActivity.shared.update(id, progress: value) } }
                     }
+                    UploadActivity.shared.remove(id)
                     pending.removeFirst()
                     try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
                     items = try await repository.children(parent)
                     repository.notify(parent.id)
                 } catch {
                     if Task.isCancelled {
-                        for (url, _) in pending { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+                        for (url, _, id) in pending { UploadActivity.shared.remove(id); try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
                         pending.removeAll(); canRetry = false
-                    } else { self.error = error.localizedDescription; canRetry = true }
+                    } else { self.error = error.localizedDescription; canRetry = true; UploadActivity.shared.update(id, state: "Failed", error: error.localizedDescription) }
                     return
                 }
             }

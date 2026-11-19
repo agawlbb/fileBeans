@@ -14,8 +14,8 @@ enum DestinationMode {
     case localMove(String?)
     case driveMove
     var copying: Bool { if case .copy = self { return true }; return false }
-    var allowsLocal: Bool { if case .driveMove = self { return false }; return true }
-    var allowsDrive: Bool { if case .localMove = self { return false }; return true }
+    var allowsLocal: Bool { true }
+    var allowsDrive: Bool { if case .localMove(let source) = self { return source == nil }; return true }
 }
 struct SourceDestinationPicker: View {
     let connection: Connection

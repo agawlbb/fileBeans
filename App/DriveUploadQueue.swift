@@ -38,6 +38,7 @@ final class DriveUploadQueue: ObservableObject {
             pending = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
                 .filter { $0.pathExtension == "json" }
                 .map { try JSONDecoder().decode(Record.self, from: Data(contentsOf: $0)) }.sorted { $0.created < $1.created }
+            publishUploads()
             start()
         } catch { self.error = error.localizedDescription }
     }
@@ -56,8 +57,15 @@ final class DriveUploadQueue: ObservableObject {
                                     created: Date(), key: UUID().uuidString)
                 try save(record); pending.append(record)
             }
+            publishUploads()
             start()
         } catch { self.error = error.localizedDescription; canRetry = true }
+    }
+    private func publishUploads() {
+        for record in pending {
+            UploadActivity.shared.add(UploadTransfer(id: record.id, connection: connection.id, name: record.name,
+                destination: "Google Drive", total: record.size, job: record.job))
+        }
     }
     private func save(_ record: Record) throws {
         try JSONEncoder().encode(record).write(to: directory.appendingPathComponent(record.id.uuidString + ".json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
@@ -68,6 +76,7 @@ final class DriveUploadQueue: ObservableObject {
             try? FileManager.default.removeItem(at: cacheDirectory.appendingPathComponent(record.id.uuidString + ".data"))
         }
         pending.removeAll { $0.id == record.id }
+        UploadActivity.shared.remove(record.id)
     }
     func retry() {
         guard task == nil else { return }
@@ -89,6 +98,7 @@ final class DriveUploadQueue: ObservableObject {
             let client = CompanionClient(connection: connection); defer { client.close() }
             while var record = pending.first {
                 name = record.name; phase = "Uploading to server"; progress = 0
+                UploadActivity.shared.update(record.id, progress: 0, state: phase)
                 do {
                     if record.cancelRequested == true {
                         if let session = record.session { _ = try await client.request("drive/uploads/" + session + "/cancel", method: "POST") }
@@ -113,10 +123,12 @@ final class DriveUploadQueue: ObservableObject {
                                                             headers: ["Content-Type": "application/octet-stream", "Content-Range": "bytes \(start)-\(start + Int64(chunk.count) - 1)/\(record.size)"])
                         upload = try JSONDecoder().decode(DriveUpload.self, from: data)
                         progress = record.size == 0 ? 1 : Double(upload.received) / Double(record.size)
+                        UploadActivity.shared.update(record.id, progress: progress, state: phase)
                     }
                     guard let jobID = upload.jobId else { throw URLError(.badServerResponse) }
                     record.job = jobID; try save(record); pending[0] = record
                     phase = "Copying to Google Drive"; progress = 0
+                    UploadActivity.shared.update(record.id, progress: 0, state: phase, job: jobID)
                     while true {
                         try Task.checkCancellation()
                         let job = try JSONDecoder().decode(CopyJob.self, from: await client.request("jobs/" + jobID))
@@ -124,6 +136,7 @@ final class DriveUploadQueue: ObservableObject {
                         if !job.active { throw NSError(domain: "fileBeans.Transfer", code: 1, userInfo: [NSLocalizedDescriptionKey: job.error ?? "Transfer cancelled"]) }
                         phase = job.state == "waiting" ? "Waiting to retry Google Drive" : "Copying to Google Drive"
                         progress = job.total > 0 ? Double(job.done) / Double(job.total) : 0
+                        UploadActivity.shared.update(record.id, progress: progress, state: phase)
                         try await Task.sleep(for: .seconds(2))
                     }
                     remove(record)
@@ -144,7 +157,7 @@ final class DriveUploadQueue: ObservableObject {
                             self.error = "Cancellation is pending: " + error.localizedDescription
                             canRetry = true
                         }
-                    } else { self.error = error.localizedDescription; canRetry = true }
+                    } else { self.error = error.localizedDescription; canRetry = true; UploadActivity.shared.update(record.id, state: "Failed", error: error.localizedDescription) }
                     return
                 }
             }

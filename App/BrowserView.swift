@@ -156,7 +156,7 @@ struct BrowserView: View {
             VStack(spacing: 0) {
                 transferStatus
                 if let parent, parent.isSource, connection.companionURL != nil {
-                    SourceTrashBar(destination: TrashList(connection: connection, source: parent.source))
+                    SourceTrashBar(destination: SourceDestination(connection: connection, kind: .trash(parent.source)))
                 }
             }
         }
@@ -276,11 +276,6 @@ struct BrowserView: View {
             }
         }
 
-            if connection.companionURL != nil {
-                ToolbarItem(placement: .topBarLeading) {
-                    NavigationLink(value: SourceDestination(connection: connection, kind: .transfers)) { Label("Transfers", systemImage: "arrow.left.arrow.right") }
-                }
-            }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 if selecting {
                 Button("Select All") { selected = Set(visible.filter { !$0.isSource && !pending($0) }.map(\.id)) }

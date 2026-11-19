@@ -150,7 +150,7 @@ struct DriveBrowser: View {
                 VStack(spacing: 0) {
                     DriveUploadStatus(queue: queue)
                     if folder == "root", model.connected, model.modern {
-                        SourceTrashBar(destination: DriveTrashView(connection: connection))
+                        SourceTrashBar(destination: SourceDestination(connection: connection, kind: .driveTrash))
                     }
                 }
             }
@@ -212,9 +212,6 @@ struct DriveBrowser: View {
             }
         }
 
-        ToolbarItem(placement: .topBarLeading) {
-            if connection.companionURL != nil { NavigationLink(value: SourceDestination(connection: connection, kind: .transfers)) { Label("Transfers", systemImage: "arrow.left.arrow.right") } }
-        }
         ToolbarItemGroup(placement: .topBarTrailing) {
             if selecting {
                 Button("Select All") { selected = Set(visible.filter { !pending($0) }.map(\.id)) }
@@ -299,6 +296,14 @@ struct DriveBrowser: View {
                                 do {
                                     guard target.source == "drive" || !items.contains(where: \.nativeDocument) else { throw APIError.forbidden }
                                     let job = try await client.transport.submit(BackgroundCopy(items: items.map { CopyLocation(source: "drive", path: $0.id, name: $0.name) }, destination: target))
+                                    activity.attach(job, ids: ids, connection: connection.id)
+                                } catch { activity.finish(ids); failures.append(error.localizedDescription) }
+                            } else if target.source != "drive" {
+                                do {
+                                    guard items.allSatisfy({ $0.canTrash && ($0.folder || $0.downloadable) }),
+                                          try await client.transport.capabilities().features?.contains("crossDriveMoves") == true else { throw APIError.forbidden }
+                                    let job = try await client.transport.submit(BackgroundCopy(items: items.map { CopyLocation(source: "drive", path: $0.id, name: $0.name) },
+                                        destination: target, operation: "move"))
                                     activity.attach(job, ids: ids, connection: connection.id)
                                 } catch { activity.finish(ids); failures.append(error.localizedDescription) }
                             } else {

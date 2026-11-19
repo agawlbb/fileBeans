@@ -56,6 +56,15 @@ returns 412, and name collisions return 409. API publication checks are serializ
 arbitrary external writers can still race a revision check. Copies and complex
 moves use the existing durable jobs; deletions always use managed Trash.
 
+The `crossDriveMoves` capability enables `POST /v1/jobs` with `operation: "move"`
+between a local source and Google Drive. The server completes copy publication,
+revalidates the source and destination, then journals source removal. Restart and
+retry resume cleanup without recopying published items. Before cleanup commits,
+cancellation retains the original. Drive originals use Drive Trash; local
+originals use the existing move quarantine/removal journal. Native Google
+documents remain unsupported for local export. Moves within Drive continue to
+use its native reparent operation.
+
 Transfers stream through the service without full-file buffering. Read/write
 inactivity deadlines allow large transfers to continue while making progress.
 There is no transcoding. The existing iOS resource loader still requests bounded

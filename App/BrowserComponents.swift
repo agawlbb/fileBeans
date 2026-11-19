@@ -113,10 +113,10 @@ struct BrowserSelectionControls: View {
         }.labelStyle(.titleAndIcon).frame(maxWidth: .infinity)
     }
 }
-struct SourceTrashBar<Destination: View>: View {
-    let destination: Destination
+struct SourceTrashBar: View {
+    let destination: SourceDestination
     var body: some View {
-        NavigationLink { destination } label: {
+        NavigationLink(value: destination) {
             HStack { Label("Trash", systemImage: "trash"); Spacer(); Image(systemName: "chevron.right").font(.caption) }
                 .padding().frame(maxWidth: .infinity).contentShape(Rectangle())
         }.buttonStyle(.plain).background(.regularMaterial)

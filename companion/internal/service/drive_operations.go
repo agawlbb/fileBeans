@@ -154,14 +154,21 @@ type driveMutationRecord struct {
 }
 
 func (s *Service) driveMutation(ctx context.Context, request DriveMutation, key string) (DriveItem, error) {
+	return s.driveMutationForConnection(ctx, request, key, "")
+}
+
+func (s *Service) driveMutationForConnection(ctx context.Context, request DriveMutation, key, connection string) (DriveItem, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if e := s.requireDriveWrite(""); e != nil {
+	if e := s.requireDriveWrite(connection); e != nil {
 		return DriveItem{}, e
 	}
 	var record driveMutationRecord
 	e := s.existing(key, "driveMutation", &record)
 	if e == nil {
+		if connection != "" && record.Connection != connection {
+			return DriveItem{}, ErrDriveAccount
+		}
 		a, _ := json.Marshal(request)
 		b, _ := json.Marshal(record.Request)
 		if !bytes.Equal(a, b) {
@@ -177,6 +184,9 @@ func (s *Service) driveMutation(ctx context.Context, request DriveMutation, key 
 		g, e := s.google()
 		if e != nil {
 			return DriveItem{}, e
+		}
+		if connection != "" && g.Connection != connection {
+			return DriveItem{}, ErrDriveAccount
 		}
 		record = driveMutationRecord{ID: ID(), Request: request, Connection: g.Connection, State: "pending"}
 		if e = s.insert(record.ID, "driveMutation", record.State, key, record); e != nil {

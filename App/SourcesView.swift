@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SourceDestination: Identifiable, Hashable {
-    enum Kind: Hashable { case local(StoredItem), drive, driveFolder(String, String), transfers, protection }
+    enum Kind: Hashable { case local(StoredItem), drive, driveFolder(String, String), transfers, protection, trash(String), driveTrash, normalization }
     let connection: Connection
     let kind: Kind
     var id: String {
@@ -11,6 +11,9 @@ struct SourceDestination: Identifiable, Hashable {
         case .driveFolder(let id, _): return connection.id.uuidString + ":drive:" + id
         case .transfers: return connection.id.uuidString + ":transfers"
         case .protection: return connection.id.uuidString + ":protection"
+        case .trash(let source): return connection.id.uuidString + ":trash:" + source
+        case .driveTrash: return connection.id.uuidString + ":driveTrash"
+        case .normalization: return connection.id.uuidString + ":normalization"
         }
     }
     var name: String {
@@ -20,6 +23,8 @@ struct SourceDestination: Identifiable, Hashable {
         case .driveFolder(_, let name): return name
         case .transfers: return "Transfers"
         case .protection: return "Protected folders"
+        case .trash, .driveTrash: return "Trash"
+        case .normalization: return "Media Normalization"
         }
     }
     @MainActor @ViewBuilder var destination: some View {
@@ -29,6 +34,9 @@ struct SourceDestination: Identifiable, Hashable {
         case .driveFolder(let id, let name): DriveBrowser(connection: connection, folder: id, title: name)
         case .transfers: TransferList(connection: connection)
         case .protection: VaultsView(connection: connection)
+        case .trash(let source): TrashList(connection: connection, source: source)
+        case .driveTrash: DriveTrashView(connection: connection)
+        case .normalization: NormalizationView(connection: connection)
         }
     }
 }
@@ -77,6 +85,7 @@ final class SourcesModel: ObservableObject {
 struct SourcesView: View {
     @StateObject private var connections = ConnectionsModel()
     @StateObject private var model = SourcesModel()
+    @StateObject private var routeState = SourceNavigationState()
     @State private var selected: SourceDestination?
     @State private var sourcePath: [SourceDestination] = []
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -108,13 +117,17 @@ struct SourcesView: View {
     }
     private var navigation: some View {
         SourceNavigation(compact: sizeClass == .compact, path: $sourcePath, selected: $selected,
-                         columnVisibility: $columnVisibility, sidebar: sourceList) { $0.destination }
+                         columnVisibility: $columnVisibility, sidebar: sourceList,
+                         overview: AnyView(sourceCollection), transfers: AnyView(transfersButton), state: routeState) { $0.destination }
     }
     @ViewBuilder private var sourceList: some View {
-        if sizeClass != .compact, selected != nil {
+        if sizeClass != .compact {
             // While browsing, the sidebar is the active hierarchy. Sources
             // returns to the picker instead of duplicating that picker here.
-            List { FolderBreadcrumbSidebar() }
+            List {
+                if selected != nil { FolderBreadcrumbSidebar() }
+                else { Label("Sources", systemImage: "externaldrive") }
+            }
                 .listStyle(.plain)
                 .navigationTitle("Sources")
                 .toolbar {
@@ -139,7 +152,6 @@ struct SourcesView: View {
         .navigationTitle("Sources")
         .searchable(text: $search, prompt: "Search sources")
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) { transfersButton }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button("Settings", systemImage: "gearshape") { settings = true }
                 Button(grid ? "List" : "Grid", systemImage: grid ? "list.bullet" : "square.grid.2x2") { grid.toggle() }
@@ -159,10 +171,18 @@ struct SourcesView: View {
         }
     }
     @ViewBuilder private var transfersButton: some View {
-        let available = connections.connections.filter { $0.companionURL != nil }
+        let destination = sizeClass == .compact ? sourcePath.last : routeState.path.last ?? selected
+        let active = destination?.connection
+        let available = active.map { [$0] } ?? connections.connections.filter { $0.companionURL != nil }
         if available.count == 1, let connection = available.first {
-            sourceLink(SourceDestination(connection: connection, kind: .transfers)) {
-                Label("Transfers", systemImage: "arrow.left.arrow.right")
+            if sizeClass != .compact && selected == nil {
+                Button { selected = SourceDestination(connection: connection, kind: .transfers) } label: {
+                    Label("Transfers", systemImage: "arrow.left.arrow.right")
+                }.accessibilityIdentifier("transfers")
+            } else {
+                NavigationLink(value: SourceDestination(connection: connection, kind: .transfers)) {
+                    Label("Transfers", systemImage: "arrow.left.arrow.right")
+                }.accessibilityIdentifier("transfers").disabled(destination?.kind == .transfers)
             }
         } else if !available.isEmpty {
             Menu {
@@ -193,6 +213,12 @@ struct SourcesView: View {
     }
 }
 
+@MainActor
+final class SourceNavigationState: ObservableObject {
+    @Published var path: [SourceDestination] = []
+    @Published var identity = UUID()
+}
+
 /// Keeps the compact stack stable across source selections. Separating the host
 /// also lets lifecycle tests use synthetic destinations without server access.
 struct SourceNavigation<Sidebar: View, Detail: View>: View {
@@ -201,8 +227,9 @@ struct SourceNavigation<Sidebar: View, Detail: View>: View {
     @Binding var selected: SourceDestination?
     @Binding var columnVisibility: NavigationSplitViewVisibility
     let sidebar: Sidebar
-    @State private var navigationID = UUID()
-    @State private var detailPath: [SourceDestination] = []
+    var overview: AnyView? = nil
+    var transfers: AnyView? = nil
+    @StateObject var state = SourceNavigationState()
     @ViewBuilder let detail: (SourceDestination) -> Detail
 
     var body: some View {
@@ -210,31 +237,34 @@ struct SourceNavigation<Sidebar: View, Detail: View>: View {
             NavigationStack(path: $path) {
                 sidebar.navigationDestination(for: SourceDestination.self) { detail($0) }
             }
-            .id(navigationID)
+            .id(state.identity)
+            .toolbar { ToolbarItem(placement: .topBarLeading) { transfers } }
             .environment(\.folderBreadcrumbs, FolderBreadcrumbContext(locations: path,
-                navigate: { path = FolderBreadcrumbContext.prefix(path, through: $0); navigationID = UUID() },
-                showSources: { path = []; navigationID = UUID() }))
+                navigate: { path = FolderBreadcrumbContext.prefix(path, through: $0); state.identity = UUID() },
+                showSources: { path = []; state.identity = UUID() }))
         } else {
             NavigationSplitView(columnVisibility: $columnVisibility) {
                 sidebar
             } detail: {
-                NavigationStack(path: $detailPath) {
+                NavigationStack(path: $state.path) {
                     Group {
                         if let selected { detail(selected) }
+                        else if let overview { overview }
                         else { ContentUnavailableView("Choose a source", systemImage: "folder") }
                     }
                     .navigationDestination(for: SourceDestination.self) { detail($0) }
-                }.id(navigationID)
+                }.id(state.identity)
+                .toolbar { ToolbarItem(placement: .topBarLeading) { transfers } }
             }
             .environment(\.folderBreadcrumbs, FolderBreadcrumbContext(
-                locations: selected.map { [$0] + detailPath } ?? [],
+                locations: selected.map { [$0] + state.path } ?? [],
                 navigate: { index in
-                    guard index >= 0, index <= detailPath.count else { return }
-                    detailPath = Array(detailPath.prefix(index))
-                    navigationID = UUID()
+                    guard index >= 0, index <= state.path.count else { return }
+                    state.path = Array(state.path.prefix(index))
+                    state.identity = UUID()
                 },
-                showSources: { detailPath = []; selected = nil; navigationID = UUID() }))
-            .onChange(of: selected) { _, _ in detailPath = []; navigationID = UUID() }
+                showSources: { state.path = []; selected = nil; state.identity = UUID() }))
+            .onChange(of: selected) { _, _ in state.path = []; state.identity = UUID() }
         }
     }
 }

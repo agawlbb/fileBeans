@@ -132,6 +132,7 @@ type cloudFixture struct {
 	received     []byte
 	lostChunk    bool
 	loseNative   bool
+	loseTrash    bool
 	copied       int
 	patches      int
 	trashQueries int
@@ -158,6 +159,8 @@ func (f *cloudFixture) serve(r *http.Request) (*http.Response, error) {
 	q := r.URL.Query()
 	if strings.HasPrefix(r.URL.Path, "/upload/") {
 		if r.Method == "POST" {
+			// Each upload owns independent slices/maps, as real API responses do.
+			f.upload = DriveItem{}
 			if e := json.NewDecoder(r.Body).Decode(&f.upload); e != nil {
 				f.t.Fatal(e)
 			}
@@ -315,6 +318,10 @@ func (f *cloudFixture) serve(r *http.Request) (*http.Response, error) {
 		item.Version = strconv.Itoa(v + 1)
 		f.items[id] = item
 		f.patches++
+		if f.loseTrash && item.Trashed {
+			f.loseTrash = false
+			return nil, io.ErrUnexpectedEOF
+		}
 		return jsonResponse(200, item), nil
 	}
 	if r.Method == "DELETE" {
