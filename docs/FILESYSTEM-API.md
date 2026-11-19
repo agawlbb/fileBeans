@@ -213,3 +213,18 @@ folder-copy jobs passed; the reported failed copy completed on retry with origin
 metadata unchanged and matching source/destination contents. Verification made no
 Samba file writes. The transcoder container and broker PID stayed unchanged.
 TestFlight build 23 remains compatible; no app build or release was needed.
+
+### Protected-process renderer launch fix
+
+Runtime `e58aa16` resolves the renderer's own inherited directory descriptor as
+its working directory. Access through the protected parent's `/proc/<pid>/fd`
+failed under the API's process privacy policy and prevented external renderers
+from starting. The corrected implementation preserves that policy, scratch
+placement and operation leases. A regression runs actual video/PDF rendering in
+a non-dumpable helper process and checks the policy remains enabled afterward.
+
+The exact runtime image and encrypted local/CIFS tests passed. Live VPS video
+previews and cached reads now succeed; originals, the transcoder and broker are
+unchanged. Samba thumbnails remain disabled, and `/pics` caches remain outside
+the watched directory. TestFlight 23 needs no update; reopening a folder starts
+fresh thumbnail requests. See `RELEASING.md` for artifact and rollback details.

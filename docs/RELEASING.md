@@ -702,3 +702,45 @@ Prepared archives, previous API configuration/overlay and worker snapshots are
 retained under root-only `/opt/services/filebeans/deploy/copyfix-eda5913/`.
 `verification.json` records live checks. The API is running; the worker and broker
 were not restarted. This requested deployment is finished and verified.
+
+### VPS video/PDF renderer launch correction (2026-11-18)
+
+Source `e58aa165f3d39448e1872d50425e05e3db2c1447` corrects the subprocess
+working directory without weakening the API's `PR_SET_DUMPABLE=0` policy. The
+renderer now resolves its own inherited directory descriptor before Go remaps
+ExtraFiles, rather than trying to access the protected parent's `/proc` entries.
+Input and scratch/cache directory descriptors, broker leases, encrypted storage
+and bounded renderer concurrency remain in place.
+
+- A helper-process regression reproduced the old launch failure with process
+  privacy enabled, then passed for real video and PDF previews with the fix.
+  It also checks that the API/helper privacy setting remains disabled for dumps
+  after rendering. Go race/vet checks and isolated local/CIFS encrypted-folder
+  tests passed. The exact unprivileged runtime image passed the same regression
+  and ordinary API/preview-policy checks.
+- VM-built image: `filebeans-api:e58aa16-previews`. Manifest:
+  `sha256:0e0426119dd5520a525d0cd133882d55aa663cd4491a9108c93de4da58c28eb9`.
+  Archive SHA-256:
+  `db17b3ba1c9e0f269f80fa5b15004cfe9240810aa1a875a2ea179d5908a61cd6`.
+  Transfer checksum and loaded image identity were verified before cutover.
+- Only the API container was recreated. Its private configuration was preserved
+  byte-for-byte: Samba thumbnail generation remains disabled and ordinary `/pics`
+  thumbnails/scratch still use private state outside the normalization scan.
+  Worker container ID, PID, start time, image/restart count and broker PID were
+  checked unchanged.
+- Live checks generated JPEG previews for three existing VPS videos in distinct
+  folders, verified cache files in private state, verified matching cached
+  responses and confirmed original inode/size/modification time remained
+  unchanged. No Samba originals were accessed by these checks. Authenticated
+  HTTPS source discovery and Samba preview rejection passed.
+
+Rollback overlay/config snapshots, the prepared image/metadata, worker snapshots
+and `verification.json` are retained under root-only
+`/opt/services/filebeans/deploy/previews-e58aa16/`. Source stays on the feature
+branch; main was not changed. No app build or release was needed; TestFlight 23
+is compatible. Reopen a video folder to start new preview requests after an
+already-visible thumbnail task failed before the update.
+
+Requested correction and API deployment are finished and verified. Remaining
+VPS thumbnails are generated on demand as the owner browses; no bulk archive scan
+or background thumbnail worker was started.
