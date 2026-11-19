@@ -235,10 +235,14 @@ struct SourceNavigation<Sidebar: View, Detail: View>: View {
     var body: some View {
         if compact {
             NavigationStack(path: $path) {
-                sidebar.navigationDestination(for: SourceDestination.self) { detail($0) }
+                sidebar
+                    .toolbar { ToolbarItem(placement: .topBarLeading) { transfers } }
+                    .navigationDestination(for: SourceDestination.self) { destination in
+                        detail(destination)
+                            .toolbar { ToolbarItem(placement: .topBarLeading) { transfers } }
+                    }
             }
             .id(state.identity)
-            .toolbar { ToolbarItem(placement: .topBarLeading) { transfers } }
             .environment(\.folderBreadcrumbs, FolderBreadcrumbContext(locations: path,
                 navigate: { path = FolderBreadcrumbContext.prefix(path, through: $0); state.identity = UUID() },
                 showSources: { path = []; state.identity = UUID() }))
