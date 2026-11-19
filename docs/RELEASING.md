@@ -1,5 +1,54 @@
 # Signing and TestFlight
 
+## Transfers and Drive move correction — November 19, 2026
+
+Deployed feature source `3045cd712f7417a150c2cde1d47a30f75861ed53` as
+`filebeans-api:3045cd7-drive-fix`. The API includes both main fixes merged into
+`feature/makelora-datasets`, retaining the dataset feature. Drive move destination
+verification tolerates metadata version changes when content checksums match;
+source verification remains strict.
+
+- The merged feature source passed the full companion Go race suite with the
+  isolated VM test database and pinned rclone, Go vet, and static source checks.
+- VM-built archive SHA-256:
+  `a43319e0d70effa810719ac19f9c20ae2e694b8df662eff1e0e27510852e5c6d`.
+  Image manifest:
+  `sha256:fb46a7e9b787327a09dc5ceab6cdfcefb45e4fc70a126a39b85f6d2212946099`.
+  Transferred archive checksum and loaded image identity were verified.
+- Only `companion` was recreated with `--no-build --no-deps --pull never`.
+  Authenticated direct/public source discovery and public capabilities passed,
+  including `crossDriveMoves` and `datasetMediaV1`. API restart count was zero,
+  with no OOM termination. Normalizer identity/image/PID/start/restart count,
+  broker PID and private API configuration remained unchanged.
+- No existing transfer was retried, and no user files were modified by live
+  verification. Live transfer and physical-phone layout acceptance remain separate.
+
+Root-only rollback snapshots, image metadata and `verification.json` are in
+`/opt/services/filebeans/deploy/drive-fix-3045cd7/`. The VM-prepared archive is
+retained in the feature checkout's `.build/drive-fix-api.tar` and on the VPS in
+`/tmp/filebeans-drive-fix-3045cd7/api.tar`. Rollback restores the saved dataset
+overlay and recreates only `companion`, preserving the normalizer and broker.
+
+App release 27 is pinned by `testflight/0.1.0-27` at the deployed feature source.
+[Apple validation 44604595445](https://github.com/agawlbb/fileBeans/actions/runs/44604595445)
+passed all **110 simulator tests**, zero failures, and the unsigned iPhone/iPad
+Release archive. Both downloaded artifacts matched GitHub's SHA-256 digests;
+packaged app/extension identifiers, version 0.1.0, iOS 18 minimum and iPhone/iPad
+support were verified. The initial larger-runner validation 44603564231 was
+cancelled while queued, before compilation; the standard Xcode 27 runner then
+completed validation successfully. Signing preflight 44603922467 passed.
+
+[Signed publication 44609687761](https://github.com/agawlbb/fileBeans/actions/runs/44609687761)
+passed preflight, signing, archive/export, upload and temporary credential cleanup.
+The upload explicitly succeeded with no errors. Apple build
+`d99d0772-f0f4-4bd8-acc1-57570aa9d501`, **0.1.0 (27)**, is **VALID /
+IN_BETA_TESTING**, with automatic internal notification enabled. Existing signing
+and audience settings were preserved; no external review was submitted.
+
+The requested server deployment and internal TestFlight release are finished and
+verified. Physical-device toolbar and live transfer acceptance remain separate.
+The feature remains on `feature/makelora-datasets`, without merging into main.
+
 ## Protected-folder creation dialog — TestFlight 26 (2026-11-19)
 
 Released **0.1.0 (26)** from main source
