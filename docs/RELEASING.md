@@ -1,5 +1,27 @@
 # Signing and TestFlight
 
+## Protected-folder creation dialog — TestFlight 26 (2026-11-19)
+
+Released **0.1.0 (26)** from main source
+`5737c933ec6fd461f6991bfbb8e51dc5bced420a`, pinned by
+`testflight/0.1.0-26`. New creation dialogs clear prior names and request IDs;
+pending encryption-key setup and backup controls appear in the dialog.
+
+- [Apple validation 44522393177](https://github.com/agawlbb/fileBeans/actions/runs/44522393177)
+  passed **110 simulator tests**, zero failures, and the unsigned iPhone/iPad
+  Release archive on the larger Xcode 27 runner. The initial validation
+  44519540099 passed the protected-folder tests but hit the existing HEVC seek
+  timeout; the unchanged source passed on retry.
+- [Signed publication 44523394504](https://github.com/agawlbb/fileBeans/actions/runs/44523394504)
+  passed preflight, archive/export, upload and temporary credential cleanup.
+  The upload explicitly succeeded with no errors.
+- Apple build `e7123bae-12bb-47fa-aeb1-a920475f1294` is **VALID /
+  IN_BETA_TESTING**, with automatic internal notification enabled. Existing
+  signing and audience settings were preserved; no external review was submitted.
+
+The requested internal TestFlight release is finished and verified. No VPS
+deployment was needed. Physical-device dialog acceptance remains a device check.
+
 The public app identity is recorded in `Config/Release.json` and `Config/Project.xcconfig`:
 
 | Setting | Value |
