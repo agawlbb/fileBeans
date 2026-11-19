@@ -17,7 +17,7 @@ services:
       PYTHONPATH: /test-tools/python
       PATH: /test-tools:/usr/bin:/bin
     entrypoint: [/test-tools/service.test]
-    command: ["-test.run=^(TestFilesystemProtectedLifecycle|TestFilesystemProtectedSMBLifecycle|TestGocryptfsIndependentRecovery|TestBrokerFolderLifecycle|TestBrokerFolderSMBLifecycle)$", "-test.v", "-test.timeout=90s"]
+    command: ["-test.run=^(TestDatasetActivityExtendsIdleDeadline|TestFilesystemProtectedLifecycle|TestFilesystemProtectedSMBLifecycle|TestGocryptfsIndependentRecovery|TestBrokerFolderLifecycle|TestBrokerFolderSMBLifecycle)$", "-test.v", "-test.timeout=90s"]
     cpus: 1
     mem_limit: 512m
     memswap_limit: 512m

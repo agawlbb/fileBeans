@@ -76,7 +76,7 @@ func (s *Service) Handler() http.Handler {
 		g, e := s.google()
 		features := []string{"protectedFolderMoves", "crossDriveMoves", "driveWrite", "driveDestinations", "driveUploads", "driveThumbnails", "driveMedia", "normalization"}
 		if s.config.Filesystem.Enabled {
-			features = append(features, "filesystemV1")
+			features = append(features, "filesystemV1", "datasetMediaV1")
 		}
 		if s.vaults != nil && s.vaults.remote != nil && s.vaults.remote.ready() {
 			features = append(features, "protectedFoldersCreate")
@@ -504,6 +504,7 @@ func (s *Service) Handler() http.Handler {
 		reply(w, 200, map[string]bool{"disconnected": true})
 	})
 	s.filesystemRoutes(mux)
+	s.datasetRoutes(mux)
 	s.driveRoutes(mux)
 	s.normalizationRoutes(mux)
 	s.vaultRoutes(mux)

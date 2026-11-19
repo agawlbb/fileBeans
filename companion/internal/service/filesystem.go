@@ -21,9 +21,10 @@ import (
 const thumbnailDirectory = ".filebeans-thumbnails"
 
 type FilesystemConfig struct {
-	Enabled  bool   `json:"enabled"`
-	FFmpeg   string `json:"ffmpeg,omitempty"`
-	PDFToPPM string `json:"pdftoppm,omitempty"`
+	DatasetMinFreeBytes uint64 `json:"datasetMinFreeBytes,omitempty"`
+	Enabled             bool   `json:"enabled"`
+	FFmpeg              string `json:"ffmpeg,omitempty"`
+	PDFToPPM            string `json:"pdftoppm,omitempty"`
 }
 
 type filesystemEntry struct {

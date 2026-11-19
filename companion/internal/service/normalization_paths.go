@@ -8,6 +8,9 @@ import (
 // Reserved application subtrees contain derived data, never original media.
 func normalizationInternalPath(path string) bool {
 	for _, part := range strings.Split(strings.ReplaceAll(path, "\\", "/"), "/") {
+		if strings.HasPrefix(part, "MakeLORA-") && validBrokerID(strings.TrimPrefix(part, "MakeLORA-")) {
+			return true
+		}
 		switch strings.ToLower(part) {
 		case ".filebeans-thumbnails", ".filebeans-stage", ".filebeans-vaults":
 			return true

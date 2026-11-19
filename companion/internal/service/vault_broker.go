@@ -77,6 +77,7 @@ type brokerSnapshot struct {
 }
 
 type mountBroker struct {
+	datasetActivity       time.Time
 	locationKey           []byte
 	privateLocationsSaved map[string]bool
 	mu                    sync.Mutex

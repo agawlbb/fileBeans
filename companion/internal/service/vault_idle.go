@@ -125,7 +125,7 @@ func (b *mountBroker) pollIdleVaults(watches map[string]*vaultIdleWatch, now tim
 	}
 	// Protection is one session: activity in any protected folder keeps all
 	// folders open. An idle session closes all of them under a single gate.
-	latest := time.Time{}
+	latest := b.datasetActivity
 	for id, w := range watches {
 		if open[id] && w.last.After(latest) {
 			latest = w.last

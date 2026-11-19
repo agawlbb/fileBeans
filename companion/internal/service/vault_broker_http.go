@@ -46,6 +46,36 @@ func (b *mountBroker) keyMatches(key []byte) error {
 func (b *mountBroker) handler() http.Handler {
 	fail := brokerFail
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/dataset-activity", func(w http.ResponseWriter, r *http.Request) {
+		uid, _ := r.Context().Value(brokerPeer{}).(uint32)
+		if uid != b.config.ControlUID {
+			fail(w, ErrAuthorization)
+			return
+		}
+		var req Item
+		if body(r, &req) != nil {
+			fail(w, ErrUnsafe)
+			return
+		}
+		p, e := filesystemPath(req.Path)
+		if e != nil {
+			fail(w, e)
+			return
+		}
+		for _, v := range b.registry.Entries {
+			if v.Source == req.Source && v.Trashed == 0 && v.Path != "" && within("/"+strings.TrimPrefix(p, "./"), v.Path) {
+				state := b.manager.find(v.ID)
+				if state == nil || !state.unlocked {
+					fail(w, ErrVaultLocked)
+					return
+				}
+				b.datasetActivity = time.Now()
+				reply(w, 200, map[string]bool{"active": true})
+				return
+			}
+		}
+		fail(w, ErrUnsafe)
+	})
 	mux.HandleFunc("GET /v1/metadata-key", func(w http.ResponseWriter, r *http.Request) {
 		uid, _ := r.Context().Value(brokerPeer{}).(uint32)
 		if uid != b.config.ControlUID {

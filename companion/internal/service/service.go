@@ -12,14 +12,15 @@ import (
 )
 
 type Service struct {
-	fsMu        sync.Mutex   // serialize API mutation publication and revision checks
-	vaultGate   sync.RWMutex // filesystem operations must finish before an unmount
-	vaults      *vaultManager
-	config      Config
-	db          *sql.DB
-	mu          sync.Mutex
-	driveMu     sync.Mutex
-	copyCancels map[string]context.CancelFunc // guarded by mu
+	datasetDiskCheck func(*os.File) error // injected only for synthetic filesystem capacity tests
+	fsMu             sync.Mutex           // serialize API mutation publication and revision checks
+	vaultGate        sync.RWMutex         // filesystem operations must finish before an unmount
+	vaults           *vaultManager
+	config           Config
+	db               *sql.DB
+	mu               sync.Mutex
+	driveMu          sync.Mutex
+	copyCancels      map[string]context.CancelFunc // guarded by mu
 }
 
 func ID() string {
@@ -92,6 +93,16 @@ func (s *Service) loop(ctx context.Context, lease *sql.Conn) {
 	}()
 	defer func() { cancel(); <-heartbeatDone }()
 	ctx = workerCtx
+	datasetDone := make(chan struct{})
+	go func() {
+		defer close(datasetDone)
+		for ctx.Err() == nil {
+			if !s.datasetWorker(ctx) {
+				wait(ctx, time.Second)
+			}
+		}
+	}()
+	defer func() { cancel(); <-datasetDone }()
 	maintenanceDone := make(chan struct{})
 	go func() { defer close(maintenanceDone); s.maintenance(ctx) }()
 	defer func() { cancel(); <-maintenanceDone }()

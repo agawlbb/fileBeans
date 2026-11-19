@@ -2,9 +2,11 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"filebeans/companion/protection"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -113,6 +115,30 @@ func testFilesystemProtectedLifecycle(t *testing.T, smb bool) {
 	if _, err := os.Stat(filepath.Join(s.config.State, "filesystem-thumbnails")); !os.IsNotExist(err) {
 		t.Fatal("protected thumbnail spilled into private plaintext state", err)
 	}
+	// Dataset preparation uses the same encrypted boundary and pinned input.
+	s.config.Filesystem.DatasetMinFreeBytes = 1 << 20
+	if smb {
+		s.datasetDiskCheck = func(*os.File) error { return nil }
+	} // The synthetic SMB server does not implement free-space reporting.
+	s.config.Normalization.FFprobe = "/test-tools/ffprobe"
+	s.vaults.remote.client.Transport = roundTrip(func(req *http.Request) (*http.Response, error) {
+		req = req.WithContext(context.WithValue(req.Context(), brokerPeer{}, b.config.ControlUID))
+		w := httptest.NewRecorder()
+		b.handler().ServeHTTP(w, req)
+		return w.Result(), nil
+	})
+	st, err := os.Stat(filepath.Join(b.publicPath(entry), "movie.mp4"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := DatasetInput{ID: ID(), Source: "disk", Path: "/Private/movie.mp4", Revision: filesystemRevision(st)}
+	prepared := DatasetJob{ID: ID(), Request: DatasetRequest{Operation: "prepare", Model: "wan", Inputs: []DatasetInput{input}}}
+	if err = s.datasetProcess(context.Background(), &prepared); err != nil {
+		t.Fatal("protected dataset preparation", err)
+	}
+	if b.datasetActivity.IsZero() {
+		t.Fatal("dataset processing did not refresh inactivity")
+	}
 	// A blocked response must keep its broker lease, including cache hits.
 	writer := &filesystemBlockingWriter{ResponseRecorder: httptest.NewRecorder(), started: make(chan struct{}), release: make(chan struct{})}
 	req := httptest.NewRequest("GET", "/v1/fs/thumbnail?source=disk&path=/Private/secret.txt", nil)
@@ -138,6 +164,11 @@ func testFilesystemProtectedLifecycle(t *testing.T, smb bool) {
 		if out := call("GET", route, "/Private/secret.txt", nil, nil); out.Code != 409 && out.Code != 404 {
 			t.Fatal("locked content exposed", route, out.Code)
 		}
+	}
+	if root, file, _, err := s.datasetInput(input); err == nil {
+		file.Close()
+		root.Close()
+		t.Fatal("locked dataset source exposed")
 	}
 	// The cache and file contents must not occur in ciphertext or broker state.
 	for _, base := range []string{filepath.Join(physical, brokerStore), b.config.State} {
