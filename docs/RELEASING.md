@@ -933,3 +933,35 @@ device, inode, size and modification time were unchanged by deployment.
 
 The active-operation protection lease is unchanged: auto-lock cannot acquire its
 exclusive gate while a copy/move is active, including preparation and cleanup.
+
+## MakeLORA dataset feature trial — November 19, 2026
+
+Deployed `filebeans-api:dc6ecd6-datasets`, `filebeans-normalizer:793eeb8-datasets`
+and the broker binary prepared from `793eeb8`, after the archive-move maintenance
+finished. The source remains isolated on `feature/makelora-datasets` and is not
+merged into main. The newer main change affects the iPhone toolbar only.
+
+Authenticated live checks verified `datasetMediaV1`, filesystem source discovery
+and MakeLORA's connection. The broker is active; API and normalizer are running
+with zero restarts. Protected folders are locked following broker restart and
+can be unlocked in the existing FileBeans mobile app. The paired MakeLORA release
+**0.1.0 (13)** is VALID / IN_BETA_TESTING for its existing internal audience.
+
+VM-built archives were checksum verified before load. This VPS Docker engine
+reports loaded image IDs as manifest digests: API
+`sha256:3744e84a6e29d45ee2acbafb6edbcbd4e7d3ac8f825cb1f6f5403b6449255c4b`,
+normalizer
+`sha256:44529c73de6e7b8790db3b0b00a0ab635e1e24f37b2fc1a6df40ac14989d3143`.
+The active feature overlay is
+`/opt/services/filebeans/makelora-datasets.compose.yaml`.
+
+Rollback snapshots, image archives, broker binary, MakeLORA source/gateway and
+before/after service reports are retained root-only under
+`/opt/services/filebeans/deploy/makelora-datasets-dc6ecd6/`. Preserve these files
+and all user data. Rollback restores the saved broker and previous Compose/image
+configuration, together with the MakeLORA source/gateway. No SQL migration was
+required. Generation code and its existing retry timer remain unchanged.
+
+Go race/vet checks, database-backed dataset recovery/upload tests, encrypted
+local/Samba preparation and inactivity tests, and isolated runtime smoke tests
+passed before deployment. Physical-device dataset acceptance follows cutover.
