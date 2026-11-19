@@ -228,7 +228,6 @@ func TestFilesystemConsumerReadinessRole(t *testing.T) {
 
 func TestFilesystemRendererVideoAndPDF(t *testing.T) {
 	s, base := filesystemFixture(t)
-	s.config.Filesystem.ThumbnailCacheOverrides = []ThumbnailCacheOverride{{Source: "samba", Path: "/"}}
 	ffmpeg := s.config.Filesystem.FFmpeg
 	if _, e := os.Stat(ffmpeg); e != nil {
 		t.Skip("FFmpeg unavailable")
@@ -350,72 +349,33 @@ func TestFilesystemRejectsCacheAsProtectedLocation(t *testing.T) {
 	}
 }
 
-func TestFilesystemTemporaryThumbnailCacheOutsideWatchedFolder(t *testing.T) {
+func TestFilesystemPicsUsesAdjacentThumbnailCache(t *testing.T) {
 	s, base := filesystemFixture(t)
-	s.config.Filesystem.ThumbnailCacheOverrides = []ThumbnailCacheOverride{{Source: "samba", Path: "/pics"}}
-	for _, dir := range []string{"pics", "pics/nested", "pics-old", "elsewhere"} {
+	for _, dir := range []string{"pics", "pics/nested", "elsewhere"} {
 		if e := os.MkdirAll(filepath.Join(base, dir), 0770); e != nil {
 			t.Fatal(e)
 		}
-		if e := os.WriteFile(filepath.Join(base, dir, "same.txt"), []byte("preview "+dir), 0660); e != nil {
+		original := []byte("preview " + dir)
+		path := filepath.Join(base, dir, "same.txt")
+		if e := os.WriteFile(path, original, 0660); e != nil {
 			t.Fatal(e)
 		}
-		out := fsRequest(t, s, "GET", "thumbnail", "/"+dir+"/same.txt", nil, nil)
-		if out.Code != 200 {
-			t.Fatal(dir, out.Code, out.Body.String())
+		first := fsRequest(t, s, "GET", "thumbnail", "/"+dir+"/same.txt", nil, nil)
+		again := fsRequest(t, s, "GET", "thumbnail", "/"+dir+"/same.txt", nil, nil)
+		if first.Code != 200 || again.Code != 200 || !bytes.Equal(first.Body.Bytes(), again.Body.Bytes()) {
+			t.Fatal(dir, first.Code, again.Code)
 		}
-		_, e := os.Stat(filepath.Join(base, dir, thumbnailDirectory))
-		if dir == "pics" || dir == "pics/nested" {
-			if !os.IsNotExist(e) {
-				t.Fatal("cache written in watched folder", dir, e)
-			}
-		} else if e != nil {
-			t.Fatal("unrelated folder lost adjacent cache", e)
+		entries, e := os.ReadDir(filepath.Join(base, dir, thumbnailDirectory))
+		if e != nil || len(entries) != 1 {
+			t.Fatal(dir, entries, e)
 		}
-	}
-	caches, e := os.ReadDir(filepath.Join(s.config.State, "filesystem-thumbnails"))
-	if e != nil || len(caches) != 2 {
-		t.Fatal("source directories not isolated", caches, e)
-	}
-	first := fsRequest(t, s, "GET", "thumbnail", "/pics/same.txt", nil, nil)
-	again := fsRequest(t, s, "GET", "thumbnail", "/pics/same.txt", nil, nil)
-	if first.Code != 200 || !bytes.Equal(first.Body.Bytes(), again.Body.Bytes()) {
-		t.Fatal("external cache hit failed")
-	}
-	// Turning off the trial exception recreates the usual cache on demand.
-	s.config.Filesystem.ThumbnailCacheOverrides = nil
-	out := fsRequest(t, s, "GET", "thumbnail", "/pics/same.txt", nil, nil)
-	if out.Code != 200 {
-		t.Fatal(out.Code, out.Body.String())
-	}
-	if _, e = os.Stat(filepath.Join(base, "pics", thumbnailDirectory)); e != nil {
-		t.Fatal(e)
-	}
-	original, e := os.ReadFile(filepath.Join(base, "pics/same.txt"))
-	if e != nil || string(original) != "preview pics" {
-		t.Fatal("original changed", e)
-	}
-}
-
-func TestFilesystemThumbnailOverrideConfiguration(t *testing.T) {
-	s, _ := filesystemFixture(t)
-	s.config.DSN = "fixture"
-	for _, override := range []ThumbnailCacheOverride{{Source: "missing", Path: "/pics"}, {Source: "samba", Path: ""}, {Source: "samba", Path: "../escape"}, {Source: "samba", Path: "/.filebeans-stage"}} {
-		s.config.Filesystem.ThumbnailCacheOverrides = []ThumbnailCacheOverride{override}
-		data, _ := json.Marshal(s.config)
-		path := filepath.Join(t.TempDir(), "config.json")
-		os.WriteFile(path, data, 0600)
-		if _, e := Load(path); e == nil {
-			t.Fatal("accepted invalid override", override)
+		data, e := os.ReadFile(path)
+		if e != nil || !bytes.Equal(data, original) {
+			t.Fatal("original changed", e)
 		}
 	}
-	s.config.Filesystem.ThumbnailCacheOverrides = []ThumbnailCacheOverride{{Source: "samba", Path: "/pics/"}}
-	data, _ := json.Marshal(s.config)
-	path := filepath.Join(t.TempDir(), "config.json")
-	os.WriteFile(path, data, 0600)
-	cfg, e := Load(path)
-	if e != nil || cfg.Filesystem.ThumbnailCacheOverrides[0].Path != "pics" {
-		t.Fatal(cfg.Filesystem.ThumbnailCacheOverrides, e)
+	if _, e := os.Stat(filepath.Join(s.config.State, "filesystem-thumbnails")); !os.IsNotExist(e) {
+		t.Fatal("unexpected external cache", e)
 	}
 }
 

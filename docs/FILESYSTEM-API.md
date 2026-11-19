@@ -22,7 +22,6 @@ Enable only in the trial companion configuration:
   "enabled": true,
   "ffmpeg": "/usr/bin/ffmpeg",
   "pdftoppm": "/usr/bin/pdftoppm",
-  "thumbnailCacheOverrides": [{"source": "VPS", "path": "/pics"}],
   "disabledThumbnailSources": ["Samba"]
 }
 ```
@@ -67,17 +66,14 @@ previews unavailable and the thumbnail endpoint returns before checking caches,
 opening originals or accessing the share. Browsing, copying, downloads and media
 streaming remain available. Existing cache files are retained. Remove `Samba`
 from this setting and restart only the API to resume generation; no app update
-is required. The separate `/pics` cache override remains in effect.
+is required.
 
-During the long-running transcoding job, configure `thumbnailCacheOverrides`
-for its actual source name and watched `/pics` path. Ordinary thumbnails and
-renderer scratch for that subtree go into private service state under
-`filesystem-thumbnails/<source-and-directory-hash>`, outside the watched tree.
-Other folders retain adjacent caches. Protected files always retain encrypted
-adjacent caches even if they match an override. Remove the override after the
-old worker is retired; adjacent caches regenerate on demand. Originals and the
-running worker are not changed by this configuration.
-
+All folders, including `/pics`, use adjacent hidden caches. The normalizer skips
+`.filebeans-thumbnails`, `.filebeans-stage`, and `.filebeans-vaults` components
+case-insensitively during inventory and rejects such queued media jobs. Existing
+originals, completed outputs, and excluded job workspaces are retained. Private
+`State/filesystem-thumbnails` caches from the earlier trial remain untouched and
+are no longer used; previews regenerate next to their originals on demand.
 
 Thumbnails are generated on request into `.filebeans-thumbnails` inside the
 original file's containing folder. Cache keys cover its name, revision, fixed
@@ -150,8 +146,9 @@ Do not execute these steps without the corresponding explicit request.
    `scripts/prepare-vault-runtime.py --filesystem` inside development. This
    compiles Linux binaries and prepares the filesystem Dockerfile; it does not
    prepare or fetch Quantum. Build requested images only with the VM image-builder
-   procedure. The runtime includes FFmpeg, Poppler and pinned rclone. The running normalizer must be preserved unchanged; use the temporary cache
-   override for its watched folder instead of updating or restarting it.
+   procedure. The runtime includes FFmpeg, Poppler and pinned rclone. Deploy the
+   main-branch normalizer cache exclusions before enabling adjacent thumbnails
+   in its watched folder. Normalizer deployment requires a separate request.
 3. Request Apple build/testing from this feature branch, preserving app/domain
    identifiers and versioning. The native player needs real startup, seek,
    resume and cancellation checks on local, Samba and protected media. Exercise

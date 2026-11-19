@@ -39,7 +39,7 @@ func testFilesystemProtectedLifecycle(t *testing.T, smb bool) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	s := &Service{config: Config{Token: strings.Repeat("t", 32), State: t.TempDir(), Roots: b.config.Roots, Filesystem: FilesystemConfig{Enabled: true, ThumbnailCacheOverrides: []ThumbnailCacheOverride{{Source: "disk", Path: "/"}}, FFmpeg: "/test-tools/ffmpeg", PDFToPPM: "/test-tools/pdftoppm"}}, vaults: &vaultManager{guard: guard, remote: newBrokerClient(b.config.Runtime, b.config.Roots)}}
+	s := &Service{config: Config{Token: strings.Repeat("t", 32), State: t.TempDir(), Roots: b.config.Roots, Filesystem: FilesystemConfig{Enabled: true, FFmpeg: "/test-tools/ffmpeg", PDFToPPM: "/test-tools/pdftoppm"}}, vaults: &vaultManager{guard: guard, remote: newBrokerClient(b.config.Runtime, b.config.Roots)}}
 	call := func(method, route, p string, payload io.Reader, headers map[string]string) *httptest.ResponseRecorder {
 		q := url.Values{"source": {"disk"}, "path": {p}}
 		req := httptest.NewRequest(method, "/v1/fs/"+route+"?"+q.Encode(), payload)

@@ -329,46 +329,7 @@ func cleanupPreviewCache(root rootFS, dir string) {
 	}
 }
 
-// Ordinary files can temporarily cache outside a watched media tree. Protected
-// files always keep their cache and renderer scratch inside their encrypted mount.
-// The caller retains the original root/lease even when cache storage is separate.
+// Every folder keeps previews inside its own hidden cache, including protected mounts.
 func (s *Service) thumbnailCache(root rootFS, source, p string) (rootFS, string, error) {
-	adjacent := filepath.Join(filepath.Dir(p), thumbnailDirectory)
-	matched := false
-	for _, override := range s.config.Filesystem.ThumbnailCacheOverrides {
-		prefix, e := clean(override.Path)
-		if e != nil {
-			return nil, "", ErrUnsafe
-		}
-		if override.Source == source && (prefix == "." || within(p, prefix)) {
-			matched = true
-			break
-		}
-	}
-	if !matched {
-		return root, adjacent, nil
-	}
-	if guarded, ok := root.(*guardedRoot); ok {
-		full, e := guarded.path(p)
-		if e != nil {
-			return nil, "", e
-		}
-		vault, _, e := guarded.lease.Boundary(full)
-		if e != nil {
-			return nil, "", protectionError(e)
-		}
-		if vault != nil {
-			return root, adjacent, nil
-		}
-	}
-	// Legacy vault configurations also must not spill protected previews.
-	if s.vaults != nil && s.vaults.remote == nil && s.vaults.protectedSource(source) {
-		return root, adjacent, nil
-	}
-	state, e := os.OpenRoot(s.config.State)
-	if e != nil {
-		return nil, "", e
-	}
-	digest := sha256.Sum256([]byte(source + "\x00" + filepath.Dir(p)))
-	return state, filepath.Join("filesystem-thumbnails", hex.EncodeToString(digest[:])), nil
+	return root, filepath.Join(filepath.Dir(p), thumbnailDirectory), nil
 }
