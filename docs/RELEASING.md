@@ -904,3 +904,32 @@ The requested deployment and internal TestFlight release are finished and
 verified. Physical-device acceptance remains separate. Live round-trip move
 verification awaits approval after automatic review rejected the original
 remote move/permanent-purge test; no connected-service data test was executed.
+# Faster local moves — November 19, 2026 UTC
+
+Deployed `d9884245de3bf3fa00eb7158c676d21bccd61e42` as
+`filebeans-api:d988424-fast-moves`. Local moves use journaled no-overwrite
+renames where the filesystem and protection boundary allow them. Copy-based
+local moves no longer repeatedly hash source contents; preparation is visible
+and hash reads honor cancellation between buffers. No app build or schema
+migration was required.
+
+The VM-prepared archive SHA-256 is
+`584c599063076d13adcffb8420502e29fe3ecb9cdaae6c84f366fc71f9c69c3d`;
+image config digest is
+`sha256:493540047f6460ea00088a57ce2f54ff8e1d4c8e4331c561e811cf8f67af09a8`.
+Transferred archive and loaded identity were verified before restarting only
+the companion with `--no-build --no-deps --pull never`. The normalizer, broker
+and private API configuration were preserved. Direct source discovery and
+authenticated public capabilities passed. Deployment metadata, prior overlay
+and source revision, original-move snapshots, and live verification are retained
+under `/opt/services/filebeans/deploy/fast-moves-d988424/`.
+
+Live Samba checks confirmed inode preservation for an ordinary move and matching
+contents/source removal for moves into and out of an unlocked protected folder.
+All disposable fixtures were removed. The 4 MiB return move took 72.15 seconds;
+protected-boundary moves still copy and do not have rename latency. The user's
+existing cancelled archive job stayed cancelled, and the original archive's
+device, inode, size and modification time were unchanged by deployment.
+
+The active-operation protection lease is unchanged: auto-lock cannot acquire its
+exclusive gate while a copy/move is active, including preparation and cleanup.

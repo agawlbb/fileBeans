@@ -428,3 +428,25 @@ Trash, and Normalization. Start local and Drive uploads, open Transfers, and
 verify queued/uploading progress and a single row across the server-job handoff.
 Check a failed or cancelled copy retains its original; completed moves remove
 their original only after destination publication.
+# Local move rename and hashing checks — November 19, 2026
+
+The Go race suite passed with pinned rclone 1.76.0 and the isolated VM test
+database. Follow-up focused race tests and `go vet ./...` passed after recovery
+and mixed-batch refinements. The development image's older system rclone caused
+unrelated hard-link/critical-error test failures; selecting the shipped pinned
+binary resolved those failures without changing copy behavior.
+
+Coverage includes sparse-file rename without content scans, interrupted rename
+recovery, replacement source preservation, destination conflicts, sync-error
+recovery, mixed rename/copy batches with normalized paths, actual cross-device
+copy fallback, source/target edits, cancellation, and existing move-journal
+restart phases. Isolated real FUSE/CIFS checks passed for protection boundaries,
+within-vault rename eligibility, and rejection of vault-root moves. Inactivity
+and protection-gate tests passed.
+
+The deployed server passed direct/public health checks and disposable Samba
+moves within ordinary storage and into/out of unlocked protected storage.
+Ordinary rename retained its inode. Protected copies retained their bytes and
+removed their sources; the return job exposed `preparing` before copying.
+Fixtures were cleaned. The existing cancelled archive job was preserved.
+See the corresponding deployment record in `RELEASING.md`.
