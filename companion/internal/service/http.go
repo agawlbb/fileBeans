@@ -76,7 +76,7 @@ func (s *Service) Handler() http.Handler {
 		g, e := s.google()
 		features := []string{"protectedFolderMoves", "crossDriveMoves", "driveWrite", "driveDestinations", "driveUploads", "driveThumbnails", "driveMedia", "normalization"}
 		if s.config.Filesystem.Enabled {
-			features = append(features, "filesystemV1", "datasetMediaV1")
+			features = append(features, "filesystemV1", "datasetMediaV1", "datasetOriginalsV1")
 		}
 		if s.vaults != nil && s.vaults.remote != nil && s.vaults.remote.ready() {
 			features = append(features, "protectedFoldersCreate")

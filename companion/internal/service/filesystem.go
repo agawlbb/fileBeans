@@ -28,6 +28,7 @@ type FilesystemConfig struct {
 }
 
 type filesystemEntry struct {
+	Vault      string            `json:"vault,omitempty"`
 	Name       string            `json:"name"`
 	Path       string            `json:"path"`
 	Type       string            `json:"type"`
@@ -165,6 +166,21 @@ func (s *Service) filesystemResource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	entry := filesystemInfo(p, st)
+	if guarded, ok := root.(*guardedRoot); ok && guarded.lease != nil {
+		v, _, err := guarded.lease.Boundary(filepath.Join(root.Name(), p))
+		if err != nil {
+			filesystemFail(w, protectionError(err))
+			return
+		}
+		if v != nil {
+			entry.Vault = v.ID
+		}
+	} else if s.vaults != nil {
+		if v := s.vaults.pathVault(r.URL.Query().Get("source"), p); v != nil {
+			entry.Vault = v.ID
+		}
+	}
+
 	if p == "." {
 		entry.Path = "/"
 	}

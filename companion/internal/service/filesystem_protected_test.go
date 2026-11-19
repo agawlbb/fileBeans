@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"filebeans/companion/protection"
 	"io"
@@ -132,9 +133,20 @@ func testFilesystemProtectedLifecycle(t *testing.T, smb bool) {
 		t.Fatal(err)
 	}
 	input := DatasetInput{ID: ID(), Source: "disk", Path: "/Private/movie.mp4", Revision: filesystemRevision(st)}
-	prepared := DatasetJob{ID: ID(), Request: DatasetRequest{Operation: "prepare", Model: "wan", Inputs: []DatasetInput{input}}}
-	if err = s.datasetProcess(context.Background(), &prepared); err != nil {
-		t.Fatal("protected dataset preparation", err)
+	input.Vault = entry.ID
+	metadata := call("GET", "resources", "/Private/movie.mp4", nil, nil)
+	var originalEntry filesystemEntry
+	if metadata.Code != 200 || json.Unmarshal(metadata.Body.Bytes(), &originalEntry) != nil || originalEntry.Vault != entry.ID {
+		t.Fatal("missing original protection identity", metadata.Code, metadata.Body.String())
+	}
+	if w := datasetReadRequest(s, input, "info", "GET"); w.Code != 200 {
+		t.Fatal("protected original info", w.Code, w.Body.String())
+	}
+	if w := datasetReadRequest(s, input, "content", "GET"); w.Code != 200 {
+		t.Fatal("protected original stream", w.Code, w.Body.String())
+	}
+	if err = s.datasetActivity(Item{Source: input.Source, Path: input.Path}); err != nil {
+		t.Fatal(err)
 	}
 	if b.datasetActivity.IsZero() {
 		t.Fatal("dataset processing did not refresh inactivity")
@@ -169,6 +181,11 @@ func testFilesystemProtectedLifecycle(t *testing.T, smb bool) {
 		file.Close()
 		root.Close()
 		t.Fatal("locked dataset source exposed")
+	}
+	for _, endpoint := range []string{"info", "content"} {
+		if out := datasetReadRequest(s, input, endpoint, "GET"); out.Code != 423 || !strings.Contains(out.Body.String(), "FileBeans mobile app") {
+			t.Fatal("locked original", endpoint, out.Code, out.Body.String())
+		}
 	}
 	// The cache and file contents must not occur in ciphertext or broker state.
 	for _, base := range []string{filepath.Join(physical, brokerStore), b.config.State} {

@@ -103,7 +103,7 @@ func (s *Service) datasetUpload(w http.ResponseWriter, r *http.Request) {
 		datasetFailure(w, e)
 		return
 	}
-	dir := filepath.Join(filepath.Dir(p), thumbnailDirectory)
+	dir := filepath.Join(filepath.Dir(p), ".filebeans-stage")
 	if e = root.MkdirAll(dir, 0700); e != nil {
 		datasetFailure(w, e)
 		return

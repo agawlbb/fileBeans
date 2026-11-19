@@ -1,13 +1,14 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"image"
 	"image/color"
 	"image/png"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,53 +35,103 @@ func datasetTestImage(t *testing.T, s *Service, base string) DatasetInput {
 	st, _ := os.Stat(filepath.Join(base, "source.png"))
 	return DatasetInput{ID: ID(), Source: s.config.Roots[0].Name, Path: "/source.png", Revision: filesystemRevision(st)}
 }
-func TestDatasetPrepareAndRevision(t *testing.T) {
-	if _, e := os.Stat("/usr/bin/ffmpeg"); e != nil {
-		t.Skip("ffmpeg required")
-	}
+func datasetReadRequest(s *Service, in DatasetInput, endpoint, method string) *httptest.ResponseRecorder {
+	q := url.Values{"source": {in.Source}, "path": {in.Path}, "revision": {in.Revision}, "vault": {in.Vault}, "model": {"qwen"}}
+	req := httptest.NewRequest(method, "/v1/datasets/source/"+endpoint+"?"+q.Encode(), nil)
+	req.Header.Set("Authorization", "Bearer "+s.config.Token)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	return w
+}
+func TestDatasetOriginalInfoAndContent(t *testing.T) {
 	s, base := filesystemFixture(t)
 	in := datasetTestImage(t, s, base)
-	j := DatasetJob{ID: ID(), Request: DatasetRequest{Operation: "prepare", Model: "qwen", Inputs: []DatasetInput{in}}}
-	if e := s.datasetProcess(context.Background(), &j); e != nil {
-		t.Fatal(e)
-	}
-	if j.Info == nil || j.Info.Width != 120 || j.Info.Height != 80 {
-		t.Fatal(j.Info)
-	}
-	if _, e := os.Stat(filepath.Join(base, datasetCache(in, "source.png"), "preview.jpg")); e != nil {
-		t.Fatal(e)
-	}
-	os.WriteFile(filepath.Join(base, "source.png"), []byte("changed"), 0600)
-	if e := s.datasetProcess(context.Background(), &j); !errors.Is(e, ErrConflict) {
-		t.Fatal("changed source accepted", e)
-	}
-	w := httptest.NewRecorder()
-	datasetFailure(w, ErrVaultLocked)
-	if w.Code != 423 || !strings.Contains(w.Body.String(), "FileBeans mobile app") {
+	original, _ := os.ReadFile(filepath.Join(base, "source.png"))
+	w := datasetReadRequest(s, in, "info", "GET")
+	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
-}
-func TestDatasetVideoPrepare(t *testing.T) {
-	if _, e := os.Stat("/usr/bin/ffmpeg"); e != nil {
-		t.Skip("ffmpeg required")
+	var info DatasetInfo
+	json.Unmarshal(w.Body.Bytes(), &info)
+	if info.Width != 120 || info.Height != 80 {
+		t.Fatal(info)
 	}
+	w = datasetReadRequest(s, in, "content", "GET")
+	if w.Code != 200 || !bytes.Equal(w.Body.Bytes(), original) {
+		t.Fatal("original bytes", w.Code)
+	}
+	q := url.Values{"source": {in.Source}, "path": {in.Path}, "revision": {in.Revision}}
+	req := httptest.NewRequest("GET", "/v1/datasets/source/content?"+q.Encode(), nil)
+	req.Header.Set("Authorization", "Bearer "+s.config.Token)
+	req.Header.Set("Range", "bytes=2-9")
+	w = httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != 206 || !bytes.Equal(w.Body.Bytes(), original[2:10]) {
+		t.Fatal("range", w.Code, w.Body.String())
+	}
+	w = datasetReadRequest(s, in, "content", "HEAD")
+	if w.Code != 200 || w.Body.Len() != 0 {
+		t.Fatal("HEAD", w.Code)
+	}
+	entries, _ := os.ReadDir(base)
+	for _, entry := range entries {
+		if entry.Name() == thumbnailDirectory || entry.Name() == ".filebeans-stage" {
+			t.Fatal("read created media", entry.Name())
+		}
+	}
+	os.WriteFile(filepath.Join(base, "source.png"), []byte("changed"), 0600)
+	for _, endpoint := range []string{"info", "content"} {
+		if w := datasetReadRequest(s, in, endpoint, "GET"); w.Code != 409 {
+			t.Fatal("revision", endpoint, w.Code)
+		}
+	}
+	in.Path = "/.filebeans-stage/secret"
+	if w := datasetReadRequest(s, in, "content", "GET"); w.Code != 400 {
+		t.Fatal("hidden path", w.Code)
+	}
+	in.Source = "upload"
+	if w := datasetReadRequest(s, in, "content", "GET"); w.Code != 400 {
+		t.Fatal("internal upload", w.Code)
+	}
+}
+func TestDatasetVideoOriginal(t *testing.T) {
 	s, base := filesystemFixture(t)
 	if out, e := exec.Command("/usr/bin/ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=160x96:rate=12", "-t", "1", "-c:v", "libx264", "-threads", "1", filepath.Join(base, "source.mp4")).CombinedOutput(); e != nil {
 		t.Fatal(e, string(out))
 	}
 	st, _ := os.Stat(filepath.Join(base, "source.mp4"))
 	in := DatasetInput{ID: ID(), Source: "samba", Path: "/source.mp4", Revision: filesystemRevision(st)}
-	j := DatasetJob{ID: ID(), Request: DatasetRequest{Operation: "prepare", Model: "wan", Inputs: []DatasetInput{in}}}
-	if e := s.datasetProcess(context.Background(), &j); e != nil {
+	root, f, _, e := s.datasetInput(in)
+	if e != nil {
 		t.Fatal(e)
 	}
-	if j.Info.Duration != 1 {
-		t.Fatal(j.Info)
+	defer root.Close()
+	defer f.Close()
+	info, e := s.datasetProbe(context.Background(), f, "wan")
+	if e != nil || info.Duration != 1 {
+		t.Fatal(info, e)
 	}
-	for _, name := range []string{"preview.mp4", "thumb0.jpg", "thumb7.jpg"} {
-		if _, e := os.Stat(filepath.Join(base, datasetCache(in, "source.mp4"), name)); e != nil {
-			t.Fatal(e)
-		}
+	original, _ := os.ReadFile(filepath.Join(base, "source.mp4"))
+	w := datasetReadRequest(s, in, "content", "GET")
+	if w.Code != 200 || !bytes.Equal(w.Body.Bytes(), original) {
+		t.Fatal("original video", w.Code)
+	}
+	if e = s.datasetProcess(context.Background(), &DatasetJob{Request: DatasetRequest{Operation: "prepare", Inputs: []DatasetInput{in}}}); e == nil {
+		t.Fatal("prepare executed")
+	}
+	if _, e = os.Stat(filepath.Join(base, thumbnailDirectory)); !os.IsNotExist(e) {
+		t.Fatal("preview directory created", e)
+	}
+}
+func TestDatasetPrepareSubmissionRejected(t *testing.T) {
+	s, _ := filesystemFixture(t)
+	req := httptest.NewRequest("POST", "/v1/datasets/jobs", strings.NewReader(`{"operation":"prepare","model":"wan","inputs":[]}`))
+	req.Header.Set("Authorization", "Bearer "+s.config.Token)
+	req.Header.Set("Idempotency-Key", ID())
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Fatal(w.Code, w.Body.String())
 	}
 }
 func TestDatasetValidation(t *testing.T) {
@@ -110,6 +161,17 @@ func testDatasetDatabase(t *testing.T, s *Service) {
 	defer func() { s.config.Filesystem = old }()
 	base := s.config.Roots[0].Path
 	in := datasetTestImage(t, s, base)
+	original, _ := os.ReadFile(filepath.Join(base, "source.png"))
+
+	legacy := DatasetJob{ID: ID(), State: "queued", Request: DatasetRequest{Operation: "prepare", Model: "qwen", Inputs: []DatasetInput{in}}}
+	if e := s.insert(legacy.ID, "dataset", legacy.State, ID(), legacy); e != nil {
+		t.Fatal(e)
+	}
+	defer s.db.Exec("DELETE FROM fb_operations WHERE id=?", legacy.ID)
+	s.datasetWorker(context.Background())
+	if e := s.read(legacy.ID, "dataset", &legacy); e != nil || legacy.State != "cancelled" {
+		t.Fatal("legacy preparation not retired", legacy, e)
+	}
 	req := DatasetRequest{Operation: "render", Model: "qwen", Inputs: []DatasetInput{in}, Destination: Item{Source: in.Source, Path: "/"}, Clips: []DatasetEdit{{ID: ID(), Control: in.ID, Target: in.ID, Caption: "Synthetic caption", ControlCrop: &DatasetCrop{Width: 0.5, Height: 1}}}}
 	b, _ := json.Marshal(req)
 	request := httptest.NewRequest("POST", "/v1/datasets/jobs", strings.NewReader(string(b)))
@@ -127,6 +189,10 @@ func testDatasetDatabase(t *testing.T, s *Service) {
 	}
 	if e := s.read(j.ID, "dataset", &j); e != nil || j.State != "ready" {
 		t.Fatal(e, j.State, j.Error)
+	}
+	unchanged, _ := os.ReadFile(filepath.Join(base, "source.png"))
+	if !bytes.Equal(original, unchanged) {
+		t.Fatal("export modified original")
 	}
 	output := filepath.Join(base, strings.TrimPrefix(j.Result.Path, "/"))
 	for _, name := range []string{"control/1.jpg", "target/1.jpg", "target/1.txt"} {

@@ -4,9 +4,7 @@ package service
 // encrypted operation journal and filesystem broker; no new unlock mechanism.
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,6 +24,7 @@ import (
 )
 
 type DatasetInput struct {
+	Vault    string `json:"vault,omitempty"`
 	ID       string `json:"id"`
 	Source   string `json:"source"`
 	Path     string `json:"path"`
@@ -87,7 +86,7 @@ func validateDataset(req DatasetRequest) error {
 	if req.Model != "wan" && req.Model != "qwen" {
 		return ErrUnsafe
 	}
-	if req.Operation != "prepare" && req.Operation != "render" {
+	if req.Operation != "render" {
 		return ErrUnsafe
 	}
 	if len(req.Inputs) < 1 || len(req.Inputs) > 500 {
@@ -100,12 +99,6 @@ func validateDataset(req DatasetRequest) error {
 			return ErrUnsafe
 		}
 		ids[in.ID] = true
-	}
-	if req.Operation == "prepare" {
-		if len(req.Inputs) != 1 || len(req.Clips) != 0 {
-			return ErrUnsafe
-		}
-		return nil
 	}
 	p, e := filesystemPath(req.Destination.Path)
 	if e != nil || protected(p) || req.Destination.Source == "upload" || req.Destination.Source == "drive" || req.Destination.Source == "" || len(req.Clips) < 1 || len(req.Clips) > 500 {
@@ -141,17 +134,24 @@ func (s *Service) datasetRoutes(mux *http.ServeMux) {
 		return
 	}
 	mux.HandleFunc("POST /v1/datasets/uploads", s.datasetUpload)
+	mux.HandleFunc("GET /v1/datasets/source/info", s.datasetSourceInfo)
+	mux.HandleFunc("GET /v1/datasets/source/content", s.datasetSourceContent)
 	mux.HandleFunc("POST /v1/datasets/activity", func(w http.ResponseWriter, r *http.Request) {
 		var items []struct {
 			Source string `json:"source"`
 			Path   string `json:"path"`
 			Job    string `json:"job,omitempty"`
+			Vault  string `json:"vault,omitempty"`
 		}
 		if body(r, &items) != nil || len(items) > 501 {
 			datasetFailure(w, ErrUnsafe)
 			return
 		}
 		for _, item := range items {
+			if e := s.datasetVault(item.Source, item.Vault); e != nil {
+				datasetFailure(w, e)
+				return
+			}
 			// Known job references remain identifiable when protected paths are hidden.
 			// Decryption fails closed while locked, before an editor can renew activity.
 			if item.Job != "" {
@@ -228,6 +228,10 @@ func (s *Service) datasetRoutes(mux *http.ServeMux) {
 				cancel()
 			}
 		case "retry":
+			if j.Request.Operation != "render" {
+				datasetFailure(w, ErrUnsafe)
+				return
+			}
 			if j.State == "failed" || j.State == "blocked" || j.State == "cancelled" {
 				j.State = "queued"
 				j.Error = ""
@@ -269,9 +273,21 @@ func (s *Service) datasetActivity(item Item) error {
 	return s.vaults.remote.request("POST", "dataset-activity", item, "", nil)
 }
 func (s *Service) datasetInput(in DatasetInput) (rootFS, *os.File, string, error) {
-	p, e := filesystemPath(in.Path)
-	if e != nil {
+	if e := s.datasetVault(in.Source, in.Vault); e != nil {
 		return nil, nil, "", e
+	}
+	configured := false
+	for _, r := range s.config.Roots {
+		if r.Name == in.Source {
+			configured = true
+		}
+	}
+	if !configured || in.Source == "upload" || in.Source == "drive" || len(in.Revision) != 64 {
+		return nil, nil, "", ErrUnsafe
+	}
+	p, e := filesystemPath(in.Path)
+	if e != nil || protected(p) {
+		return nil, nil, "", ErrUnsafe
 	}
 	root, e := s.root(in.Source)
 	if e != nil {
@@ -286,7 +302,7 @@ func (s *Service) datasetInput(in DatasetInput) (rootFS, *os.File, string, error
 		return bad(e)
 	}
 	st, e := f.Stat()
-	if e != nil || !st.Mode().IsRegular() || st.Size() <= 0 || st.Size() > 2<<30 {
+	if e != nil || !st.Mode().IsRegular() || st.Size() <= 0 {
 		f.Close()
 		return bad(ErrUnsupported)
 	}
@@ -296,24 +312,36 @@ func (s *Service) datasetInput(in DatasetInput) (rootFS, *os.File, string, error
 	}
 	return root, f, p, nil
 }
-func datasetCache(in DatasetInput, p string) string {
-	h := sha256.Sum256([]byte(in.Path + "\x00" + in.Revision + "\x00dataset-v1"))
-	return filepath.Join(filepath.Dir(p), thumbnailDirectory, "dataset-"+hex.EncodeToString(h[:]))
+
+// A recorded vault identity remains recognizable even while its location is hidden.
+func (s *Service) datasetVault(source, id string) error {
+	if id == "" {
+		return nil
+	}
+	if s.vaults == nil {
+		return ErrVaultLocked
+	}
+	for _, v := range s.vaults.status() {
+		if v.ID == id && v.Source == source {
+			if v.State == "unlocked" {
+				return nil
+			}
+			return ErrVaultLocked
+		}
+	}
+	return ErrVaultLocked
 }
-func (s *Service) datasetMedia(w http.ResponseWriter, r *http.Request) {
-	var j DatasetJob
-	s.mu.Lock()
-	e := s.read(r.PathValue("id"), "dataset", &j)
-	s.mu.Unlock()
-	if e != nil {
-		datasetFailure(w, e)
+func datasetQuery(r *http.Request) DatasetInput {
+	q := r.URL.Query()
+	return DatasetInput{Source: q.Get("source"), Path: q.Get("path"), Revision: q.Get("revision"), Vault: q.Get("vault")}
+}
+func (s *Service) datasetSourceInfo(w http.ResponseWriter, r *http.Request) {
+	in := datasetQuery(r)
+	model := r.URL.Query().Get("model")
+	if model != "wan" && model != "qwen" {
+		datasetFailure(w, ErrUnsafe)
 		return
 	}
-	if j.Request.Operation != "prepare" || j.State != "ready" {
-		datasetFailure(w, os.ErrNotExist)
-		return
-	}
-	in := j.Request.Inputs[0]
 	root, f, p, e := s.datasetInput(in)
 	if e != nil {
 		datasetFailure(w, e)
@@ -321,31 +349,64 @@ func (s *Service) datasetMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	defer root.Close()
 	defer f.Close()
-	kind := r.PathValue("kind")
-	name := "preview.mp4"
-	if j.Request.Model == "qwen" {
-		name = "preview.jpg"
+	if e := s.datasetActivity(Item{Source: in.Source, Path: in.Path}); e != nil {
+		datasetFailure(w, e)
+		return
 	}
-	if kind != "preview" {
-		if len(kind) != 6 || !strings.HasPrefix(kind, "thumb") || kind[5] < '0' || kind[5] > '7' {
-			datasetFailure(w, ErrUnsafe)
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	info, e := s.datasetProbe(ctx, f, model)
+	if e != nil {
+		datasetFailure(w, e)
+		return
+	}
+	captionPath := strings.TrimSuffix(p, filepath.Ext(p)) + ".txt"
+	if caption, e := filesystemOpenFile(root, captionPath); e == nil {
+		data, readErr := io.ReadAll(io.LimitReader(caption, (1<<20)+1))
+		caption.Close()
+		if readErr != nil || len(data) > 1<<20 || !utf8.Valid(data) {
+			datasetFailure(w, ErrUnsupported)
 			return
 		}
-		name = kind + ".jpg"
+		info.Caption = string(data)
+	} else if !os.IsNotExist(e) {
+		datasetFailure(w, e)
+		return
 	}
-	media, e := filesystemOpenFile(root, filepath.Join(datasetCache(in, p), name))
+	st, e := root.Stat(p)
+	if e != nil || filesystemRevision(st) != in.Revision {
+		datasetFailure(w, ErrConflict)
+		return
+	}
+	reply(w, 200, info)
+}
+func (s *Service) datasetSourceContent(w http.ResponseWriter, r *http.Request) {
+	in := datasetQuery(r)
+	root, f, _, e := s.datasetInput(in)
 	if e != nil {
 		datasetFailure(w, e)
 		return
 	}
-	defer media.Close()
-	st, e := media.Stat()
+	defer root.Close()
+	defer f.Close()
+	st, e := f.Stat()
 	if e != nil {
 		datasetFailure(w, e)
 		return
 	}
+	if e := s.datasetActivity(Item{Source: in.Source, Path: in.Path}); e != nil {
+		datasetFailure(w, e)
+		return
+	}
+	entry := filesystemInfo(st.Name(), st)
+	w.Header().Set("Content-Type", entry.Type)
+	w.Header().Set("ETag", `"`+entry.Revision+`"`)
 	w.Header().Set("Cache-Control", "private, no-store")
-	http.ServeContent(filesystemWriter{w}, r, name, st.ModTime(), media)
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(60 * time.Second))
+	http.ServeContent(filesystemWriter{w}, r, st.Name(), st.ModTime(), f)
+}
+func (s *Service) datasetMedia(w http.ResponseWriter, r *http.Request) {
+	reply(w, http.StatusGone, map[string]string{"error": "Prepared media retired. Reopen the original source."})
 }
 func (s *Service) datasetWorker(ctx context.Context) bool {
 	s.mu.Lock()
@@ -354,7 +415,19 @@ func (s *Service) datasetWorker(ctx context.Context) bool {
 	if e == nil {
 		for i := len(records) - 1; i >= 0; i-- {
 			var j DatasetJob
-			if json.Unmarshal(records[i], &j) == nil && (j.State == "queued" || j.State == "processing") {
+			if json.Unmarshal(records[i], &j) != nil {
+				continue
+			}
+			if j.Request.Operation != "render" {
+				if j.State != "cancelled" && j.State != "ready" {
+					j.State = "cancelled"
+					j.Error = "Source preparation retired; use the original."
+					j.Code = "retired"
+					_ = s.save(j.ID, "dataset", j.State, j)
+				}
+				continue
+			}
+			if j.State == "queued" || j.State == "processing" {
 				job = &j
 				break
 			}
@@ -477,17 +550,10 @@ func (s *Service) datasetEncode(ctx context.Context, input *os.File, root rootFS
 	}
 	args = append(args, "-i", "/proc/self/fd/3", "-map", "0:v:0", "-an", "-sn", "-dn")
 	switch mode {
-	case "video", "preview":
+	case "video":
 		short := 480
 		crf := "20"
-		if mode == "preview" {
-			short = 360
-			crf = "28"
-		}
 		duration := end - start
-		if mode == "preview" {
-			duration = end
-		}
 		args = append(args, "-t", fmt.Sprintf("%.6f", duration), "-vf", datasetFilter(crop, short), "-c:v", "libx264", "-threads", "2", "-preset", "veryfast", "-crf", crf, "-pix_fmt", "yuv420p", "-g", "24", "-movflags", "+faststart", "-f", "mp4")
 	case "image":
 		filter := "scale=iw*sar:ih,setsar=1"
@@ -541,6 +607,9 @@ func (s *Service) datasetEncode(ctx context.Context, input *os.File, root rootFS
 	return out.Sync()
 }
 func (s *Service) datasetProcess(ctx context.Context, j *DatasetJob) error {
+	if j.Request.Operation != "render" {
+		return ErrUnsafe
+	}
 	type source struct {
 		root rootFS
 		file *os.File
@@ -589,45 +658,6 @@ func (s *Service) datasetProcess(ctx context.Context, j *DatasetJob) error {
 			}
 		}
 	}()
-	if j.Request.Operation == "prepare" {
-		src := sources[j.Request.Inputs[0].ID]
-		cache := datasetCache(src.ref, src.path)
-		_ = src.root.RemoveAll(cache)
-		if e := src.root.MkdirAll(cache, 0700); e != nil {
-			return e
-		}
-		captionPath := strings.TrimSuffix(src.path, filepath.Ext(src.path)) + ".txt"
-		if f, e := filesystemOpenFile(src.root, captionPath); e == nil {
-			b, e := io.ReadAll(io.LimitReader(f, (1<<20)+1))
-			f.Close()
-			if e != nil || len(b) > 1<<20 || !utf8.Valid(b) {
-				return ErrUnsupported
-			}
-			src.info.Caption = string(b)
-		} else if !os.IsNotExist(e) {
-			return e
-		}
-		if j.Request.Model == "wan" {
-			if e := s.datasetEncode(ctx, src.file, src.root, cache, "preview.mp4", 0, src.info.Duration, nil, "preview"); e != nil {
-				return fmt.Errorf("dataset preview: %w", e)
-			}
-			for i := 0; i < 8; i++ {
-				if e := s.datasetEncode(ctx, src.file, src.root, cache, fmt.Sprintf("thumb%d.jpg", i), src.info.Duration*float64(i)/8, 0, nil, "thumb"); e != nil {
-					return fmt.Errorf("dataset thumbnail %d: %w", i, e)
-				}
-			}
-		} else {
-			if e := s.datasetEncode(ctx, src.file, src.root, cache, "preview.jpg", 0, 0, nil, "thumb"); e != nil {
-				return e
-			}
-		}
-		st, e := src.root.Stat(src.path)
-		if e != nil || filesystemRevision(st) != src.ref.Revision {
-			return ErrConflict
-		}
-		j.Info = &src.info
-		return nil
-	}
 	dest := j.Request.Destination
 	root, e := s.root(dest.Source)
 	if e != nil {
@@ -686,30 +716,7 @@ func (s *Service) datasetProcess(ctx context.Context, j *DatasetJob) error {
 					return ErrUnsafe
 				}
 			}
-			scratch := filepath.Join(datasetCache(src.ref, src.path), "render-"+j.ID)
-			_ = src.root.RemoveAll(scratch)
-			if e := s.datasetEncode(ctx, src.file, src.root, scratch, filepath.Base(out), start, end, crop, mode); e != nil {
-				return e
-			}
-			defer src.root.RemoveAll(scratch)
-			file, e := filesystemOpenFile(src.root, filepath.Join(scratch, filepath.Base(out)))
-			if e != nil {
-				return e
-			}
-			defer file.Close()
-			output, e := root.OpenFile(filepath.Join(stage, out), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0660)
-			if e != nil {
-				return e
-			}
-			_, e = io.Copy(output, file)
-			if e == nil {
-				e = output.Sync()
-			}
-			ce := output.Close()
-			if e == nil {
-				e = ce
-			}
-			return e
+			return s.datasetEncode(ctx, src.file, root, filepath.Dir(filepath.Join(stage, out)), filepath.Base(out), start, end, crop, mode)
 		}
 		n := strconv.Itoa(i + 1)
 		caption := n + ".txt"
