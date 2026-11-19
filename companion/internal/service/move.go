@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"strings"
 	"syscall"
@@ -24,6 +23,9 @@ type MoveEntry struct {
 	Identity  string `json:"identity"`
 }
 type MoveSelection struct {
+	Rename             bool        `json:"rename,omitempty"`
+	Renamed            bool        `json:"renamed,omitempty"`
+	RenameIdentity     string      `json:"renameIdentity,omitempty"`
 	DriveEntries       []File      `json:"driveEntries,omitempty"`
 	DestinationEntries []MoveEntry `json:"destinationEntries,omitempty"`
 	DestinationDrive   []File      `json:"destinationDrive,omitempty"`
@@ -87,6 +89,10 @@ func validateMoveRequest(req CopyRequest) error {
 // Snapshot both bytes and identity. Destination comparisons deliberately ignore
 // inode/mtime and directory sizes, which differ across filesystems.
 func snapshotMove(ctx context.Context, root rootFS, base string) ([]MoveEntry, error) {
+	return inventoryMove(ctx, root, base, true)
+}
+
+func inventoryMove(ctx context.Context, root rootFS, base string, hash bool) ([]MoveEntry, error) {
 	if e := safe(root, base); e != nil {
 		return nil, e
 	}
@@ -140,12 +146,17 @@ func snapshotMove(ctx context.Context, root rootFS, base string) ([]MoveEntry, e
 			}
 			return nil
 		}
+		entry.Size = st.Size()
+		if !hash {
+			entries = append(entries, entry)
+			return nil
+		}
 		f, e := root.Open(path)
 		if e != nil {
 			return e
 		}
 		h := sha256.New()
-		n, e := io.Copy(h, f)
+		n, e := io.Copy(h, moveReader{ctx: ctx, reader: f})
 		after, statErr := f.Stat()
 		closeErr := f.Close()
 		if e != nil {
@@ -169,6 +180,40 @@ func snapshotMove(ctx context.Context, root rootFS, base string) ([]MoveEntry, e
 		return nil, e
 	}
 	return entries, nil
+}
+
+type moveReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r moveReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(p)
+}
+
+// Content is verified against the destination once. Source revalidation uses
+// identity, size and version rather than repeatedly reading all source bytes.
+func sameMoveMetadata(expected, actual []MoveEntry, subset bool) bool {
+	if !subset && len(expected) != len(actual) {
+		return false
+	}
+	byPath := map[string]MoveEntry{}
+	for _, entry := range expected {
+		byPath[entry.Path] = entry
+	}
+	for _, entry := range actual {
+		old, ok := byPath[entry.Path]
+		if !ok || old.Directory != entry.Directory || old.Identity != entry.Identity || old.Size != entry.Size {
+			return false
+		}
+		if (!subset || !entry.Directory) && old.Version != entry.Version {
+			return false
+		}
+	}
+	return true
 }
 
 func sameMoveData(expected, actual []MoveEntry, subset bool) bool {
@@ -245,7 +290,12 @@ func (s *Service) executeMove(ctx context.Context, j *Job) error {
 			if e != nil {
 				return e
 			}
-			entries, e := snapshotMove(ctx, src, path)
+			selection := MoveSelection{Source: item.Source, Path: path, To: name}
+			e = planRename(src, path, dst, filepath.Join(destination, name), &selection)
+			var entries []MoveEntry
+			if e == nil && !selection.Rename {
+				entries, e = snapshotMove(ctx, src, path)
+			}
 			src.Close()
 			if e != nil {
 				return e
@@ -255,29 +305,57 @@ func (s *Service) executeMove(ctx context.Context, j *Job) error {
 				prefix = strings.TrimPrefix(v.Path, "/")
 			}
 			q := filepath.Join(prefix, ".filebeans-stage", j.ID, fmt.Sprintf("move-%d", i))
-			state.Selections = append(state.Selections, MoveSelection{Source: item.Source, Path: path, To: name, Quarantine: q, Entries: entries})
+			selection.Quarantine, selection.Entries = q, entries
+			for _, other := range state.Selections {
+				if strings.EqualFold(other.To, name) {
+					return ErrConflict
+				}
+			}
+			state.Selections = append(state.Selections, selection)
 		}
 		j.Move = state
 		if e = s.saveMove(j); e != nil {
 			return e
 		}
 	}
-	if !j.Move.Published {
-		for _, selection := range j.Move.Selections {
-			src, e := s.root(selection.Source)
-			if e != nil {
-				return e
-			}
-			current, e := snapshotMove(ctx, src, selection.Path)
-			src.Close()
-			if e != nil {
-				return e
-			}
-			if !reflect.DeepEqual(selection.Entries, current) {
-				return ErrConflict
-			}
+	for i := range j.Move.Selections {
+		selection := &j.Move.Selections[i]
+		if !selection.Rename {
+			continue
 		}
-		if e = s.executeRclone(ctx, j); e != nil {
+		if e = ctx.Err(); e != nil {
+			return e
+		}
+		if e = s.checkpoint(j); e != nil {
+			return e
+		}
+		src, err := s.root(selection.Source)
+		if err != nil {
+			return err
+		}
+		err = resumeRename(src, dst, destination, selection)
+		if errors.Is(err, syscall.EXDEV) || errors.Is(err, syscall.EOPNOTSUPP) || errors.Is(err, syscall.ENOSYS) {
+			selection.Rename = false
+			selection.RenameIdentity = ""
+			selection.Entries, err = snapshotMove(ctx, src, selection.Path)
+		}
+		src.Close()
+		if err != nil {
+			return err
+		}
+		if e = s.saveMove(j); e != nil {
+			return e
+		}
+	}
+	if !j.Move.Published {
+		needsCopy := false
+		for _, selection := range j.Move.Selections {
+			needsCopy = needsCopy || !selection.Rename
+		}
+		if needsCopy {
+			e = s.executeRclone(ctx, j)
+		}
+		if e != nil {
 			return e
 		}
 		j.Move.Published = true
@@ -286,6 +364,9 @@ func (s *Service) executeMove(ctx context.Context, j *Job) error {
 		}
 	}
 	for _, selection := range j.Move.Selections {
+		if selection.Rename {
+			continue
+		}
 		actual, e := snapshotMove(ctx, dst, filepath.Join(destination, selection.To))
 		if e != nil {
 			return e
@@ -300,16 +381,19 @@ func (s *Service) executeMove(ctx context.Context, j *Job) error {
 	if !j.Move.Committed {
 		// Revalidate every original before committing removal of any selection.
 		for _, selection := range j.Move.Selections {
+			if selection.Rename {
+				continue
+			}
 			src, e := s.root(selection.Source)
 			if e != nil {
 				return e
 			}
-			current, e := snapshotMove(ctx, src, selection.Path)
+			current, e := inventoryMove(ctx, src, selection.Path, false)
 			src.Close()
 			if e != nil {
 				return e
 			}
-			if !reflect.DeepEqual(selection.Entries, current) {
+			if !sameMoveMetadata(selection.Entries, current, false) {
 				return ErrConflict
 			}
 		}
@@ -325,23 +409,27 @@ func (s *Service) executeMove(ctx context.Context, j *Job) error {
 	cleanupCtx := context.WithoutCancel(ctx)
 	for i := range j.Move.Selections {
 		selection := &j.Move.Selections[i]
+		if selection.Rename {
+			continue
+		}
 		if selection.Removed {
 			continue
 		}
-		if e = s.finishMoveSelection(cleanupCtx, j, dst, destination, selection); e != nil {
+		if e = s.finishMoveSelection(cleanupCtx, j, selection); e != nil {
 			return e
 		}
 	}
 	return nil
 }
 
-func (s *Service) finishMoveSelection(ctx context.Context, j *Job, dst rootFS, destination string, m *MoveSelection) error {
+func (s *Service) finishMoveSelection(ctx context.Context, j *Job, m *MoveSelection) error {
 	src, e := s.root(m.Source)
 	if e != nil {
 		return e
 	}
 	defer src.Close()
-	return finishMoveSource(ctx, src, dst, destination, m, func() error { return s.saveMove(j) })
+	// executeMove verified every destination in this attempt before committing.
+	return removeMoveSource(ctx, src, m, func() error { return s.saveMove(j) })
 }
 
 func finishMoveSource(ctx context.Context, src, dst rootFS, destination string, m *MoveSelection, persist func() error) error {
@@ -359,11 +447,11 @@ func removeMoveSource(ctx context.Context, src rootFS, m *MoveSelection, persist
 	var e error
 	_, quarantineErr := src.Lstat(m.Quarantine)
 	if errors.Is(quarantineErr, os.ErrNotExist) && !m.Removing {
-		current, e := snapshotMove(ctx, src, m.Path)
+		current, e := inventoryMove(ctx, src, m.Path, false)
 		if e != nil {
 			return e
 		}
-		if !reflect.DeepEqual(m.Entries, current) {
+		if !sameMoveMetadata(m.Entries, current, false) {
 			return ErrConflict
 		}
 		if e = mkdir(src, filepath.Dir(m.Quarantine)); e != nil {
@@ -381,12 +469,12 @@ func removeMoveSource(ctx context.Context, src rootFS, m *MoveSelection, persist
 	} else if quarantineErr != nil && !errors.Is(quarantineErr, os.ErrNotExist) {
 		return quarantineErr
 	}
-	current, e := snapshotMove(ctx, src, m.Quarantine)
+	current, e := inventoryMove(ctx, src, m.Quarantine, false)
 	if !errors.Is(e, os.ErrNotExist) || !m.Removing {
 		if e != nil {
 			return e
 		}
-		if !sameMoveData(m.Entries, current, m.Removing) {
+		if !sameMoveMetadata(m.Entries, current, m.Removing) {
 			// A source modified in the rename window must be put back, never
 			// overwritten by the older published copy or silently discarded.
 			if restore := renameExclusive(src, m.Quarantine, m.Path); restore != nil {

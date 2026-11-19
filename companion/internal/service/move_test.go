@@ -15,6 +15,33 @@ func testMoveIntegration(t *testing.T, s *Service) {
 	defer src.Close()
 	dst, _ := s.root("vps")
 	defer dst.Close()
+	t.Run("cross-filesystem-copy-fallback", func(t *testing.T) {
+		path, err := os.MkdirTemp("/dev/shm", "filebeans-move-copy-")
+		if err != nil {
+			t.Skip("second filesystem unavailable")
+		}
+		defer os.RemoveAll(path)
+		previous := s.config.Roots[0].Path
+		s.config.Roots[0].Path = path
+		defer func() { s.config.Roots[0].Path = previous }()
+		if err = src.WriteFile("copy-fallback", []byte("verified copy"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		j := Job{ID: ID(), State: "queued", Request: CopyRequest{Operation: "move", Items: []Item{{Source: "samba", Path: "copy-fallback"}}, Destination: Item{Source: "vps", Path: "."}}}
+		if err = s.insert(j.ID, "copy", j.State, "", j); err != nil {
+			t.Fatal(err)
+		}
+		s.runJob(context.Background(), &j)
+		if j.State != "completed" || j.Move.Selections[0].Rename {
+			t.Fatal(j.State, j.Error)
+		}
+		if data, err := os.ReadFile(filepath.Join(path, "copy-fallback")); err != nil || string(data) != "verified copy" {
+			t.Fatal("destination", err)
+		}
+		if _, err = src.Stat("copy-fallback"); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("source retained", err)
+		}
+	})
 	seed := func(t *testing.T, name string, published bool) Job {
 		t.Helper()
 		if e := mkdir(src, filepath.Join(name, "empty")); e != nil {

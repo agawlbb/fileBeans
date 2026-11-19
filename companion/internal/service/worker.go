@@ -171,6 +171,14 @@ func (s *Service) discover(ctx context.Context, j *Job) error {
 	return nil
 }
 func (s *Service) runJob(ctx context.Context, j *Job) {
+	var preparationErr error
+	if j.Request.Operation == "move" && (j.Move == nil || !j.Move.Committed) {
+		j.State = "preparing"
+		preparationErr = s.checkpoint(j)
+		if preparationErr != nil && !errors.Is(preparationErr, errCancelled) {
+			return
+		}
+	}
 	s.vaultGate.RLock()
 	defer s.vaultGate.RUnlock()
 	if s.vaults != nil && s.vaults.guard != nil {
@@ -193,7 +201,10 @@ func (s *Service) runJob(ctx context.Context, j *Job) {
 		delete(s.copyCancels, j.ID)
 		s.mu.Unlock()
 	}()
-	e := s.execute(copyCtx, j)
+	e := preparationErr
+	if e == nil {
+		e = s.execute(copyCtx, j)
+	}
 	if ctx.Err() != nil {
 		return
 	}

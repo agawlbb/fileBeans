@@ -105,7 +105,7 @@ func (s *Service) loop(ctx context.Context, lease *sql.Conn) {
 				if json.Unmarshal(data[i], &j) != nil {
 					continue
 				}
-				if j.State == "queued" || j.State == "running" || j.State == "discovering" || j.State == "waiting" {
+				if j.State == "queued" || j.State == "preparing" || j.State == "running" || j.State == "discovering" || j.State == "waiting" {
 					if j.Next <= time.Now().Unix() {
 						selected = &j
 						break

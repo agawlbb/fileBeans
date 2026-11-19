@@ -105,6 +105,23 @@ Download/range reference: https://developers.google.com/workspace/drive/api/guid
 
 ## Copy behavior and recovery
 
+Local moves first try a no-overwrite rename when source and destination share a
+filesystem and protection boundary. Rename intent and inode identity are journaled
+before the operation so a restart can reconcile a completed rename without reading
+file contents or deleting a replacement at the source path. Each selection in a
+batch is journaled independently; cancellation retains already moved selections.
+Cross-filesystem/protection-boundary moves and filesystems without no-overwrite
+rename support use the copy path. Existing move journals retain their copy path.
+
+Copy-based local moves hash the source once, copy through rclone, and hash the
+published destination once per attempt before committing source removal. Subsequent
+source checks compare identity, size, modification time and tree membership without
+rehashing contents. This detects ordinary concurrent edits; it is not a filesystem
+snapshot or a write lock. Recovery re-verifies the destination before cleanup.
+The worker reports `preparing` while inventorying/hashing, including after restart;
+hash reads check cancellation between buffers. Existing apps display this status
+without an app update.
+
 One queue worker runs jobs serially under the existing database lease. Copies
 whose destination is VPS/Samba use **rclone 1.76.0**, rather than a custom per-file
 copy engine. FileBeans validates the selected roots and final destination, starts

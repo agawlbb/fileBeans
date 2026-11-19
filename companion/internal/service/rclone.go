@@ -95,6 +95,18 @@ func (s *Service) executeRclone(ctx context.Context, j *Job) error {
 			}
 		}
 		for _, item := range j.Request.Items {
+			if j.Move != nil {
+				renamed := false
+				for _, selection := range j.Move.Selections {
+					if selection.Rename && selection.Source == item.Source && selection.Path == strings.TrimPrefix(item.Path, "/") {
+						renamed = true
+						break
+					}
+				}
+				if renamed {
+					continue
+				}
+			}
 			f := File{From: item.Path, Source: item.Source}
 			previous, ok := old[item.Source+"\x00"+strings.TrimPrefix(item.Path, "/")]
 			if ok && contains(j.Published, previous.To) {

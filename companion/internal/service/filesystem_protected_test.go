@@ -39,6 +39,37 @@ func testFilesystemProtectedLifecycle(t *testing.T, smb bool) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	t.Run("move-plan-protection-boundaries", func(t *testing.T) {
+		lease, err := guard.Acquire()
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := os.OpenRoot(b.config.Roots[0].Path)
+		if err != nil {
+			lease.Close()
+			t.Fatal(err)
+		}
+		root := &guardedRoot{Root: raw, lease: lease}
+		defer root.Close()
+		if err = root.WriteFile("ordinary-move", []byte("content"), 0660); err != nil {
+			t.Fatal(err)
+		}
+		defer root.Remove("ordinary-move")
+		m := MoveSelection{}
+		if err = planRename(root, "ordinary-move", root, "Private/moved", &m); err != nil || m.Rename {
+			t.Fatal("protected boundary must copy", err)
+		}
+		if err = root.WriteFile("Private/internal-move", []byte("content"), 0660); err != nil {
+			t.Fatal(err)
+		}
+		defer root.Remove("Private/internal-move")
+		if err = planRename(root, "Private/internal-move", root, "Private/internal-renamed", &m); err != nil || !m.Rename {
+			t.Fatal("same vault should rename", err)
+		}
+		if err = planRename(root, "Private", root, "moved-vault", &MoveSelection{}); err == nil {
+			t.Fatal("vault root move admitted")
+		}
+	})
 	s := &Service{config: Config{Token: strings.Repeat("t", 32), State: t.TempDir(), Roots: b.config.Roots, Filesystem: FilesystemConfig{Enabled: true, FFmpeg: "/test-tools/ffmpeg", PDFToPPM: "/test-tools/pdftoppm"}}, vaults: &vaultManager{guard: guard, remote: newBrokerClient(b.config.Runtime, b.config.Roots)}}
 	call := func(method, route, p string, payload io.Reader, headers map[string]string) *httptest.ResponseRecorder {
 		q := url.Values{"source": {"disk"}, "path": {p}}
