@@ -149,6 +149,7 @@ class Benchmark:
         command[command.index('-x265-params')+1] = 'log-level=error:open-gop=0:keyint=' + str(math.ceil(fps)) + ':min-keyint=1'
         command[command.index('-progress')+1] = '/work/encode-progress.txt'
         row['state'] = 'encoding'
+        (self.root / 'encode-progress.txt').unlink(missing_ok=True)
         started = time.monotonic()
         with (self.root / ('encode-' + str(index) + '.log')).open('wb') as log:
             child = subprocess.Popen(self.engine + ['exec', self.name, 'nice', '-n', '10', 'ionice', '-c', '3'] + command,
@@ -162,7 +163,9 @@ class Benchmark:
                     if progress.exists():
                         values = [line.split('=',1)[1] for line in progress.read_text().splitlines() if line.startswith('out_time_us=')]
                         if values:
-                            row['percent'] = min(99.9, max(0, float(values[-1])/1000000/item['duration_seconds']*100))
+                            try:seconds=float(values[-1])/1000000
+                            except ValueError:seconds=0
+                            row['percent'] = min(99.9, max(0, seconds/item['duration_seconds']*100))
                     self.halt.wait(min(1, self.remaining()))
                 if child.returncode:
                     raise RuntimeError('encode failed; see private log')
@@ -248,11 +251,14 @@ class Benchmark:
                     row.update(state='download failed',error=type(error).__name__)
                     if self.remaining()<=0:break
             ready.put(None) if self.remaining()>0 and not self.halt.is_set() else None
+        preparation_thread=None
         try:
             self.state['phase']='waiting for start'
             while time.time()<self.args.start:time.sleep(min(0.25,self.args.start-time.time()))
             self.state['phase']='running'
-            if self.args.role=='vps':threading.Thread(target=prepare,daemon=True).start()
+            if self.args.role=='vps':
+                preparation_thread=threading.Thread(target=prepare,daemon=True)
+                preparation_thread.start()
             for item,row in zip(self.manifest,self.rows):
                 if self.remaining()<=0:break
                 if self.args.role=='vps':
@@ -285,6 +291,7 @@ class Benchmark:
             raise
         finally:
             self.halt.set();self.upload_pool.shutdown(wait=True)
+            if preparation_thread:preparation_thread.join(timeout=35)
             subprocess.run(self.engine+['rm','-f',self.name],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
             monitor.join(timeout=12)
             self.save()
@@ -293,6 +300,40 @@ class Benchmark:
                     r=subprocess.run(['dev','ssh','vps-admin','sudo cat '+shlex.quote(str(self.args.remote_work/'vps.json'))],capture_output=True,text=True,timeout=10)
                     if r.returncode==0:atomic(self.root/'status.json',dict(updated_at=time.time(),vm=self.state,vps=json.loads(r.stdout)))
                 except (ValueError,subprocess.TimeoutExpired):pass
+                self.final_report()
+            # These are isolated benchmark copies, never library originals.
+            for pattern in ['inputs/*.source','Sample *.mp4','encode-*.log']:
+                for path in self.root.glob(pattern):path.unlink(missing_ok=True)
+            (self.root/'encode-progress.txt').unlink(missing_ok=True)
+
+    def final_report(self):
+        import csv
+        remote=None
+        for attempt in range(12):
+            try:
+                r=subprocess.run(['dev','ssh','vps-admin','sudo cat '+shlex.quote(str(self.args.remote_work/'vps.json'))],capture_output=True,text=True,timeout=8)
+                remote=json.loads(r.stdout) if r.returncode==0 else None
+                if remote and remote.get('phase') in ['finished','failed']:break
+            except (ValueError,subprocess.TimeoutExpired):pass
+            time.sleep(5)
+        results={'vm':self.state,'vps':remote or {}}
+        atomic(self.root/'status.json',dict(updated_at=time.time(),**results))
+        lines=['Option 3: 30-minute delivery benchmark','', 'Same source queue; transfers and validation included; CPU uncapped at low priority.','']
+        csv_rows=[]
+        for role,state in results.items():
+            lines.append('%s: %d files / %.2f video minutes delivered; %d encoded; peak encoder-container memory %.2f GiB.' % (role.upper(),state.get('delivered_count',0),state.get('delivered_video_seconds',0)/60,state.get('encoded_count',0),state.get('peak_memory_bytes',0)/1024**3))
+            for row in state.get('options',[]):
+                item=self.manifest[row['number']-1];video=self.media.video_stream(item['probe'])
+                csv_rows.append(dict(machine=role,sample=row['number'],state=row['state'],duration_seconds=row['duration_seconds'],width=video['width'],height=video['height'],source_bytes=row['source_bytes'],output_bytes=row.get('output_bytes',''),encode_seconds=row.get('encode_seconds',''),download_seconds=row.get('download_seconds',''),validation_seconds=row.get('validation_seconds',''),delivery_seconds=row.get('delivery_seconds',''),keyframe_max_seconds=row.get('keyframe_max_seconds','')))
+        (self.root/'Benchmark.txt').write_text('\n'.join(lines)+'\n')
+        if csv_rows:
+            with (self.root/'Benchmark.csv').open('w') as output:
+                writer=csv.DictWriter(output,fieldnames=list(csv_rows[0]));writer.writeheader();writer.writerows(csv_rows)
+        try:
+            subprocess.run(['dev','rsync','-rt','--protect-args','--chown=1000:1000','--chmod=F660,D770','--rsync-path=sudo rsync',str(self.root/'Benchmark.txt'),str(self.root/'Benchmark.csv'),'vps-admin:'+str(self.args.destination)+'/'],check=True,timeout=60,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        except (subprocess.CalledProcessError,subprocess.TimeoutExpired):
+            self.state['report_delivery']='failed; local report retained'
+            self.save()
 
 
 def stage(args):
