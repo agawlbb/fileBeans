@@ -83,11 +83,12 @@ struct ShareUploadView: View {
                         guard let type = UTType($0) else { return false }
                         return type.conforms(to: .data) && !type.conforms(to: .url)
                     }) else { throw CocoaError(.fileReadUnsupportedScheme) }
+                    let suggestedName = provider.suggestedName
                     copy = try await withCheckedThrowingContinuation { continuation in
                         provider.loadFileRepresentation(forTypeIdentifier: type) { url, error in
                             do {
                                 guard let url else { throw error ?? CocoaError(.fileReadUnknown) }
-                                var name = provider.suggestedName ?? url.lastPathComponent
+                                var name = suggestedName ?? url.lastPathComponent
                                 if (name as NSString).pathExtension.isEmpty, let ext = UTType(type)?.preferredFilenameExtension { name += "." + ext }
                                 _ = try FilePath.child(name, in: "/")
                                 let target = container.appendingPathComponent(name)

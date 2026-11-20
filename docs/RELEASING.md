@@ -1,5 +1,42 @@
 # Signing and TestFlight
 
+## Resumable uploads and Apple integration — November 20, 2026
+
+Server source `015534637d92149477a747a41a27e86267908ed9` is deployed as
+`filebeans-api:0155346-uploads`. The API advertises `resumableUploadsV1`.
+
+- Full companion Go race tests and vet passed using pinned rclone 1.76.0.
+  The earlier system-rclone diagnostic failure does not occur with this runtime.
+- Corrected VM-built archive SHA-256:
+  `86d7710378d67a6da81ef6697c6dfbada6fff738318921173c609384d1dc62e2`.
+  Loaded manifest:
+  `sha256:9b2bf2665acb6f48bf2442384d3f688220e22f5ed5e400690c6bf4c15ceddf7c`.
+  Packaged executable mode 0555 and transferred archive checksum were verified.
+- Only `companion` was recreated with `--no-build --no-deps --pull never`.
+  Direct/public authenticated capabilities and source discovery passed; anonymous
+  requests returned 401. Temporary VPS and Samba probes passed chunk upload,
+  saved-offset recovery, repeated completion, and HTTP 206 byte-range reads.
+  Probe files were removed. Broker PID and normalizer identity/image/PID/start
+  time/restart count were preserved; the API had zero restarts.
+- The initial image had a nonexecutable binary after dependency preparation was
+  interrupted. The deployment restored the previous healthy API before the image
+  was corrected on the VM and redeployed. The unused failed image and this task's
+  VPS transfer archives were removed. Historical recovery artifacts remain intact.
+- [Apple validation 44719643789](https://github.com/agawlbb/fileBeans/actions/runs/44719643789)
+  compiled the app and both extensions and ran 114 simulator tests. One existing
+  thumbnail eviction assertion failed; the pruning throttle was corrected to
+  enforce small budgets while amortizing production cache scans. Validation of
+  the correction is pending.
+- The Share bundle ID `com.agawlbb.myfiles.Share` is registered with App Groups
+  capability enabled. Apple Developer must link `group.com.agawlbb.myfiles` to
+  this identifier before a valid Share profile can be issued. The invalid profile
+  created during setup was removed; the existing app/Files profiles and retained
+  distribution identity were preserved. No TestFlight upload has been started.
+
+Server deployment is finished and verified. The requested app release is pending
+Apple validation and the Share App Group association. Build 28 is the next unused
+number at the time of this check. Existing internal tester settings are unchanged.
+
 ## Transfers and Drive move correction — November 19, 2026
 
 Deployed feature source `3045cd712f7417a150c2cde1d47a30f75861ed53` as

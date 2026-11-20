@@ -29,6 +29,7 @@ actor ThumbnailCache {
     private let limit: Int
     private let lifetime: TimeInterval
     private var lastPrune = Date.distantPast
+    private var diskBytesSincePrune = 0
     private let memory = NSCache<NSString, ThumbnailMemoryEntry>()
     private final class Flight {
         let id = UUID()
@@ -93,8 +94,10 @@ actor ThumbnailCache {
                 do {
                     try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
                     try data.write(to: url, options: .atomic)
-                    if Date().timeIntervalSince(self.lastPrune) > 60 {
-                        self.lastPrune = Date(); try self.prune()
+                    self.diskBytesSincePrune += data.count
+                    if Date().timeIntervalSince(self.lastPrune) > 60 || self.diskBytesSincePrune >= max(1, min(self.limit, 4 * 1024 * 1024)) {
+                        self.lastPrune = Date(); self.diskBytesSincePrune = 0
+                        try self.prune()
                     }
                 } catch { }
                 return data

@@ -27,7 +27,7 @@ struct FilesystemUploadState: Decodable {
 /// Records and file-backed chunk tasks survive view dismissal and process exit.
 /// Only task descriptions contain record IDs; credentials stay in request headers.
 @MainActor
-final class UploadQueue: NSObject, ObservableObject, @preconcurrency URLSessionTaskDelegate {
+final class UploadQueue: NSObject, ObservableObject, URLSessionTaskDelegate {
     static let shared = UploadQueue()
     @Published private(set) var records: [QueuedUpload] = []
     private var sessions: [String: URLSession] = [:]
