@@ -21,6 +21,36 @@ final class FileActivity: ObservableObject {
     @Published private(set) var entries: [FileActivityEntry] = []
     @Published private(set) var jobs: [UUID: [CopyJob]] = [:]
     @Published var errors: [UUID: String] = [:]
+    @Published private(set) var failureNotices: [UUID: [String: Date]] = [:]
+    private var failureAlerts: [UUID: (job: String, message: String)] = [:]
+
+    func visibleTransfers(_ incoming: [CopyJob], connection: UUID, history: Bool, now: Date = Date()) -> [CopyJob] {
+        incoming.filter { job in
+            history || job.active || (job.state == "failed" && (failureNotices[connection]?[job.id].map { $0 > now } ?? false))
+        }
+    }
+    func dismissFailure(_ job: String, connection: UUID) {
+        failureNotices[connection]?[job] = nil
+        if let alert = failureAlerts[connection], alert.job == job {
+            if errors[connection] == alert.message { errors[connection] = nil }
+            failureAlerts[connection] = nil
+        }
+    }
+    func expireFailureNotices(now: Date = Date()) {
+        for (connection, notices) in failureNotices {
+            for (job, expiry) in notices where expiry <= now { dismissFailure(job, connection: connection) }
+        }
+    }
+    private func failed(_ job: CopyJob, connection: UUID, now: Date) {
+        failureNotices[connection, default: [:]][job.id] = now.addingTimeInterval(30)
+        let message = job.title + ": " + (job.error ?? "Transfer failed")
+        failureAlerts[connection] = (job.id, message)
+        errors[connection] = message
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(30))
+            self?.expireFailureNotices()
+        }
+    }
 
     func begin(_ files: [ActivityFile], connection: UUID, operation: String, destination: CopyLocation? = nil) -> [UUID] {
         let pending = files.map { FileActivityEntry(id: UUID(), connection: connection, file: $0, destination: destination, operation: operation) }
@@ -32,13 +62,18 @@ final class FileActivity: ObservableObject {
         for i in entries.indices where ids.contains(entries[i].id) { entries[i].job = job.id }
         var known = jobs[connection] ?? []; known.removeAll { $0.id == job.id }; known.append(job)
         jobs[connection] = known
+        if job.state == "failed" { failed(job, connection: connection, now: Date()) }
     }
-    func synchronize(_ incoming: [CopyJob], connection: UUID) {
+    func synchronize(_ incoming: [CopyJob], connection: UUID, now: Date = Date()) {
         let active = Set(incoming.filter(\.active).map(\.id))
-        let previous = Set((jobs[connection] ?? []).map(\.id))
-        if let failed = incoming.first(where: { $0.state == "failed" && previous.contains($0.id) }) {
-            errors[connection] = failed.title + ": " + (failed.error ?? "Transfer failed")
+        // Historical failures belong in history. Only an observed transition
+        // from an active job should create a new, temporary failure notice.
+        let previous = Set((jobs[connection] ?? []).filter(\.active).map(\.id))
+        for job in incoming {
+            if job.state != "failed" { dismissFailure(job.id, connection: connection) }
+            else if previous.contains(job.id) { failed(job, connection: connection, now: now) }
         }
+        expireFailureNotices(now: now)
         entries.removeAll { $0.connection == connection && $0.job.map { !active.contains($0) } == true }
         jobs[connection] = incoming.filter(\.active)
     }

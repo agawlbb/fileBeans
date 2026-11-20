@@ -64,6 +64,62 @@ final class FileOperationTests: XCTestCase {
         XCTAssertTrue(activity.pending(connection: connection, source: "Samba", parent: "/Target", canonicalParent: "/Documents/Target").isEmpty)
     }
 
+    func testOldFailuresStayInHistoryWhileSuccessfulCopyIsVisibleThere() throws {
+        let activity = FileActivity(), connection = UUID()
+        let incoming = [try job(state: "failed")]
+        activity.synchronize(incoming, connection: connection)
+        XCTAssertNil(activity.errors[connection])
+        XCTAssertTrue(activity.visibleTransfers(incoming, connection: connection, history: false).isEmpty)
+        XCTAssertEqual(activity.visibleTransfers(incoming, connection: connection, history: true).count, 1)
+        let completed = [try job(state: "completed")]
+        XCTAssertEqual(activity.visibleTransfers(completed, connection: connection, history: true).first?.state, "completed")
+    }
+
+    func testNewFailureExpiresWithoutBeingRenewedByPolling() throws {
+        let activity = FileActivity(), connection = UUID(), now = Date()
+        activity.synchronize([try job()], connection: connection, now: now)
+        let failed = [try job(state: "failed")]
+        activity.synchronize(failed, connection: connection, now: now)
+        XCTAssertEqual(activity.visibleTransfers(failed, connection: connection, history: false, now: now).count, 1)
+        activity.synchronize(failed, connection: connection, now: now.addingTimeInterval(29))
+        activity.expireFailureNotices(now: now.addingTimeInterval(30))
+        XCTAssertNil(activity.errors[connection])
+        XCTAssertTrue(activity.visibleTransfers(failed, connection: connection, history: false, now: now.addingTimeInterval(30)).isEmpty)
+        XCTAssertEqual(activity.visibleTransfers(failed, connection: connection, history: true).count, 1)
+    }
+
+    func testDismissedFailureDoesNotReturnOnRefresh() throws {
+        let activity = FileActivity(), connection = UUID()
+        activity.synchronize([try job()], connection: connection)
+        let failed = [try job(state: "failed")]
+        activity.synchronize(failed, connection: connection)
+        activity.dismissFailure("transfer", connection: connection)
+        activity.synchronize(failed, connection: connection)
+        XCTAssertNil(activity.errors[connection])
+        XCTAssertTrue(activity.visibleTransfers(failed, connection: connection, history: false).isEmpty)
+    }
+
+    func testRecoveredJobClearsItsFailureAlert() throws {
+        let activity = FileActivity(), connection = UUID()
+        activity.synchronize([try job()], connection: connection)
+        activity.synchronize([try job(state: "failed")], connection: connection)
+        XCTAssertNotNil(activity.errors[connection])
+        activity.synchronize([try job(state: "completed")], connection: connection)
+        XCTAssertNil(activity.errors[connection])
+        XCTAssertTrue(activity.failureNotices[connection]?.isEmpty == true)
+    }
+
+    func testFailureExpiryPreservesOtherConnectionsAndNewerErrors() throws {
+        let activity = FileActivity(), connection = UUID(), other = UUID(), now = Date()
+        activity.synchronize([try job()], connection: connection, now: now)
+        activity.synchronize([try job(state: "failed")], connection: connection, now: now)
+        activity.errors[connection] = "Another operation failed"
+        activity.errors[other] = "Connection unavailable"
+        activity.expireFailureNotices(now: now.addingTimeInterval(30))
+        XCTAssertEqual(activity.errors[connection], "Another operation failed")
+        XCTAssertEqual(activity.errors[other], "Connection unavailable")
+    }
+
     func testLegacyTrashCacheIsRemovedWithoutRemovingNormalFiles() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

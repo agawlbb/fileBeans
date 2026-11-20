@@ -3,16 +3,19 @@ import SwiftUI
 struct TransferList: View {
     let connection: Connection
     @ObservedObject private var uploads = UploadActivity.shared
+    @ObservedObject private var activity = FileActivity.shared
+    @State private var showHistory = false
     @State private var jobs: [CopyJob] = []
     @State private var error: String?
     @State private var pendingActions: Set<String> = []
     @Environment(\.scenePhase) private var phase
+    private var visibleJobs: [CopyJob] { activity.visibleTransfers(jobs, connection: connection.id, history: showHistory) }
     var body: some View {
         List {
             if let error { Text(error).foregroundStyle(.red) }
             let activeUploads = uploads.transfers(connection: connection.id)
-            if jobs.isEmpty && activeUploads.isEmpty { Text("No transfers") }
-            ForEach(activeUploads.filter { upload in !jobs.contains { $0.id == upload.job } }) { upload in
+            if visibleJobs.isEmpty && activeUploads.isEmpty { Text("No transfers") }
+            ForEach(activeUploads.filter { upload in !visibleJobs.contains { $0.id == upload.job } }) { upload in
                 VStack(alignment: .leading, spacing: 6) {
                     Text(upload.name).lineLimit(2)
                     Text("To \(upload.destination)").font(.caption).lineLimit(2)
@@ -26,7 +29,7 @@ struct TransferList: View {
                     Button("Cancel", role: .destructive) { UploadQueue.shared.cancel(upload.id) }
                 }
             }
-            ForEach(jobs) { job in
+            ForEach(visibleJobs) { job in
                 VStack(alignment: .leading, spacing: 6) {
                     Text(job.title).lineLimit(2)
                     if let request = job.request {
@@ -48,9 +51,13 @@ struct TransferList: View {
                             .disabled(pendingActions.contains(job.id) || job.cancel == true || job.canCancel == false)
                     }
                     if job.state == "failed" { Button("Retry") { action("jobs/\(job.id)/retry", id: job.id) }.disabled(pendingActions.contains(job.id)) }
+                    if job.state == "failed" && !showHistory {
+                        Button("Dismiss") { activity.dismissFailure(job.id, connection: connection.id) }
+                    }
                 }
                 .buttonStyle(.borderless)
             }
+            Toggle("Show history", isOn: $showHistory)
         }
         .navigationTitle("Transfers")
         .toolbar { NavigationLink(value: SourceDestination(connection: connection, kind: .normalization)) { Label("Media Normalization", systemImage: "film.stack") } }
@@ -66,7 +73,12 @@ struct TransferList: View {
     }
     private func refresh() async {
         let client = CompanionClient(connection: connection); defer { client.close() }
-        do { jobs = try await client.jobs().filter { $0.state != "completed" }; error = nil } catch { self.error = error.localizedDescription }
+        do {
+            let incoming = try await client.jobs()
+            activity.synchronize(incoming, connection: connection.id)
+            jobs = incoming
+            error = nil
+        } catch { self.error = error.localizedDescription }
     }
     private func action(_ route: String, id: String) {
         pendingActions.insert(id)

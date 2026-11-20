@@ -472,3 +472,20 @@ Samba source removal after a matching-checksum version change. The full companio
 Go race suite with the pinned rclone and VM test database, and Go vet, passed.
 No production files or jobs were changed. Companion deployment and live acceptance
 remain pending; no app build is required for this server fix.
+
+### Transfer failure notice history (November 20, 2026)
+
+Read-only inspection of all 38 retained production copy/move jobs found 34
+completed, two cancelled, and two failed. Both failures were older Samba-to-Drive
+moves; the latest VPS-to-Samba selections were completed with every selection
+published. No production files or jobs were changed.
+
+The app now separates active transfers and new failure notices from history.
+Previously retained failures no longer appear as current transfers. Newly
+observed failures remain visible for 30 seconds or until dismissed; repeated
+polling does not extend that deadline. History includes successful, failed and
+cancelled transfers. A retry or later completion clears the job's failure alert.
+Regression cases cover initial history, expiry, dismissal, recovery and error
+isolation. Local Swift syntax/project validation passed; execution of these
+XCTest cases remains pending on macOS. Delivery requires an app build, with no
+companion deployment needed for this display correction.
