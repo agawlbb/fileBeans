@@ -34,18 +34,28 @@ Server source `015534637d92149477a747a41a27e86267908ed9` is deployed as
   `21ebd2ca95d2b734053bd15172d18c0d28368b3d43608047ef758155467dc09e`.
   App, File Provider and Share bundle IDs, version 0.1.0, iOS 18 minimum and both
   device families were verified.
-- The Share bundle ID `com.agawlbb.myfiles.Share` is registered with App Groups
-  capability enabled. Apple Developer must link `group.com.agawlbb.myfiles` to
-  this identifier before a valid Share profile can be issued. Fresh profiles
-  generated after the reported portal change still contained an empty App Groups
-  list, most recently at 10:58 UTC. Invalid profiles created during this task were
-  removed; the existing app/Files profiles and retained distribution identity were
-  preserved. `SHARE_PROFILE_BASE64` has not been installed and no TestFlight
-  upload has been started.
+- The Share bundle ID `com.agawlbb.myfiles.Share` is registered and linked to
+  `group.com.agawlbb.myfiles`. Its App Store profile validates against the App
+  Group, shared Keychain and retained distribution certificate, and is installed
+  as `SHARE_PROFILE_BASE64`. Existing app/Files profiles and signing identity were
+  reused. Invalid profiles created before the portal association was saved were
+  removed.
+- [Signed publication 44724703812](https://github.com/agawlbb/fileBeans/actions/runs/44724703812)
+  from source `709e2c752bb61bdc9ba6966d18eed957565b0199` passed signing preflight,
+  archive/export, TestFlight upload and temporary credential cleanup. The upload
+  explicitly succeeded with no errors. App/build inputs match the validated
+  source; the intervening commit changed only release documentation.
+- Apple build `701ec9c6-2cc6-49e8-9995-57d4bc02f49f`, **0.1.0 (28)**, is
+  **VALID / IN_BETA_TESTING**, with automatic internal notification enabled.
+  Existing audience settings were preserved; no external review was submitted.
+  Release source is pinned by `testflight/0.1.0-28`.
 
-Server deployment and Apple source/build validation are finished and verified.
-The requested signed app release is blocked only by the Share App Group association. Build 28 is the next unused
-number at the time of this check. Existing internal tester settings are unchanged.
+The requested server deployment and internal TestFlight release are finished and
+verified. Physical-device acceptance of large-folder scrolling, Apple Files,
+share-sheet uploads, background recovery and VPS playback remains with the owner.
+Task build contexts, image transfers, inspected Apple artifacts, disposable logs
+and temporary tools were removed. Historical recovery artifacts and permanent
+signing credentials were preserved.
 
 ## Transfers and Drive move correction — November 19, 2026
 
@@ -126,6 +136,7 @@ The public app identity is recorded in `Config/Release.json` and `Config/Project
 | App Store Connect record | FileBeans (`6835142643`) |
 | Main bundle ID | `com.agawlbb.myfiles` |
 | Files extension | `com.agawlbb.myfiles.FileProvider` |
+| Share extension | `com.agawlbb.myfiles.Share` |
 | Shared App Group | `group.com.agawlbb.myfiles` |
 | Shared Keychain group | `FKR675M7PM.com.agawlbb.myfiles` |
 | App Store SKU | `myfiles-ios` |
@@ -133,13 +144,13 @@ The public app identity is recorded in `Config/Release.json` and `Config/Project
 
 ## Current setup
 
-Both bundle IDs and their shared App Group are registered and linked. The GitHub `testflight` environment permits releases from the branch selected when dispatching the workflow. Its Apple team/bundle variables, five API/P12 credential secrets, and both provisioning-profile secrets are configured. The reusable distribution identity expires November 15, 2027; its public certificate ID is recorded in release configuration.
+All three bundle IDs and their shared App Group are registered and linked. The GitHub `testflight` environment permits releases from the branch selected when dispatching the workflow. Its Apple team/bundle variables, five API/P12 credential secrets, and all three provisioning-profile secrets are configured. The reusable distribution identity expires November 15, 2027; its public certificate ID is recorded in release configuration.
 
 The encrypted private key, P12, password and reuse helper are permanently retained in the VM's private Apple store, accessible read-only inside development. The installed `apple-signing inspect` command verifies them. **Do not delete the retained files after configuring GitHub or create a certificate for each project.** Future projects should use the shared workspace signing-reuse instructions. This repository contains no private signing material.
 
 The App Store Connect iOS record now exists as **FileBeans**, with the registered bundle ID and SKU above. Apple rejected the original myFiles name; the device app and Files extension display **fileBeans**. The repository and VM checkout are named fileBeans. Xcode project/target names, bundle IDs, App Group and SKU retain their existing identifiers.
 
-The two App Store profiles were generated and validated against the registered App Group, shared Keychain access, and retained distribution certificate. Apple registration and signing setup are complete.
+The three App Store profiles were generated and validated against the registered App Group, shared Keychain access, and retained distribution certificate. Apple registration and signing setup are complete.
 
 To inspect the setup or refresh app-specific profiles, run the helper from the VM:
 
@@ -148,7 +159,7 @@ dev node /home/dev/projects/fileBeans/scripts/apple-setup.mjs inspect
 dev node /home/dev/projects/fileBeans/scripts/apple-setup.mjs profiles
 ```
 
-The second command reuses the existing distribution certificate, creates the two app-specific App Store profiles, verifies App Group/Keychain/certificate/expiry constraints, and stores them directly as `APP_PROFILE_BASE64` and `PROVIDER_PROFILE_BASE64` in GitHub. It does not issue certificates, build apps, upload packages, invite testers or change beta groups.
+The second command reuses the existing distribution certificate, creates the three app-specific App Store profiles, verifies App Group/Keychain/certificate/expiry constraints, and stores them directly as `APP_PROFILE_BASE64`, `PROVIDER_PROFILE_BASE64`, and `SHARE_PROFILE_BASE64` in GitHub. It does not issue certificates, build apps, upload packages, invite testers or change beta groups.
 
 ## Environment settings
 
