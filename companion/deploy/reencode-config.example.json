@@ -21,5 +21,10 @@
   "image": "PREPARED_FFMPEG_IMAGE_ID",
   "memory_bytes": 12884901888,
   "min_free_bytes": 2147483648,
-  "review_increase": 0.20
+  "review_increase": 0.2,
+  "encoders": 4,
+  "max_active_jobs": 6,
+  "pids_limit": 1024,
+  "memory_admission_ratio": 0.85,
+  "encoder_reserve_bytes": 536870912
 }

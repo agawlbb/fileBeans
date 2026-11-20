@@ -7,6 +7,7 @@ or legacy normalization records. All configuration and detailed state remain pri
 """
 import argparse
 import concurrent.futures
+import contextlib
 import fcntl
 import hashlib
 import http.client
@@ -40,8 +41,9 @@ def relative(value):
 def atomic(path,value,mode=0o600):
     path.parent.mkdir(parents=True,exist_ok=True)
     temp=path.with_name(path.name+'.tmp')
+    payload=json.dumps(value)
     with temp.open('w') as f:
-        json.dump(value,f,indent=2);f.flush();os.fsync(f.fileno())
+        f.write(payload);f.flush();os.fsync(f.fileno())
     temp.chmod(mode);os.replace(temp,path)
 
 
@@ -117,8 +119,18 @@ class Worker:
         self.state=json.loads(self.state_path.read_text()) if self.state_path.exists() else {'jobs':{},'active_profile':None,'started_at':None}
         self.lock=threading.RLock();self.stop=threading.Event();self.container='filebeans-reencode-'+self.role
         self.engine=(['sudo','-n'] if self.role=='vm' else [])+['docker']
-        self.runtime=False;self.peak=0;self.pending_outputs=threading.Semaphore(2)
-        self.uploads=concurrent.futures.ThreadPoolExecutor(max_workers=1);self.prepares=concurrent.futures.ThreadPoolExecutor(max_workers=1);self.futures=[]
+        self.runtime=False;self.peak=0;self.working_memory=0;self.cpu_percent=0
+        self.encoder_limit=int(self.config.get('encoders',1))
+        self.max_active=int(self.config.get('max_active_jobs',self.encoder_limit+2))
+        assert 1<=self.encoder_limit<=8 and self.encoder_limit<=self.max_active<=12
+        self.prepare_gate=threading.BoundedSemaphore(1)
+        self.encode_gate=threading.BoundedSemaphore(self.encoder_limit)
+        self.validate_gate=threading.BoundedSemaphore(1)
+        self.publish_gate=threading.BoundedSemaphore(1)
+        self.pending_outputs=threading.BoundedSemaphore(self.encoder_limit+1)
+        self.tasks=concurrent.futures.ThreadPoolExecutor(max_workers=self.max_active)
+        self.futures={}
+
         spec=importlib.util.spec_from_file_location('media',Path(__file__).with_name('compare-video-encodings.py'))
         self.media=importlib.util.module_from_spec(spec);spec.loader.exec_module(self.media)
         for j in self.jobs:self.state['jobs'].setdefault(j['id'],{'phase':'pending','percent':0})
@@ -139,12 +151,14 @@ class Worker:
                 rows.append({'number':j['number'],'phase':phase,'percent':r.get('percent',0),'encode_seconds':r.get('encode_seconds',0),'review':bool(r.get('review'))})
             phase='held' if not approved(self.config) else 'running'
             if approved(self.config) and totals['completed']+totals['failed']==len(rows):phase='finished'
-            result={'role':self.role,'phase':phase,'hold_reason':'Final encoding profile undecided' if phase=='held' else '',
+            result={'role':self.role,'phase':phase,'hold_reason':('Paused' if self.config['profile'].get('approved') else 'Final encoding profile undecided') if phase=='held' else '',
                     'profile':self.config['profile']['name'],'profile_approved':self.config['profile'].get('approved',False),
                     'total':len(rows),**totals,'source_bytes':sum(j['source_size'] for j in self.jobs),'completed_source_bytes':done_bytes,
                     'completed_video_seconds':done_seconds,'total_video_seconds':sum(j.get('duration_seconds',0) for j in self.jobs),
                     'memory_limit_bytes':self.config['memory_bytes'],'peak_memory_bytes':self.peak,'started_at':self.state.get('started_at'),
-                    'updated_at':time.time(),'jobs':rows}
+                    'updated_at':time.time(),'jobs':rows,'encoders':self.encoder_limit,'max_active_jobs':self.max_active,
+                    'active_encoders':sum(r['phase']=='encoding' for r in self.state['jobs'].values()),
+                    'cpu_percent':self.cpu_percent,'cpu_count':os.cpu_count(),'working_memory_bytes':self.working_memory}
             if self.state.get('blocked'):result.update(phase='blocked',hold_reason=self.state['blocked'])
             atomic(Path(self.config['public_status']),result,0o644)
 
@@ -155,6 +169,10 @@ class Worker:
                 if self.runtime:
                     r=subprocess.run(self.engine+['exec',self.container,'cat','/sys/fs/cgroup/memory.peak'],capture_output=True,text=True,timeout=4)
                     if r.returncode==0:self.peak=max(self.peak,int(r.stdout))
+                    memory=self.memory_usage()
+                    if memory is not None:self.working_memory=memory
+                    stats=subprocess.run(self.engine+['stats','--no-stream','--format','{{json .}}',self.container],capture_output=True,text=True,timeout=5)
+                    if stats.returncode==0:self.cpu_percent=float(json.loads(stats.stdout)['CPUPerc'].rstrip('%'))
                 self.status()
                 if self.role=='vm' and time.time()-last_remote>=15:
                     last_remote=time.time()
@@ -172,14 +190,16 @@ class Worker:
         inspect=subprocess.run(self.engine+['inspect',self.container],capture_output=True)
         if inspect.returncode==0:subprocess.run(self.engine+['rm','-f',self.container],check=True,stdout=subprocess.DEVNULL)
         subprocess.run(self.engine+['run','-d','--name',self.container,'--network','none','--read-only','--memory',str(self.config['memory_bytes']),
-            '--memory-swap',str(self.config['memory_bytes']),'--cpu-shares','128','--pids-limit','256','--oom-score-adj','500','--cap-drop','ALL','--security-opt','no-new-privileges',
+            '--memory-swap',str(self.config['memory_bytes']),'--cpu-shares','128','--pids-limit',str(self.config.get('pids_limit',1024)),'--oom-score-adj','500','--cap-drop','ALL','--security-opt','no-new-privileges',
             '--mount','type=bind,src='+str(self.root)+',dst=/work','--entrypoint','sleep',self.config['image'],'infinity'],check=True,stdout=subprocess.DEVNULL)
         self.runtime=True
 
     def command(self,args,capture=False):
         result=subprocess.run(self.engine+['exec',self.container,'nice','-n','10','ionice','-c','3']+args,
             stdout=subprocess.PIPE if capture else subprocess.DEVNULL,stderr=subprocess.PIPE)
-        if result.returncode:raise RuntimeError('Media command failed: '+result.stderr.decode(errors='replace')[-1200:])
+        if result.returncode:
+            if self.stop.is_set():raise InterruptedError('Worker stopping')
+            raise RuntimeError('Media command failed: '+result.stderr.decode(errors='replace')[-1200:])
         return result.stdout
 
     def probe(self,path):return json.loads(self.command(['ffprobe','-v','error','-show_streams','-show_format','-of','json','/work/'+path.name],True))
@@ -212,7 +232,7 @@ class Worker:
                     if not data:break
                     out.write(data);digest.update(data)
                 out.flush();os.fsync(out.fileno())
-            if self.stop.is_set():raise RuntimeError('Worker stopping')
+            if self.stop.is_set():raise InterruptedError('Worker stopping')
             if partial.stat().st_size!=job['source_size'] or digest.hexdigest()!=job['source_md5']:raise RuntimeError('Original checksum mismatch')
             if self.role=='vm':
                 after=source.stat()
@@ -232,7 +252,9 @@ class Worker:
             except (ValueError,IndexError):continue
             sizes[index]=sizes.get(index,0)+size
         proc.stdout.close()
-        if proc.wait():raise RuntimeError('Packet inspection failed')
+        if proc.wait():
+            if self.stop.is_set():raise InterruptedError('Worker stopping')
+            raise RuntimeError('Packet inspection failed')
         duration=float(info['format']['duration']);video=self.media.video_stream(info)
         audio=next((s for s in info['streams'] if s['codec_type']=='audio'),None)
         return sizes.get(video['index'],0)*8/duration,(sizes.get(audio['index'],0)*8/duration if audio else 0)
@@ -250,20 +272,30 @@ class Worker:
         else:args+=['-profile:v','high','-x264-params','open-gop=0','-tag:v','avc1']
         if hdr:args+=['-color_primaries','bt709','-color_trc','bt709','-colorspace','bt709']
         args+=['-movflags','+faststart','-progress','pipe:1','-nostats','/work/'+output.name]
-        output.unlink(missing_ok=True);row.update(phase='encoding',percent=0);self.save();start=time.monotonic();duration=float(info['format']['duration'])
-        with (self.root/(job['id']+'.log')).open('wb') as error:
-            child=subprocess.Popen(self.engine+['exec',self.container,'nice','-n','10','ionice','-c','3']+args,stdout=subprocess.PIPE,stderr=error,text=True)
-            for line in child.stdout:
-                if self.stop.is_set():
-                    subprocess.run(self.engine+['kill',self.container],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL);break
-                key,_,value=line.strip().partition('=')
-                if key=='out_time_us':
-                    try:row['percent']=min(99.9,max(0,float(value)/1000000/duration*100))
-                    except ValueError:pass
-                row['encode_seconds']=time.monotonic()-start
-            child.stdout.close()
-            if child.wait():raise RuntimeError('Encoding failed; see private job log')
-        row.update(phase='validating',encode_seconds=time.monotonic()-start);self.save()
+        duration=float(info['format']['duration'])
+        output.unlink(missing_ok=True);row.update(phase='ready',percent=0);self.save()
+        with self.slot(self.encode_gate):
+            self.wait_for_memory()
+            row.update(phase='encoding',percent=0);self.save();start=time.monotonic()
+            with (self.root/(job['id']+'.log')).open('wb') as error:
+                child=subprocess.Popen(self.engine+['exec',self.container,'nice','-n','10','ionice','-c','3']+args,stdout=subprocess.PIPE,stderr=error,text=True)
+                for line in child.stdout:
+                    key,_,value=line.strip().partition('=')
+                    if key=='out_time_us':
+                        try:row['percent']=min(99.9,max(0,float(value)/1000000/duration*100))
+                        except ValueError:pass
+                    row['encode_seconds']=time.monotonic()-start
+                child.stdout.close();code=child.wait()
+                if self.stop.is_set():raise InterruptedError('Worker stopping')
+                if code:raise RuntimeError('Encoding failed; see private job log')
+            row.update(phase='waiting for validation',encode_seconds=time.monotonic()-start);self.save()
+        with self.slot(self.validate_gate):
+            row['phase']='validating';self.save()
+            return self.validate(job,source,output,info,audio,fps,duration)
+
+    def validate(self,job,source,output,info,audio,fps,duration):
+        row=self.row(job)
+        codec=self.config['profile']['codec']
         self.command(['ffmpeg','-v','error','-nostdin','-xerror','-threads','0','-i','/work/'+output.name,'-map','0:v:0','-map','0:a:0?','-f','null','-'])
         out=self.probe(output);out_video=self.media.video_stream(out);assert out_video['codec_name']==codec
         assert abs(float(out['format']['duration'])-duration)<max(0.6,1/fps)
@@ -319,16 +351,75 @@ class Worker:
                 if checksum(destination)!=row['output_sha256']:raise RuntimeError('Published checksum mismatch')
             row.update(phase='completed',delivered_at=time.time(),delivery_seconds=time.monotonic()-start);self.save();output.unlink(missing_ok=True)
             (self.root/(job['id']+'.log')).unlink(missing_ok=True)
-        except Exception as e:row.update(phase='failed',error=str(e));self.save()
-        finally:self.pending_outputs.release()
+        except Exception as e:
+            if self.stop.is_set():raise InterruptedError('Worker stopping') from e
+            row.update(phase='failed',error=str(e));self.save()
+
+    @contextlib.contextmanager
+    def slot(self,gate):
+        while not self.stop.is_set():
+            if gate.acquire(timeout=0.5):break
+        else:raise InterruptedError('Worker stopping')
+        try:
+            if self.stop.is_set():raise InterruptedError('Worker stopping')
+            yield
+        finally:gate.release()
+
+    def memory_usage(self):
+        if not self.runtime:return 0
+        try:
+            r=subprocess.run(self.engine+['exec',self.container,'cat','/sys/fs/cgroup/memory.current','/sys/fs/cgroup/memory.stat'],capture_output=True,text=True,timeout=5)
+            if r.returncode:return None
+            lines=r.stdout.splitlines();current=int(lines[0]);inactive=next((int(line.split()[1]) for line in lines[1:] if line.startswith('inactive_file ')),0)
+            return max(0,current-inactive)
+        except (ValueError,subprocess.TimeoutExpired):return None
+
+    def wait_for_memory(self):
+        limit=int(self.config['memory_bytes']*self.config.get('memory_admission_ratio',0.85))
+        reserve=int(self.config.get('encoder_reserve_bytes',512*1024**2))
+        while not self.stop.is_set():
+            memory=self.memory_usage()
+            active=sum(r['phase']=='encoding' for r in self.state['jobs'].values())
+            if (memory is not None and memory+reserve<limit) or (memory is None and active==0):return
+            self.stop.wait(1)
+        raise InterruptedError('Worker stopping')
+
+    def request_stop(self,*_):
+        self.stop.set()
+        if self.runtime:
+            subprocess.run(self.engine+['kill',self.container],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=15)
+
+    def process_job(self,job,fingerprint):
+        row=self.row(job)
+        try:
+            with self.slot(self.prepare_gate):source=self.prepare(job)
+            if not approved(self.load()) or profile_hash(self.load()['profile'])!=fingerprint:raise InterruptedError('Queue paused')
+            with self.slot(self.pending_outputs):
+                output=self.encode(job,source);source.unlink(missing_ok=True)
+                with self.slot(self.publish_gate):self.deliver(job,output)
+        except InterruptedError:
+            if row['phase']!='completed':
+                row['phase']='ready' if (self.root/(job['id']+'.input')).exists() else 'pending'
+                row.pop('error',None);self.save()
+        except OSError as e:
+            if self.role=='vm' and row['phase']=='preparing':
+                row['phase']='pending';self.state['blocked']='Source library temporarily unavailable';self.save()
+            else:row.update(phase='failed',error=str(e));self.save()
+        except Exception as e:
+            if self.stop.is_set():
+                row['phase']='ready' if (self.root/(job['id']+'.input')).exists() else 'pending';row.pop('error',None)
+            else:row.update(phase='failed',error=str(e))
+            self.save()
 
     def run(self):
-        for sig in [signal.SIGTERM,signal.SIGINT]:signal.signal(sig,lambda *_:self.stop.set())
+        for sig in [signal.SIGTERM,signal.SIGINT]:signal.signal(sig,self.request_stop)
         observer=threading.Thread(target=self.observe,daemon=True);observer.start()
         try:
             while not self.stop.is_set():
                 self.config=self.load()
-                if not approved(self.config):self.stop.wait(3);continue
+                for future in list(self.futures):
+                    if future.done():future.result();del self.futures[future]
+                if not approved(self.config):self.stop.wait(1);continue
                 if self.role=='vm' and not Path(self.config['source_mount']).is_mount():
                     self.state['blocked']='Source library mount unavailable';self.save();self.stop.wait(10);continue
                 self.state.pop('blocked',None)
@@ -336,30 +427,13 @@ class Worker:
                 if self.state['active_profile'] and self.state['active_profile']!=fingerprint:
                     self.state['blocked']='Encoding profile changed; explicit queue review required';self.save();self.stop.wait(3);continue
                 self.state['active_profile']=fingerprint;self.state['started_at']=self.state.get('started_at') or time.time();self.ensure_runtime();self.save()
-                pending=[j for j in self.jobs if self.row(j)['phase'] not in ['completed','failed']]
-                if not pending:self.stop.wait(3);continue
-                prepared=self.prepares.submit(self.prepare,pending[0])
-                for index,job in enumerate(pending):
-                    self.config=self.load()
-                    if self.stop.is_set() or not approved(self.config):break
-                    if profile_hash(self.config['profile'])!=fingerprint:
-                        self.state['blocked']='Encoding profile changed; explicit queue review required';self.save();break
-                    try:source=prepared.result()
-                    except OSError as e:
-                        if self.role=='vm':
-                            self.row(job)['phase']='pending';self.state['blocked']='Source library temporarily unavailable';self.save();self.stop.wait(10);break
-                        self.row(job).update(phase='failed',error=str(e));self.save();source=None
-                    except Exception as e:self.row(job).update(phase='failed',error=str(e));self.save();source=None
-                    prepared=self.prepares.submit(self.prepare,pending[index+1]) if index+1<len(pending) else None
-                    if source is None:continue
-                    self.pending_outputs.acquire()
-                    try:
-                        output=self.encode(job,source);source.unlink(missing_ok=True);self.futures.append(self.uploads.submit(self.deliver,job,output))
-                    except Exception as e:self.row(job).update(phase='failed',error=str(e));self.save();self.pending_outputs.release()
-                for future in self.futures:future.result()
-                self.futures=[]
+                active_ids={j['id'] for j in self.futures.values()}
+                pending=[j for j in self.jobs if j['id'] not in active_ids and self.row(j)['phase'] not in ['completed','failed']]
+                for job in pending[:max(0,self.max_active-len(self.futures))]:
+                    self.futures[self.tasks.submit(self.process_job,job,fingerprint)]=job
+                self.stop.wait(1)
         finally:
-            self.stop.set();self.prepares.shutdown(wait=True);self.uploads.shutdown(wait=True)
+            self.request_stop();self.tasks.shutdown(wait=True,cancel_futures=True)
             if self.runtime:subprocess.run(self.engine+['rm','-f',self.container],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
             observer.join(timeout=12);self.status();self.save()
 
