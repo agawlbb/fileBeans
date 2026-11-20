@@ -19,7 +19,11 @@ struct TransferList: View {
                     Text(upload.state).font(.caption)
                     ProgressView(value: upload.progress)
                     Text("\(ByteCountFormatter.string(fromByteCount: Int64(Double(upload.total) * upload.progress), countStyle: .file)) / \(ByteCountFormatter.string(fromByteCount: upload.total, countStyle: .file))").font(.caption)
-                    if let error = upload.error { Text(error).foregroundStyle(.red).font(.caption) }
+                    if let error = upload.error {
+                        Text(error).foregroundStyle(.red).font(.caption)
+                        Button("Retry") { UploadQueue.shared.retry(upload.id) }
+                    }
+                    Button("Cancel", role: .destructive) { UploadQueue.shared.cancel(upload.id) }
                 }
             }
             ForEach(jobs) { job in

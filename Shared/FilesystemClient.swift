@@ -12,10 +12,17 @@ final class FilesystemClient: NSObject, URLSessionTaskDelegate {
         config.timeoutIntervalForRequest = 60
         return URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }()
+    private lazy var mediaSession: URLSession = {
+        let config = configuration.copy() as! URLSessionConfiguration
+        config.httpCookieStorage = nil; config.urlCache = nil
+        config.httpMaximumConnectionsPerHost = 8
+        config.timeoutIntervalForRequest = 30
+        return URLSession(configuration: config, delegate: self, delegateQueue: nil)
+    }()
     init(connection: Connection, token: String? = nil, configuration: URLSessionConfiguration = .ephemeral) {
         self.connection = connection; self.token = token; self.configuration = configuration
     }
-    func close() { session.invalidateAndCancel() }
+    func close() { session.invalidateAndCancel(); mediaSession.invalidateAndCancel() }
     func urlSession(_ session: URLSession, task: URLSessionTask,
                     willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest,
@@ -98,7 +105,7 @@ final class FilesystemClient: NSObject, URLSessionTaskDelegate {
         bounded.cachePolicy = .reloadIgnoringLocalCacheData
         bounded.setValue("bytes=\(offset)-\(offset + Int64(length) - 1)", forHTTPHeaderField: "Range")
         bounded.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-        let (bytes, response) = try await session.data(for: bounded)
+        let (bytes, response) = try await mediaSession.data(for: bounded)
         try check(response)
         guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
         return try MediaChunk.decode(bytes, response: http, offset: offset, length: length)

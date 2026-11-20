@@ -30,7 +30,7 @@ final class Repository {
         }
     }
     func requireProviderAccess(_ item: StoredItem) throws {
-        if fileProvider && protectedItem(item).protection != nil { throw APIError.missing }
+        if fileProvider && protectedItem(item).protection?.unlocked == false { throw APIError.missing }
     }
     func requireUnlocked(_ item: StoredItem) throws {
         if let protection = protectedItem(item).protection, !protection.unlocked {
@@ -63,7 +63,7 @@ final class Repository {
         }
         await refreshProtection()
         if fileProvider && !protectionAvailable { throw APIError.forbidden }
-        return result.map(protectedItem).filter { !fileProvider || $0.protection == nil }
+        return try protectedItems(result).filter { !fileProvider || $0.protection?.unlocked != false }
     }
     func children(_ parent: StoredItem?) async throws -> [StoredItem] {
         guard let parent else { return try await roots() }
@@ -88,7 +88,24 @@ final class Repository {
         }
         let children = try store.reconcile(connection: connection.id, parent: parent.id, source: parent.source,
                                            files: files, permissions: permissions)
-        return children.map(protectedItem).filter { !fileProvider || $0.protection == nil }
+        return try protectedItems(children).filter { !fileProvider || $0.protection?.unlocked != false }
+    }
+    // A listing must read the catalog once, rather than decode its entire JSON
+    // once per row. The server protection snapshot is refreshed before this call.
+    func protectedItems(_ values: [StoredItem]) throws -> [StoredItem] {
+        guard companion != nil else { return values }
+        return try store.transaction { catalog in
+            let key = connection.id.uuidString
+            let vaults = catalog.protectedFolders?[key] ?? []
+            return values.map { value in
+                var item = value
+                item.protection = SharedStore.protection(for: item, vaults: vaults, scope: catalog.boundaries[key]?[item.source] ?? "/")
+                if CompanionClient.protected(item.file.path) {
+                    item.permissions.create = false; item.permissions.modify = false; item.permissions.delete = false
+                }
+                return item
+            }
+        }
     }
     func protectedItem(_ value: StoredItem) -> StoredItem {
         var item = value
@@ -110,7 +127,7 @@ final class Repository {
         _ = try await roots()
         let ids = try store.transaction { $0.enumerated[connection.id.uuidString] ?? [] }
         for id in ids {
-            if let parent = try store.items(connection.id)[id], parent.protection?.unlocked != false, !fileProvider || parent.protection == nil { _ = try await children(parent) }
+            if let parent = try store.items(connection.id)[id], parent.protection?.unlocked != false, !fileProvider || protectedItem(parent).protection?.unlocked != false { _ = try await children(parent) }
         }
     }
     func notify(_ parent: String = "root") {

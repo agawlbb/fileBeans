@@ -47,3 +47,11 @@ test('Apple prefix filters cannot confuse the app with its extension', () => {
   assert.equal(selectBundle({ data: [extension, app] }, extension.attributes.identifier), extension);
   assert.equal(selectBundle({ data: [extension] }, config.bundleID), undefined);
 });
+
+test('share extension profile uses the shared Keychain without the vault key group', () => {
+  const share = { ...profile(), appID: `${config.teamID}.${config.bundleID}.Share`,
+    keychainGroups: [`${config.teamID}.${config.bundleID}`] };
+  assert.doesNotThrow(() => validateProfile(share, config, `${config.bundleID}.Share`, 'fixture-sha256'));
+  share.keychainGroups = [`${config.teamID}.${config.bundleID}.Share`];
+  assert.throws(() => validateProfile(share, config, `${config.bundleID}.Share`, 'fixture-sha256'));
+});

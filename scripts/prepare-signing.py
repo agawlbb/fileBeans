@@ -39,7 +39,7 @@ if "--cleanup" in sys.argv:
     sys.exit(0)
 
 required = ["APPLE_TEAM_ID", "BUNDLE_ID_PREFIX", "DISTRIBUTION_P12_BASE64", "DISTRIBUTION_P12_PASSWORD",
-            "APP_PROFILE_BASE64", "PROVIDER_PROFILE_BASE64", "ASC_PRIVATE_KEY_BASE64", "ASC_KEY_ID"]
+            "APP_PROFILE_BASE64", "PROVIDER_PROFILE_BASE64", "SHARE_PROFILE_BASE64", "ASC_PRIVATE_KEY_BASE64", "ASC_KEY_ID"]
 for name in required:
     if not os.environ.get(name):
         sys.exit(f"Missing release configuration: {name}")
@@ -62,7 +62,7 @@ profiles.mkdir(parents=True, exist_ok=True)
 mapping = {}
 with open(os.environ["GITHUB_ENV"], "a") as env:
     env.write(f"SIGNING_KEYCHAIN={keychain}\n")
-    for kind, suffix in [("APP", ""), ("PROVIDER", ".FileProvider")]:
+    for kind, suffix in [("APP", ""), ("PROVIDER", ".FileProvider"), ("SHARE", ".Share")]:
         profile_file = root / f"{kind}.mobileprovision"
         profile_file.write_bytes(base64.b64decode(os.environ[f"{kind}_PROFILE_BASE64"], validate=True))
         profile = plistlib.loads(run("security", "cms", "-D", "-i", str(profile_file)))

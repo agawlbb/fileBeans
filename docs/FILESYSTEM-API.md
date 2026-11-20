@@ -237,3 +237,75 @@ previews and cached reads now succeed; originals, the transcoder and broker are
 unchanged. Samba thumbnails remain disabled, and `/pics` caches remain outside
 the watched directory. TestFlight 23 needs no update; reopening a folder starts
 fresh thumbnail requests. See `RELEASING.md` for artifact and rollback details.
+
+
+### Resumable app uploads
+
+`resumableUploadsV1` advertises file-backed resumable sessions. Existing content
+POST/PUT routes remain compatible. All session requests use the existing bearer
+authentication and the same `source` and destination-file `path` query parameters.
+The client chooses a UUID session ID and persists it before creating the session.
+
+| Method | Route | Behavior |
+| --- | --- | --- |
+| POST | `/v1/fs/uploads/{id}` | Create/reconcile with JSON `{"size":123}`; repeated identical requests retain the offset. |
+| GET | `/v1/fs/uploads/{id}` | Return `id`, `path`, `size`, `received`, and `completed`. |
+| PUT | `/v1/fs/uploads/{id}` | Append up to 8 MiB using `Content-Range: bytes start-end/total`. |
+| POST | `/v1/fs/uploads/{id}/complete` | Publish a complete payload without replacing an existing destination. |
+| DELETE | `/v1/fs/uploads/{id}` | Remove session staging; a published destination is preserved. |
+
+The actual durable payload length is authoritative after restart. Incorrect offsets
+return conflict; incomplete or oversized chunks roll back to their previous offset.
+After a lost response, query/reconcile before sending more bytes. Completion keeps a
+staging hardlink until acknowledgement, so repeating completion can distinguish its
+own published inode from a collision. Publication therefore requires hardlink support
+on the destination filesystem. No completion success is reported when publication
+fails. Session payloads and metadata live under the destination parent's hidden
+thumbnail directory, including inside encrypted mounts. Locking prevents session
+access; unlocking allows offset recovery. Cancellation removes staging explicitly.
+
+The iOS queue persists payloads and manifests in the shared App Group. It uses up to
+two file-backed background chunk uploads, reattaches outstanding URLSession tasks
+before scheduling replacements, and reconciles server offsets on foreground entry.
+Force-quitting may stop iOS background work; opening the app recovers pending files.
+Protected destinations pause while locked, without passing encryption keys to either
+extension. Google Drive retains its resumable ingress and independent server-copy
+phase; previous Drive queue manifests migrate with their original idempotency keys.
+
+### Native playback and large folders
+
+Native playback uses a dedicated authenticated media session, separate from listing
+and thumbnail connections. Each new player range starts with at most 64 KiB before
+using throughput-sized chunks. Cancellation is checked before handing bytes to the
+player. Existing byte-range validation and bounded buffering remain in place.
+A VPS comparison with the previous file view route and real-device repeated seeking
+remain acceptance checks; no live playback improvement has been claimed from static
+validation alone.
+
+The build-27 report supplied on 2026-11-20 records a background process-exit watchdog
+termination (`0x8BADF00D`, five-second exit allowance). Its main thread was creating
+an ISO8601 formatter during SwiftUI evaluation. App frames were not symbolicated,
+so this is evidence for investigation rather than proof of the complete call chain.
+Folder sorting now runs outside view evaluation, parses each date at most once per
+sort input, and shares bounded timestamp caches/formatters. Protection mapping reads
+the catalog once per listing, instead of once per file. Unchanged listings do not
+republish, background folders do not poll, and thumbnail work is limited to four
+fetches with unused requests cancelled and images downsampled before display.
+
+### Validation and pending delivery (2026-11-20)
+
+Source/configuration checks and Apple signing-script tests run on VM-laptop without
+an Apple build. Filesystem race tests and the companion suite pass except for the
+unchanged `TestRcloneCriticalErrorsAreReportedAndRedacted`: the installed rclone
+returns a different diagnostic for its filter fixture. Protected FUSE/SMB scenarios
+require the existing opt-in integration environment and are skipped in ordinary
+unit runs. Apple simulator tests have been added/updated but not run for these
+changes. Real-device scrolling, Files lock/unlock, share-sheet imports, background
+uploads/force-quit recovery, and VPS seek comparisons remain pending acceptance.
+
+Deploy the prepared companion changes only on explicit request. Before a requested
+signed app build, register `com.agawlbb.myfiles.Share` with the existing App Group
+and shared account Keychain entitlement, then configure `SHARE_PROFILE_BASE64` using
+the existing Apple setup scripts. The extension must not receive the vault Keychain
+group. No Apple registrations, signing changes, builds, uploads, or VPS deployment
+were performed as part of source implementation.

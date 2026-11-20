@@ -11,8 +11,11 @@ enum BrowserDestination: Identifiable {
 }
 enum DestinationMode {
     case copy
+    case upload
     case localMove(String?)
     case driveMove
+    var title: String { if case .upload = self { return "Upload To" }; return copying ? "Copy To" : "Move To" }
+    var action: String { if case .upload = self { return "Upload" }; return copying ? "Copy Here" : "Move Here" }
     var copying: Bool { if case .copy = self { return true }; return false }
     var allowsLocal: Bool { true }
     var allowsDrive: Bool { if case .localMove(let source) = self { return source == nil }; return true }
@@ -52,10 +55,10 @@ struct SourceDestinationPicker: View {
             }
             if !next.isEmpty { Button("Load More") { Task { await load(page: next) } } }
         }
-        .navigationTitle(folder?.name ?? (mode.copying ? "Copy To" : "Move To"))
+        .navigationTitle(folder?.name ?? mode.title)
         .safeAreaInset(edge: .bottom) {
             if let target {
-                Button(mode.copying ? "Copy Here" : "Move Here") { choose(target) }
+                Button(mode.action) { choose(target) }
                     .buttonStyle(.borderedProminent).padding().disabled(!canChoose || loading || error != nil)
             }
         }

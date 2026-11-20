@@ -361,3 +361,19 @@ all 103 simulator tests and the unsigned iPhone/iPad Release archive with Xcode
 27.2 / SDK 27.2 on this source. The matching broker, companion and Quantum are
 deployed; see the current [release record](RELEASING.md). Real-key migration
 requires the user’s first authenticated unlock after deployment.
+
+
+### Apple Files access while unlocked (source update, 2026-11-20)
+
+The File Provider now includes protected roots and descendants only while their
+server state is unlocked. Locked, unknown, and error states withdraw those items;
+unavailable protection status fails closed. Normal permissions govern unlocked
+file reads and writes. Existing source/protected-root mutation restrictions remain.
+Protection transitions signal affected folder and working-set enumerators and
+request best-effort eviction of materialized protected files. A completed download
+is checked against fresh protection state before delivery. Neither the Files nor
+the Share extension receives the encryption key or can unlock folders.
+
+Eviction can fail for open files or unsynced edits. Locking cannot revoke copies
+already delivered to Apple Files or another application. This behavior needs an
+explicitly requested Apple build and real-device acceptance; it is not yet deployed.

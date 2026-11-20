@@ -29,6 +29,18 @@ private actor ThumbnailFetchGate {
 
 @MainActor
 final class ThumbnailCacheTests: XCTestCase {
+    func testLargeThumbnailIsDownsampledBeforeDisplay() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cache = ThumbnailCache(root: root)
+        let large = UIGraphicsImageRenderer(size: CGSize(width: 2000, height: 1000)).pngData { context in
+            UIColor.blue.setFill(); context.fill(CGRect(x: 0, y: 0, width: 2000, height: 1000))
+        }
+        let image = try await cache.image(for: makeKey()) { large }
+        XCTAssertLessThanOrEqual(max(image.size.width, image.size.height), 360)
+        XCTAssertEqual(image.size.width / image.size.height, 2, accuracy: 0.01)
+    }
+
     private func makeKey(connection: UUID = UUID(), revision: String = "1") -> ThumbnailKey {
         ThumbnailKey(connection: connection, provider: "filesystem", source: "VPS", file: "file", revision: revision)
     }

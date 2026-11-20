@@ -46,11 +46,7 @@ struct DriveFile: Decodable, Identifiable {
     var media: Bool { mimeType.hasPrefix("video/") || mimeType.hasPrefix("audio/") }
     var sortValue: BrowserSortValue {
         BrowserSortValue(id: id, name: name, folder: folder, size: size.flatMap(Int64.init) ?? 0,
-                         modified: modifiedTime.flatMap { value in
-                             let formatter = ISO8601DateFormatter()
-                             formatter.formatOptions.insert(.withFractionalSeconds)
-                             return formatter.date(from: value) ?? ISO8601DateFormatter().date(from: value)
-                         } ?? .distantPast)
+                         modified: modifiedTime.flatMap(FileDates.parse) ?? .distantPast)
     }
 }
 struct DrivePage: Decodable {

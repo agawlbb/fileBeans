@@ -75,12 +75,19 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
         config.timeoutIntervalForRequest = 30
         return URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }()
+    private lazy var mediaSession: URLSession = {
+        let config = configuration.copy() as! URLSessionConfiguration
+        config.httpCookieStorage = nil; config.urlCache = nil
+        config.httpMaximumConnectionsPerHost = 8
+        config.timeoutIntervalForRequest = 30
+        return URLSession(configuration: config, delegate: self, delegateQueue: nil)
+    }()
     init(connection: Connection, credential: String? = nil, configuration: URLSessionConfiguration = .ephemeral,
          store: SharedStore? = nil) {
         self.connection = connection.unified; self.credential = credential; self.configuration = configuration
         self.store = store
     }
-    func close() { session.invalidateAndCancel() }
+    func close() { session.invalidateAndCancel(); mediaSession.invalidateAndCancel() }
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
     func authorizedRequest(_ route: String, method: String = "GET", body: Data? = nil,
@@ -123,7 +130,7 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
         r.cachePolicy = .reloadIgnoringLocalCacheData
         r.setValue("bytes=\(offset)-\(offset + Int64(length) - 1)", forHTTPHeaderField: "Range")
         r.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-        let (bytes, response) = try await session.data(for: r)
+        let (bytes, response) = try await mediaSession.data(for: r)
         guard let http = response as? HTTPURLResponse, http.statusCode == 206 else { throw URLError(.badServerResponse) }
         return try MediaChunk.decode(bytes, response: http, offset: offset, length: length)
     }

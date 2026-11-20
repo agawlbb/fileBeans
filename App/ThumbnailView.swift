@@ -17,15 +17,16 @@ struct ThumbnailView: View {
             }
         }
         .accessibilityHidden(true)
+        .onDisappear { image = nil }
         .task(id: key) {
             image = nil
             guard item.protection?.unlocked != false, !item.file.isDirectory, item.file.hasPreview == true, let client else { return }
             do {
-                let data = try await ThumbnailCache.shared.data(for: key) {
+                let thumbnail = try await ThumbnailCache.shared.image(for: key) {
                     try await client.thumbnail(source: item.source, file: item.file)
                 }
                 try Task.checkCancellation()
-                image = UIImage(data: data)
+                image = thumbnail
             } catch { /* File type icon remains available when previews are disabled. */ }
         }
     }

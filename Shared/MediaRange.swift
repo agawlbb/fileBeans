@@ -27,10 +27,10 @@ enum MediaRange {
     static let chunkSize = 1 << 20
 
     @MainActor
-    static func read(offset: Int64, length: Int64?,
+    static func read(offset: Int64, length: Int64?, firstChunkSize: Int = chunkSize,
                      fetch: (Int64, Int) async throws -> MediaChunk,
                      receive: (MediaChunk) throws -> Void) async throws {
-        guard offset >= 0, length.map({ $0 > 0 && $0 <= Int64.max - offset }) ?? true else {
+        guard firstChunkSize > 0, firstChunkSize <= chunkSize, offset >= 0, length.map({ $0 > 0 && $0 <= Int64.max - offset }) ?? true else {
             throw URLError(.badURL)
         }
         let requestedEnd = length.map { offset + $0 }
@@ -39,7 +39,7 @@ enum MediaRange {
         repeat {
             try Task.checkCancellation()
             let end = min(requestedEnd ?? Int64.max, total ?? Int64.max)
-            let count = Int(min(Int64(chunkSize), end - cursor))
+            let count = Int(min(Int64(cursor == offset ? firstChunkSize : chunkSize), end - cursor))
             guard count > 0 else { return }
             let chunk = try await fetch(cursor, count)
             try Task.checkCancellation()

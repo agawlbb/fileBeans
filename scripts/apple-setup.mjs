@@ -102,7 +102,7 @@ async function main() {
     return;
   }
   if (!['inspect', 'register', 'profiles', 'preflight'].includes(operation)) throw new Error('Use inspect, register, configure-github, profiles, or preflight');
-  const identifiers = [config.bundleID, `${config.bundleID}.FileProvider`];
+  const identifiers = [config.bundleID, `${config.bundleID}.FileProvider`, `${config.bundleID}.Share`];
   const registrations = [];
   for (const identifier of identifiers) {
     let current = await bundle(identifier);
@@ -112,7 +112,7 @@ async function main() {
       } })).data;
     }
     if (!current) {
-      if (operation === 'profiles') throw new Error('Register both bundle IDs before creating profiles');
+      if (operation === 'profiles') throw new Error('Register all bundle IDs before creating profiles');
       registrations.push({ identifier, registered: false }); continue;
     }
     let capabilities = (await request(`/v1/bundleIds/${current.id}/bundleIdCapabilities`)).data;
@@ -127,12 +127,12 @@ async function main() {
   if (operation === 'preflight') {
     const blockers = [];
     for (const name of ['APPLE_TEAM_ID', 'BUNDLE_ID_PREFIX', 'DISTRIBUTION_P12_BASE64', 'DISTRIBUTION_P12_PASSWORD',
-                        'APP_PROFILE_BASE64', 'PROVIDER_PROFILE_BASE64']) {
+                        'APP_PROFILE_BASE64', 'PROVIDER_PROFILE_BASE64', 'SHARE_PROFILE_BASE64']) {
       if (!process.env[name]) blockers.push(`Missing environment setting: ${name}`);
     }
     if (process.env.APPLE_TEAM_ID && process.env.APPLE_TEAM_ID !== config.teamID) blockers.push('Apple team does not match release configuration');
     if (process.env.BUNDLE_ID_PREFIX && process.env.BUNDLE_ID_PREFIX !== config.bundleID) blockers.push('Bundle ID does not match release configuration');
-    if (registrations.some(r => !r.registered || !r.appGroupsEnabled)) blockers.push('Register both bundle IDs and their App Groups capability');
+    if (registrations.some(r => !r.registered || !r.appGroupsEnabled)) blockers.push('Register all bundle IDs and their App Groups capability');
     const apps = await request('/v1/apps?' + query({ 'filter[bundleId]': config.bundleID, 'fields[apps]': 'name,bundleId,sku' }));
     apps.data = apps.data.filter(app => app.attributes.bundleId === config.bundleID);
     if (apps.data.length !== 1) blockers.push(`Create the ${config.name} iOS app record on the App Store Connect website`);
@@ -152,7 +152,7 @@ async function main() {
       const publicKey = crypto.createPublicKey(crypto.createPrivateKey(privatePEM)).export({ type: 'spki', format: 'der' });
       if (!publicKey.equals(cert.publicKey.export({ type: 'spki', format: 'der' }))) blockers.push('P12 private key does not match the distribution certificate');
     }
-    for (const [name, suffix] of [['APP_PROFILE_BASE64', ''], ['PROVIDER_PROFILE_BASE64', '.FileProvider']]) {
+    for (const [name, suffix] of [['APP_PROFILE_BASE64', ''], ['PROVIDER_PROFILE_BASE64', '.FileProvider'], ['SHARE_PROFILE_BASE64', '.Share']]) {
       if (process.env[name]) {
         try { validateProfile(summarizeProfile(Buffer.from(process.env[name], 'base64')), config, config.bundleID + suffix, sha); }
         catch { blockers.push(`${name} does not match the app, App Group, shared Keychain, certificate, or expiry requirements`); }
@@ -167,7 +167,7 @@ async function main() {
       }
     }
     if (blockers.length) throw new Error(blockers.join('\n'));
-    console.log('Signing preflight passed: registered app, both profiles, App Group, Keychain sharing, and retained distribution certificate verified.');
+    console.log('Signing preflight passed: registered app, all profiles, App Group, Keychain sharing, and retained distribution certificate verified.');
     return;
   }
   if (operation === 'profiles') {
@@ -178,7 +178,8 @@ async function main() {
     const sha = crypto.createHash('sha256').update(Buffer.from(certificate.attributes.certificateContent, 'base64')).digest('hex');
     for (const registered of registrations) {
       const app = registered.identifier === config.bundleID;
-      const name = app ? 'myFiles App Store' : 'myFiles Files App Store';
+      const share = registered.identifier.endsWith('.Share');
+      const name = app ? 'myFiles App Store' : share ? 'myFiles Share App Store' : 'myFiles Files App Store';
       const inventory = await request('/v1/profiles?' + query({ 'filter[name]': name, limit: '200' }));
       if (inventory.links?.next) throw new Error('Unexpectedly paginated provisioning profile inventory');
       let profile = inventory.data.find(p => p.attributes.name === name && p.attributes.profileState === 'ACTIVE' && Date.parse(p.attributes.expirationDate) > Date.now() + 86400000);
@@ -191,7 +192,7 @@ async function main() {
       }
       const summary = summarizeProfile(Buffer.from(profile.attributes.profileContent, 'base64'));
       validateProfile(summary, config, registered.identifier, sha);
-      secret(app ? 'APP_PROFILE_BASE64' : 'PROVIDER_PROFILE_BASE64', profile.attributes.profileContent);
+      secret(app ? 'APP_PROFILE_BASE64' : share ? 'SHARE_PROFILE_BASE64' : 'PROVIDER_PROFILE_BASE64', profile.attributes.profileContent);
       console.log(`Validated App Store profile for ${registered.identifier}; expires ${summary.expires}`);
     }
     return;

@@ -1,6 +1,7 @@
 import Foundation
 import CryptoKit
 import UIKit
+import ImageIO
 
 struct ThumbnailKey: Hashable {
     let connection: UUID
@@ -27,9 +28,26 @@ actor ThumbnailCache {
     private let root: URL?
     private let limit: Int
     private let lifetime: TimeInterval
+    private var lastPrune = Date.distantPast
     private let memory = NSCache<NSString, ThumbnailMemoryEntry>()
-    private var pending: [ThumbnailKey: Task<Data, Error>] = [:]
+    private final class Flight {
+        let id = UUID()
+        let task: Task<Data, Error>
+        var consumers = Set<UUID>()
+        init(task: Task<Data, Error>) { self.task = task }
+    }
+    private var pending: [ThumbnailKey: Flight] = [:]
     private var generations: [UUID: Int] = [:]
+    private var activeFetches = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private func fetchSlot() async {
+        if activeFetches < 4 { activeFetches += 1; return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+    private func releaseSlot() {
+        if waiters.isEmpty { activeFetches -= 1 }
+        else { waiters.removeFirst().resume() }
+    }
 
     init(root: URL? = nil, limit: Int = 200 * 1024 * 1024, lifetime: TimeInterval = 86400) {
         self.root = root; self.limit = limit; self.lifetime = lifetime
@@ -60,32 +78,61 @@ actor ThumbnailCache {
         }
         try? FileManager.default.removeItem(at: url)
         let generation = generations[key.connection, default: 0]
-        if let task = pending[key] {
-            let data = try await task.value
+        let flight: Flight
+        if let existing = pending[key] { flight = existing }
+        else {
+            let task = Task {
+                await self.fetchSlot()
+                defer { self.releaseSlot() }
+                try Task.checkCancellation()
+                let data = try await fetch()
+                try Task.checkCancellation()
+                guard self.generations[key.connection, default: 0] == generation else { throw CancellationError() }
+                guard UIImage(data: data) != nil else { throw CocoaError(.fileReadCorruptFile) }
+                self.memory.setObject(ThumbnailMemoryEntry(data, created: Date()), forKey: name, cost: data.count)
+                do {
+                    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try data.write(to: url, options: .atomic)
+                    if Date().timeIntervalSince(self.lastPrune) > 60 {
+                        self.lastPrune = Date(); try self.prune()
+                    }
+                } catch { }
+                return data
+            }
+            flight = Flight(task: task); pending[key] = flight
+        }
+        let consumer = UUID()
+        flight.consumers.insert(consumer)
+        return try await withTaskCancellationHandler {
+            defer { release(key, flight: flight.id, consumer: consumer) }
+            let data = try await flight.task.value
+            try Task.checkCancellation()
             guard generations[key.connection, default: 0] == generation else { throw CancellationError() }
             return data
+        } onCancel: {
+            Task { await self.release(key, flight: flight.id, consumer: consumer) }
         }
-        let task = Task {
-            let data = try await fetch()
-            guard UIImage(data: data) != nil else { throw CocoaError(.fileReadCorruptFile) }
-            return data
-        }
-        pending[key] = task
-        defer { if generations[key.connection, default: 0] == generation { pending[key] = nil } }
-        let data = try await task.value
-        guard generations[key.connection, default: 0] == generation else { throw CancellationError() }
-        memory.setObject(ThumbnailMemoryEntry(data, created: Date()), forKey: name, cost: data.count)
-        // A disk failure must never prevent displaying a successfully fetched thumbnail.
-        do {
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try data.write(to: url, options: .atomic)
-            try prune()
-        } catch { }
-        return data
+    }
+    private func release(_ key: ThumbnailKey, flight id: UUID, consumer: UUID) {
+        guard let flight = pending[key], flight.id == id else { return }
+        flight.consumers.remove(consumer)
+        if flight.consumers.isEmpty { flight.task.cancel(); pending[key] = nil }
+    }
+    func image(for key: ThumbnailKey, fetch: @escaping () async throws -> Data) async throws -> UIImage {
+        let data = try await data(for: key, fetch: fetch)
+        try Task.checkCancellation()
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 360,
+                kCGImageSourceShouldCacheImmediately: true
+              ] as CFDictionary) else { throw CocoaError(.fileReadCorruptFile) }
+        return UIImage(cgImage: image)
     }
     func clear(connection: UUID) {
         generations[connection, default: 0] += 1
-        for key in Array(pending.keys) where key.connection == connection { pending.removeValue(forKey: key)?.cancel() }
+        for key in Array(pending.keys) where key.connection == connection { pending.removeValue(forKey: key)?.task.cancel() }
         memory.removeAllObjects()
         if let directory = try? directory(connection) { try? FileManager.default.removeItem(at: directory) }
     }

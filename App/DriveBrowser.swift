@@ -91,9 +91,20 @@ struct DriveBrowser: View {
     @Environment(\.scenePhase) private var phase
     private var queue: DriveUploadQueue { DriveUploadQueue.shared(connection: connection) }
     private var chosen: [DriveFile] { model.files.filter { selected.contains($0.id) } }
-    private var visible: [DriveFile] {
-        displayedFiles.filter { search.isEmpty || $0.name.localizedStandardContains(search) }
-            .sorted { BrowserOrdering.precedes($0.sortValue, $1.sortValue, order: sortOrder) }
+    @State private var visible: [DriveFile] = []
+    @State private var listingTask: Task<Void, Never>?
+    private func updateListing() {
+        listingTask?.cancel()
+        listingTask = Task { @MainActor in
+            do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
+            let values = displayedFiles, query = search, order = sortOrder
+            let result = await Task.detached(priority: .userInitiated) {
+                values.filter { query.isEmpty || $0.name.localizedStandardContains(query) }
+                    .map { ($0, $0.sortValue) }.sorted { BrowserOrdering.precedes($0.1, $1.1, order: order) }.map { $0.0 }
+            }.value
+            guard !Task.isCancelled else { return }
+            visible = result
+        }
     }
 
     private var incoming: [ActivityFile] {
@@ -109,10 +120,18 @@ struct DriveBrowser: View {
     }
     var body: some View {
         browserWithActions
-            .photosPicker(isPresented: $pickingPhotos, selection: $photos, matching: .any(of: [.images, .videos]))
+            .onReceive(model.$files) { _ in updateListing() }
+        .onReceive(activity.$entries) { _ in updateListing() }
+        .onReceive(activity.$jobs) { _ in updateListing() }
+        .onChange(of: search) { _, _ in updateListing() }
+        .onChange(of: sortOrder) { _, _ in updateListing() }
+        .onDisappear { listingTask?.cancel() }
+        .photosPicker(isPresented: $pickingPhotos, selection: $photos, matching: .any(of: [.images, .videos]))
             .fileImporter(isPresented: $importing, allowedContentTypes: [.data], allowsMultipleSelection: true) { result in
-                do { if let parent = model.current { queue.enqueue(try result.get(), parent: parent.id) } }
-                catch { model.error = error.localizedDescription }
+                Task {
+                    do { if let parent = model.current { await queue.enqueue(try result.get(), parent: parent.id) } }
+                    catch { model.error = error.localizedDescription }
+                }
             }
             .onChange(of: photos) { _, picks in
                 Task {
@@ -120,7 +139,7 @@ struct DriveBrowser: View {
                         do {
                             guard let file = try await pick.loadTransferable(type: ImportedMedia.self) else { throw CocoaError(.fileReadUnknown) }
                             if let parent = model.current {
-                                queue.enqueue([file.url], parent: parent.id, scoped: false)
+                                await queue.enqueue([file.url], parent: parent.id, scoped: false)
                                 try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent())
                             }
                         } catch { model.error = error.localizedDescription }
@@ -395,16 +414,17 @@ struct DriveThumbnailView: View {
             else { Image(systemName: item.folder ? "folder.fill" : item.media ? "play.rectangle" : "doc").resizable().scaledToFit().padding(8).foregroundStyle(item.folder ? Color.accentColor : .secondary) }
         }
         .accessibilityHidden(true)
+        .onDisappear { image = nil }
         .task(id: key) {
             image = nil
             guard enabled, !item.folder, item.hasThumbnail == true else { return }
             do {
-                let data = try await ThumbnailCache.shared.data(for: key) {
+                let thumbnail = try await ThumbnailCache.shared.image(for: key) {
                     let client = CompanionClient(connection: connection); defer { client.close() }
                     return try await client.request("drive/files/" + item.id + "/thumbnail")
                 }
                 try Task.checkCancellation()
-                image = UIImage(data: data)
+                image = thumbnail
             } catch { /* Keep the file-type icon. */ }
         }
     }

@@ -10,7 +10,7 @@ final class ProviderEnumerator: NSObject, NSFileProviderEnumerator {
     private func snapshot() async throws -> [StoredItem] {
         if identifier == .workingSet {
             try await repository.refreshKnownFolders()
-            return Array(try repository.store.items(repository.connection.id).values).filter { $0.protection == nil }
+            return Array(try repository.store.items(repository.connection.id).values).filter { $0.protection?.unlocked != false }
         }
         return try await repository.children(identifier == .rootContainer ? nil : repository.item(identifier.rawValue))
     }
@@ -18,7 +18,7 @@ final class ProviderEnumerator: NSObject, NSFileProviderEnumerator {
         Task {
             do {
                 let items = try await snapshot()
-                observer.didEnumerate(items.map { ProviderItem(repository.protectedItem($0)) })
+                observer.didEnumerate(items.map { ProviderItem($0) })
                 observer.finishEnumerating(upTo: nil)
             } catch { observer.finishEnumeratingWithError(providerError(error)) }
         }
@@ -35,19 +35,19 @@ final class ProviderEnumerator: NSObject, NSFileProviderEnumerator {
                 let (items, deleted, revision) = try repository.store.transaction { state in
                     let key = repository.connection.id.uuidString
                     let current = state.items[key] ?? [:]
-                    let items = current.values.filter { $0.protection == nil && (identifier == .workingSet || $0.parent == parent) }
+                    let items = current.values.filter { $0.protection?.unlocked != false && (identifier == .workingSet || $0.parent == parent) }
                     let deleted = Set((state.deleted[key] ?? [:]).values.filter {
-                        $0.revision > since && (identifier == .workingSet ? (current[$0.id] == nil || current[$0.id]?.protection != nil) :
-                            $0.parent == parent && (current[$0.id]?.parent != parent || current[$0.id]?.protection != nil))
+                        $0.revision > since && (identifier == .workingSet ? (current[$0.id] == nil || current[$0.id]?.protection?.unlocked == false) :
+                            $0.parent == parent && (current[$0.id]?.parent != parent || current[$0.id]?.protection?.unlocked == false))
                     }.map { NSFileProviderItemIdentifier($0.id) })
                     // Withdraw protected rows published by earlier app versions.
                     let hidden = current.values.filter {
-                        $0.protection != nil && (identifier == .workingSet || $0.parent == parent)
+                        $0.protection?.unlocked == false && (identifier == .workingSet || $0.parent == parent)
                     }.map { NSFileProviderItemIdentifier($0.id) }
                     return (Array(items), Array(deleted.union(hidden)), state.revisions[key] ?? 0)
                 }
                 observer.didDeleteItems(withIdentifiers: deleted)
-                observer.didUpdate(items.map { ProviderItem(repository.protectedItem($0)) })
+                observer.didUpdate(items.map { ProviderItem($0) })
                 observer.finishEnumeratingChanges(upTo: NSFileProviderSyncAnchor(Data(String(revision).utf8)), moreComing: false)
             } catch { observer.finishEnumeratingWithError(providerError(error)) }
         }

@@ -129,6 +129,7 @@ func (s *Service) filesystemRoutes(mux *http.ServeMux) {
 	if !s.config.Filesystem.Enabled {
 		return
 	}
+	s.filesystemUploadSessions(mux)
 	mux.HandleFunc("GET /v1/fs/sources", func(w http.ResponseWriter, r *http.Request) {
 		type scope struct {
 			Name        string          `json:"name"`

@@ -64,9 +64,15 @@ final class MediaStream: NSObject, @preconcurrency AVAssetResourceLoaderDelegate
                 } else {
                     length = 2 // Content information probe; never a full-file GET.
                 }
-                try await MediaRange.read(offset: offset, length: length, fetch: { offset, count in
+                if let length, length <= 0 {
+                    if !loading.isCancelled { loading.finishLoading() }
+                    return
+                }
+                try await MediaRange.read(offset: offset, length: length, firstChunkSize: 64 * 1024, fetch: { offset, count in
                     try await self.fetch(self.request, offset, count)
                 }, receive: { chunk in
+                    try Task.checkCancellation()
+                    guard !loading.isCancelled else { throw CancellationError() }
                     if let info = loading.contentInformationRequest {
                         info.contentLength = chunk.totalLength
                         info.contentType = chunk.mimeType.flatMap { UTType(mimeType: $0)?.identifier }

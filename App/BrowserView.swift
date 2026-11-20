@@ -9,6 +9,7 @@ struct BrowserView: View {
     let parent: StoredItem?
     @StateObject private var model = BrowserModel()
     @ObservedObject private var activity = FileActivity.shared
+    @ObservedObject private var uploads = UploadActivity.shared
     @State private var search = ""
     @AppStorage("gridView") private var grid = false
     @AppStorage("sortOrder") private var sortOrder = "name"
@@ -30,12 +31,24 @@ struct BrowserView: View {
     @State private var photos: [PhotosPickerItem] = []
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.folderBreadcrumbs) private var trail
-    private var visible: [StoredItem] {
-        displayedItems.filter {
-            (connection.companionURL == nil || $0.file.path != "/Trash") &&
-            (search.isEmpty || $0.file.name.localizedStandardContains(search))
-        }.sorted {
-            BrowserOrdering.precedes(sortValue($0), sortValue($1), order: sortOrder)
+    @State private var visible: [StoredItem] = []
+    @State private var listingTask: Task<Void, Never>?
+    private func updateListing() {
+        listingTask?.cancel()
+        listingTask = Task { @MainActor in
+            do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
+            let values = displayedItems, query = search, order = sortOrder
+            let hideTrash = connection.companionURL != nil
+            let result = await Task.detached(priority: .userInitiated) {
+                values.filter {
+                    (!hideTrash || $0.file.path != "/Trash") && (query.isEmpty || $0.file.name.localizedStandardContains(query))
+                }.map { item in
+                    (item, BrowserSortValue(id: item.id, name: item.file.name, folder: item.file.isDirectory,
+                        size: item.file.size ?? 0, modified: order == "modified" ? item.file.date ?? .distantPast : .distantPast))
+                }.sorted { BrowserOrdering.precedes($0.1, $1.1, order: order) }.map { $0.0 }
+            }.value
+            guard !Task.isCancelled else { return }
+            visible = result
         }
     }
 
@@ -60,17 +73,21 @@ struct BrowserView: View {
         return incoming.contains { $0.path == item.file.path } ||
             activity.busySource(connection: connection.id, source: item.source, path: item.file.path, canonicalPath: canonical)
     }
-    private func sortValue(_ item: StoredItem) -> BrowserSortValue {
-        BrowserSortValue(id: item.id, name: item.file.name, folder: item.file.isDirectory,
-                         size: item.file.size ?? 0, modified: item.file.date ?? .distantPast)
-    }
     private var chosen: [StoredItem] { model.items.filter { selected.contains($0.id) } }
     var body: some View {
         browserWithActions
+            .onReceive(model.$items) { _ in updateListing() }
+            .onReceive(activity.$entries) { _ in updateListing() }
+            .onReceive(activity.$jobs) { _ in updateListing() }
+            .onChange(of: search) { _, _ in updateListing() }
+            .onChange(of: sortOrder) { _, _ in updateListing() }
+            .onDisappear { listingTask?.cancel() }
         .photosPicker(isPresented: $pickingPhotos, selection: $photos, matching: .any(of: [.images, .videos]))
         .fileImporter(isPresented: $importing, allowedContentTypes: [.data], allowsMultipleSelection: true) { result in
-            do { if let parent { model.enqueue(urls: try result.get(), parent: parent) } }
-            catch { model.error = error.localizedDescription }
+            Task {
+                do { if let parent { await model.enqueue(urls: try result.get(), parent: parent) } }
+                catch { model.error = error.localizedDescription }
+            }
         }
         .onChange(of: photos) { _, picks in
             Task {
@@ -78,7 +95,7 @@ struct BrowserView: View {
                     do {
                         guard let file = try await pick.loadTransferable(type: ImportedMedia.self) else { throw CocoaError(.fileReadUnknown) }
                         if let parent {
-                            model.enqueue(urls: [file.url], parent: parent, scoped: false)
+                            await model.enqueue(urls: [file.url], parent: parent, scoped: false)
                             try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent())
                         }
                     } catch { model.error = error.localizedDescription }
@@ -168,7 +185,7 @@ struct BrowserView: View {
             // Reconcile completed background copies while this folder is visible.
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(5)) } catch { return }
-                await reload()
+                if scenePhase == .active { await reload() }
             }
         }
     }
@@ -251,16 +268,18 @@ struct BrowserView: View {
             if copyInProgress {
                 HStack { ProgressView(); Text(connection.companionURL == nil ? "Copying on server…" : "Queuing server copy…") }
                     .padding().background(.regularMaterial)
-            } else if let progress = model.uploadProgress {
+            } else if let parent,
+                      let upload = uploads.transfers(connection: connection.id).first(where: { $0.destination == parent.source + ": " + parent.file.path }) {
                 HStack {
                     VStack(alignment: .leading) {
-                        Text(model.uploadName).lineLimit(1)
-                        ProgressView(value: progress)
+                        Text(upload.name).lineLimit(1)
+                        if let error = upload.error {
+                            Text(error).font(.caption).foregroundStyle(.red)
+                            Button("Retry Upload") { UploadQueue.shared.retry(upload.id) }
+                        } else { ProgressView(value: upload.progress) }
                     }
-                    Button("Cancel", systemImage: "xmark") { model.cancel() }.labelStyle(.iconOnly)
+                    Button("Cancel", systemImage: "xmark") { UploadQueue.shared.cancel(upload.id) }.labelStyle(.iconOnly)
                 }.padding().background(.regularMaterial)
-            } else if model.canRetry {
-                Button("Retry Upload", systemImage: "arrow.clockwise") { model.retry() }.padding()
             }
     }
     @ToolbarContentBuilder private var browserToolbar: some ToolbarContent {

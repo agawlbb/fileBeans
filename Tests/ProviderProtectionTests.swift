@@ -2,7 +2,7 @@ import XCTest
 @testable import myFiles
 
 final class ProviderProtectionTests: XCTestCase {
-    func testProviderRejectsProtectedRootsAndChildrenInEveryStateWhileAppRetainsThem() throws {
+    func testProviderAllowsOnlyUnlockedProtectedRootsAndChildren() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = SharedStore(directory: directory)
@@ -22,17 +22,20 @@ final class ProviderProtectionTests: XCTestCase {
             try store.setVaults([ProtectedVault(id: "vault", source: "disk", state: state,
                 initialized: true, path: "/Private")], connection: connection.id)
             for item in [privateRoot, child] {
-                XCTAssertThrowsError(try provider.item(item.id)) { error in
-                    guard case APIError.missing = error else { return XCTFail("Expected missing item, got \(error)") }
+                if state == "unlocked" {
+                    XCTAssertNotNil(try provider.item(item.id).protection)
+                    XCTAssertTrue(ProviderItem(try provider.item(item.id)).capabilities.contains(.allowsReading))
+                } else {
+                    XCTAssertThrowsError(try provider.item(item.id))
+                    XCTAssertTrue(ProviderItem(try app.item(item.id)).capabilities.isEmpty)
                 }
                 XCTAssertNotNil(try app.item(item.id).protection)
-                XCTAssertTrue(ProviderItem(try app.item(item.id)).capabilities.isEmpty)
             }
             XCTAssertNil(try provider.item(publicRoot.id).protection)
         }
     }
 
-    func testScopedSourceInsideProtectedFolderIsExcluded() throws {
+    func testScopedSourceInsideProtectedFolderFollowsUnlockState() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = SharedStore(directory: directory)
@@ -44,6 +47,8 @@ final class ProviderProtectionTests: XCTestCase {
         try store.setVaults([ProtectedVault(id: "vault", source: "disk", state: "unlocked",
             initialized: true, path: "/Private")], connection: connection.id)
         let provider = try Repository(connection: connection, store: store, token: "test", fileProvider: true)
+        XCTAssertEqual(try provider.item(root.id).protection?.unlocked, true)
+        try store.markProtectionLocked(connection: connection.id)
         XCTAssertThrowsError(try provider.item(root.id))
     }
 }

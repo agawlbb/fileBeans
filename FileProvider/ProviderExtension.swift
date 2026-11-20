@@ -52,6 +52,9 @@ final class ProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFi
                     try? FileManager.default.removeItem(at: url)
                     throw error
                 }
+                await repo.refreshProtection()
+                do { try repo.requireUnlocked(item) }
+                catch { try? FileManager.default.removeItem(at: url); throw error }
                 completionHandler(url, ProviderItem(item), nil)
             } catch { completionHandler(nil, nil, providerError(error)) }
         }

@@ -256,7 +256,10 @@ struct SourceNavigation<Sidebar: View, Detail: View>: View {
                         else if let overview { overview }
                         else { ContentUnavailableView("Choose a source", systemImage: "folder") }
                     }
-                    .navigationDestination(for: SourceDestination.self) { detail($0) }
+                    .navigationDestination(for: SourceDestination.self) { destination in
+                        detail(destination)
+                            .toolbar { ToolbarItem(placement: .topBarLeading) { transfers } }
+                    }
                 }.id(state.identity)
                 .toolbar { ToolbarItem(placement: .topBarLeading) { transfers } }
             }

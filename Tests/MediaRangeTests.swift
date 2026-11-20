@@ -17,6 +17,17 @@ final class MediaRangeTests: XCTestCase {
         for offset in offsets { XCTAssertEqual(received[Int(offset)], UInt8(offset % 251)) }
     }
 
+    func testSeekDeliversSmallFirstChunkThenUsesThroughputChunks() async throws {
+        var lengths: [Int] = []
+        try await MediaRange.read(offset: 3_000_000, length: 2_000_000, firstChunkSize: 65536, fetch: { offset, count in
+            lengths.append(count)
+            return MediaChunk(data: Data(repeating: 1, count: count), totalLength: 10_000_000, mimeType: "video/mp4")
+        }, receive: { _ in })
+        XCTAssertEqual(lengths.first, 65536)
+        XCTAssertEqual(lengths.dropFirst().first, MediaRange.chunkSize)
+        XCTAssertEqual(lengths.reduce(0, +), 2_000_000)
+    }
+
     func testShortServerChunksAndSeekingToEnd() async throws {
         var offsets: [Int64] = []
         var received = Data()

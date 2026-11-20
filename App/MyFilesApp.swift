@@ -3,7 +3,20 @@ import FileProvider
 
 @main
 struct MyFilesApp: App {
-    var body: some Scene { WindowGroup { SourcesView() } }
+    @UIApplicationDelegateAdaptor(TransferAppDelegate.self) private var delegate
+    @Environment(\.scenePhase) private var phase
+    var body: some Scene {
+        WindowGroup {
+            SourcesView()
+                .task { UploadQueue.shared.recover() }
+                .onChange(of: phase) { _, phase in
+                    if phase == .active { UploadQueue.shared.recover() }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+                    Task { await ThumbnailCache.shared.clearMemory() }
+                }
+        }
+    }
 }
 
 @MainActor
@@ -16,6 +29,9 @@ final class ConnectionsModel: ObservableObject {
     }
     func remove(_ connection: Connection) async {
         do {
+            guard !UploadQueue.shared.records.contains(where: { $0.connection == connection.id }) else {
+                throw NSError(domain: "fileBeans.Upload", code: 1, userInfo: [NSLocalizedDescriptionKey: "Cancel this connection’s uploads first."])
+            }
             let domain = NSFileProviderDomain(identifier: .init(connection.id.uuidString), displayName: connection.name)
             try await NSFileProviderManager.remove(domain)
             try TokenStore.remove(connection.id)
@@ -150,3 +166,10 @@ struct ConnectionEditor: View {
 }
 
 extension Notification.Name { static let fileBeansConnectionChanged = Notification.Name("fileBeans.connectionChanged") }
+
+final class TransferAppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
+                     completionHandler: @escaping () -> Void) {
+        UploadQueue.shared.handleEvents(identifier: identifier, completion: completionHandler)
+    }
+}

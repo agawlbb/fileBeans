@@ -1,4 +1,5 @@
 import Foundation
+import FileProvider
 
 struct ProtectedVault: Codable, Identifiable, Hashable {
     let id: String
@@ -54,7 +55,7 @@ extension SharedStore {
         try transaction { $0.protectedFolders?[connection.uuidString] ?? [] }
     }
     func setVaults(_ vaults: [ProtectedVault], connection: UUID) throws {
-        try transaction { catalog in
+        let changes: [(StoredItem, Bool)] = try transaction { catalog in
             let previous = catalog.items[connection.uuidString]
             if catalog.protectedFolders == nil { catalog.protectedFolders = [:] }
             // The server deliberately withholds locked locations. Keep existing
@@ -88,6 +89,21 @@ extension SharedStore {
                 }
             }
             if previous != catalog.items[connection.uuidString] { catalog.revisions[connection.uuidString, default: 0] += 1 }
+            return (catalog.items[connection.uuidString] ?? [:]).values.compactMap { item in
+                guard item.protection != previous?[item.id]?.protection else { return nil }
+                return (item, item.protection?.unlocked == false)
+            }
+        }
+        guard !changes.isEmpty, let configured = try connections().first(where: { $0.id == connection }) else { return }
+        let domain = NSFileProviderDomain(identifier: .init(connection.uuidString), displayName: configured.name)
+        guard let manager = NSFileProviderManager(for: domain) else { return }
+        for parent in Set(changes.map { $0.0.parent }) {
+            manager.signalEnumerator(for: parent == "root" ? .rootContainer : .init(parent)) { _ in }
+        }
+        manager.signalEnumerator(for: .workingSet) { _ in }
+        for (item, locked) in changes where locked && !item.file.isDirectory {
+            // Best effort: Apple may retain open files or unsynced edits.
+            manager.evictItem(identifier: .init(item.id)) { _ in }
         }
     }
     func protection(for item: StoredItem, connection: UUID) throws -> FolderProtection? {

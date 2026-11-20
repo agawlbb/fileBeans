@@ -116,6 +116,42 @@ func testFilesystemProtectedLifecycle(t *testing.T, smb bool) {
 	if _, err := os.Stat(filepath.Join(s.config.State, "filesystem-thumbnails")); !os.IsNotExist(err) {
 		t.Fatal("protected thumbnail spilled into private plaintext state", err)
 	}
+	t.Run("resumable-protected-upload", func(t *testing.T) {
+		route := "uploads/12345678-1234-1234-1234-123456789abc"
+		p := "/Private/resumed.txt"
+		if out := call("POST", route, p, strings.NewReader(`{"size":6}`), nil); out.Code != 200 {
+			t.Fatal(out.Code, out.Body.String())
+		}
+		if out := call("PUT", route, p, strings.NewReader("abc"), map[string]string{"Content-Range": "bytes 0-2/6"}); out.Code != 200 {
+			t.Fatal(out.Code, out.Body.String())
+		}
+		staged := filepath.Join(b.publicPath(entry), thumbnailDirectory, "upload-12345678-1234-1234-1234-123456789abc", "payload")
+		if data, err := os.ReadFile(staged); err != nil || string(data) != "abc" {
+			t.Fatal("encrypted staging", err)
+		}
+		if err := b.lock(entry); err != nil {
+			t.Fatal(err)
+		}
+		if out := call("GET", route, p, nil, nil); out.Code < 400 {
+			t.Fatal("locked session was readable")
+		}
+		if err := b.open(entry, key); err != nil {
+			t.Fatal(err)
+		}
+		if out := call("GET", route, p, nil, nil); out.Code != 200 || !strings.Contains(out.Body.String(), `"received":3`) {
+			t.Fatal(out.Code, out.Body.String())
+		}
+		if out := call("PUT", route, p, strings.NewReader("def"), map[string]string{"Content-Range": "bytes 3-5/6"}); out.Code != 200 {
+			t.Fatal(out.Code, out.Body.String())
+		}
+		if out := call("POST", route+"/complete", p, nil, nil); out.Code != 200 {
+			t.Fatal(out.Code, out.Body.String())
+		}
+		if out := call("DELETE", route, p, nil, nil); out.Code != 204 {
+			t.Fatal(out.Code, out.Body.String())
+		}
+	})
+
 	// Dataset preparation uses the same encrypted boundary and pinned input.
 	s.config.Filesystem.DatasetMinFreeBytes = 1 << 20
 	if smb {

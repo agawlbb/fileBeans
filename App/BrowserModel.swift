@@ -5,14 +5,9 @@ final class BrowserModel: ObservableObject {
     @Published var items: [StoredItem] = []
     @Published var busy = false
     @Published var error: String?
-    @Published var uploadProgress: Double?
-    @Published var uploadName = ""
-    @Published var canRetry = false
     @Published var canCreateProtectedFolder = false
     @Published var sourceScope = "/"
     @Published var parentProtection: FolderProtection?
-    private var transfer: Task<Void, Never>?
-    private var pending: [(URL, StoredItem, UUID)] = []
     private(set) var repository: Repository?
 
     func load(connection: Connection, parent: StoredItem?) async {
@@ -35,7 +30,8 @@ final class BrowserModel: ObservableObject {
                       FilePath.contains(parent.file.path, in: root.file.path) else { throw APIError.forbidden }
                 sourceScope = try repository.store.sourceScope(connection.id, source: parent.source)
                 var refreshed = parent; refreshed.permissions = root.permissions
-                items = try await repository.children(refreshed)
+                let refreshedItems = try await repository.children(refreshed)
+                if items != refreshedItems { items = refreshedItems }
                 parentProtection = repository.protectedItem(refreshed).protection
             } else { items = try await repository.roots() }
             if let jobs = transferJobs {
@@ -206,62 +202,11 @@ final class BrowserModel: ObservableObject {
         }
         return job
     }
-    func enqueue(urls: [URL], parent: StoredItem, scoped: Bool = true) {
+    func enqueue(urls: [URL], parent: StoredItem, scoped: Bool = true) async {
         do {
-            guard let repository else { throw APIError.authentication }
-            let directory = repository.store.cacheDirectory(repository.connection.id).appendingPathComponent("uploads")
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            for url in urls {
-                let access = scoped && url.startAccessingSecurityScopedResource()
-                defer { if access { url.stopAccessingSecurityScopedResource() } }
-                let container = directory.appendingPathComponent(UUID().uuidString)
-                try FileManager.default.createDirectory(at: container, withIntermediateDirectories: true)
-                let copy = container.appendingPathComponent(url.lastPathComponent)
-                try FileManager.default.copyItem(at: url, to: copy)
-                let id = UUID()
-                pending.append((copy, parent, id))
-                UploadActivity.shared.add(UploadTransfer(id: id, connection: repository.connection.id,
-                    name: url.lastPathComponent, destination: parent.source + ": " + parent.file.path,
-                    total: Int64((try? copy.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)))
-            }
-            startUploads()
+            guard let repository, parent.permissions.create else { throw APIError.forbidden }
+            try repository.requireUnlocked(parent)
+            try await UploadQueue.shared.enqueue(urls, connection: repository.connection, source: parent.source, parent: parent.file.path, scoped: scoped)
         } catch { self.error = error.localizedDescription }
     }
-    func retry() { startUploads() }
-    func cancel() {
-        transfer?.cancel()
-        // The active task owns cleanup until cancellation is acknowledged.
-    }
-    private func startUploads() {
-        guard transfer == nil, !pending.isEmpty, let repository else { return }
-        canRetry = false
-        transfer = Task {
-            defer { transfer = nil; uploadProgress = nil }
-            while let (url, parent, id) = pending.first {
-                uploadName = url.lastPathComponent; uploadProgress = 0
-                UploadActivity.shared.update(id, progress: 0, state: "Uploading")
-                do {
-                    try Task.checkCancellation()
-                    guard parent.permissions.create else { throw APIError.forbidden }
-                    let path = try FilePath.child(url.lastPathComponent, in: parent.file.path)
-                    if repository.companion != nil && CompanionClient.protected(path) { throw APIError.forbidden }
-                    try await repository.client.upload(source: parent.source, path: path, file: url) { value in
-                        Task { @MainActor in if self.transfer != nil { self.uploadProgress = value; UploadActivity.shared.update(id, progress: value) } }
-                    }
-                    UploadActivity.shared.remove(id)
-                    pending.removeFirst()
-                    try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
-                    items = try await repository.children(parent)
-                    repository.notify(parent.id)
-                } catch {
-                    if Task.isCancelled {
-                        for (url, _, id) in pending { UploadActivity.shared.remove(id); try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-                        pending.removeAll(); canRetry = false
-                    } else { self.error = error.localizedDescription; canRetry = true; UploadActivity.shared.update(id, state: "Failed", error: error.localizedDescription) }
-                    return
-                }
-            }
-        }
-    }
-    deinit { transfer?.cancel() }
 }

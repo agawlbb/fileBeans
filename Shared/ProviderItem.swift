@@ -23,7 +23,7 @@ final class ProviderItem: NSObject, NSFileProviderItem {
         return .init(contentVersion: stored.file.version, metadataVersion: Data(SHA256.hash(data: Data(metadata.utf8))))
     }
     var capabilities: NSFileProviderItemCapabilities {
-        if stored.protection != nil { return [] }
+        if stored.protection?.unlocked == false { return [] }
         var result: NSFileProviderItemCapabilities = []
         if stored.permissions.download { result.formUnion([.allowsReading, .allowsEvicting]) }
         if stored.file.isDirectory && stored.permissions.view { result.formUnion([.allowsReading, .allowsContentEnumerating]) }

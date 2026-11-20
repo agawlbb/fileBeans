@@ -64,9 +64,7 @@ struct RemoteFile: Codable, Hashable {
     var isMedia: Bool { type.hasPrefix("video/") || type.hasPrefix("audio/") }
     var date: Date? {
         guard let modified else { return nil }
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f.date(from: modified) ?? ISO8601DateFormatter().date(from: modified)
+        return FileDates.parse(modified)
     }
     var version: Data { Data((revision ?? "\(modified ?? ""):\(size ?? 0)").utf8) }
 }
@@ -143,5 +141,26 @@ enum APIError: LocalizedError {
         case .incompatible: return "This connection requires the fileBeans filesystem API."
         case .status(let code): return "The server could not complete the request (\(code))."
         }
+    }
+}
+
+// Formatters and parsed values are reused across sorting, provider metadata and rows.
+// The lock confines the mutable Foundation formatters to one caller at a time.
+enum FileDates {
+    private static let lock = NSLock()
+    private static let fractional: ISO8601DateFormatter = {
+        let value = ISO8601DateFormatter()
+        value.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return value
+    }()
+    private static let standard = ISO8601DateFormatter()
+    private static let cache = NSCache<NSString, NSDate>()
+    static func parse(_ value: String) -> Date? {
+        lock.lock(); defer { lock.unlock() }
+        if let date = cache.object(forKey: value as NSString) { return date as Date }
+        guard let date = fractional.date(from: value) ?? standard.date(from: value) else { return nil }
+        cache.countLimit = 20000
+        cache.setObject(date as NSDate, forKey: value as NSString)
+        return date
     }
 }

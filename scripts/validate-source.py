@@ -38,7 +38,7 @@ for path in root.glob('.github/workflows/*.yml'):
     workflow = yaml.safe_load(path.read_text())
     assert workflow['permissions'] == {'contents': 'read'}, f'Unexpected workflow permissions: {path}'
     assert workflow.get('on', workflow.get(True)), f'Missing workflow triggers: {path}'
-assert set(project['targets']) == {'myFiles', 'QuantumFileProvider', 'myFilesTests'}
+assert set(project['targets']) == {'myFiles', 'QuantumFileProvider', 'FileBeansShare', 'myFilesTests'}
 for name, target in project['targets'].items():
     for source in target['sources']:
         assert (root / source).exists(), f'Missing source directory: {source}'
@@ -71,3 +71,11 @@ assert vault_group not in provider_entitlements['keychain-access-groups']
 assert '$(KEYCHAIN_GROUP)' in app_entitlements['keychain-access-groups']
 assert '$(KEYCHAIN_GROUP)' in provider_entitlements['keychain-access-groups']
 print('Passed biometric vault-key / File Provider Keychain isolation checks.')
+
+share = project['targets']['FileBeansShare']
+share_entitlements = plistlib.loads((root / share['settings']['base']['CODE_SIGN_ENTITLEMENTS']).read_bytes())
+assert vault_group not in share_entitlements['keychain-access-groups']
+assert '$(KEYCHAIN_GROUP)' in share_entitlements['keychain-access-groups']
+assert 'App' not in share['sources']
+assert any(dep.get('target') == 'FileBeansShare' for dep in project['targets']['myFiles']['dependencies'])
+print('Passed Share extension embedding and vault-key isolation checks.')
