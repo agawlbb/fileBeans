@@ -26,15 +26,25 @@ Server source `015534637d92149477a747a41a27e86267908ed9` is deployed as
   compiled the app and both extensions and ran 114 simulator tests. One existing
   thumbnail eviction assertion failed; the pruning throttle was corrected to
   enforce small budgets while amortizing production cache scans. Validation of
-  the correction is pending.
+  the correction subsequently passed in
+  [Apple validation 44721893541](https://github.com/agawlbb/fileBeans/actions/runs/44721893541)
+  from source `3dba375b314ee99ab00e84cb0aa9ff2368e00e3a`: all **114 simulator
+  tests**, zero failures, and the unsigned iPhone/iPad Release archive. Downloaded
+  archive-artifact SHA-256 matched GitHub:
+  `21ebd2ca95d2b734053bd15172d18c0d28368b3d43608047ef758155467dc09e`.
+  App, File Provider and Share bundle IDs, version 0.1.0, iOS 18 minimum and both
+  device families were verified.
 - The Share bundle ID `com.agawlbb.myfiles.Share` is registered with App Groups
   capability enabled. Apple Developer must link `group.com.agawlbb.myfiles` to
-  this identifier before a valid Share profile can be issued. The invalid profile
-  created during setup was removed; the existing app/Files profiles and retained
-  distribution identity were preserved. No TestFlight upload has been started.
+  this identifier before a valid Share profile can be issued. Fresh profiles
+  generated after the reported portal change still contained an empty App Groups
+  list, most recently at 10:58 UTC. Invalid profiles created during this task were
+  removed; the existing app/Files profiles and retained distribution identity were
+  preserved. `SHARE_PROFILE_BASE64` has not been installed and no TestFlight
+  upload has been started.
 
-Server deployment is finished and verified. The requested app release is pending
-Apple validation and the Share App Group association. Build 28 is the next unused
+Server deployment and Apple source/build validation are finished and verified.
+The requested signed app release is blocked only by the Share App Group association. Build 28 is the next unused
 number at the time of this check. Existing internal tester settings are unchanged.
 
 ## Transfers and Drive move correction — November 19, 2026
