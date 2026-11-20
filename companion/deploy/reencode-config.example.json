@@ -1,0 +1,25 @@
+{
+  "role": "vm",
+  "enabled": false,
+  "profile": {
+    "name": "Undecided (option 3 draft)",
+    "approved": false,
+    "codec": "hevc",
+    "crf": 22,
+    "preset": "medium",
+    "keyframe_seconds": 1
+  },
+  "queue": "/private/reencode/queue.json",
+  "work": "/private/reencode/work",
+  "public_status": "/public-status/vm.json",
+  "remote_status": "/private/reencode/public-status.json",
+  "source_mount": "/mnt/library",
+  "api_base": "https://files.example/companion",
+  "api_token": "CONFIGURE_PRIVATELY",
+  "destination": "/folder/pics",
+  "companion_config": "/private/companion.json",
+  "image": "PREPARED_FFMPEG_IMAGE_ID",
+  "memory_bytes": 12884901888,
+  "min_free_bytes": 2147483648,
+  "review_increase": 0.20
+}
