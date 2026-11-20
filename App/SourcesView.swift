@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SourceDestination: Identifiable, Hashable {
-    enum Kind: Hashable { case local(StoredItem), drive, driveFolder(String, String), transfers, protection, trash(String), driveTrash, normalization }
+    enum Kind: Hashable { case local(StoredItem), drive, driveFolder(String, String), transfers, protection, trash(String), driveTrash }
     let connection: Connection
     let kind: Kind
     var id: String {
@@ -13,7 +13,6 @@ struct SourceDestination: Identifiable, Hashable {
         case .protection: return connection.id.uuidString + ":protection"
         case .trash(let source): return connection.id.uuidString + ":trash:" + source
         case .driveTrash: return connection.id.uuidString + ":driveTrash"
-        case .normalization: return connection.id.uuidString + ":normalization"
         }
     }
     var name: String {
@@ -24,7 +23,6 @@ struct SourceDestination: Identifiable, Hashable {
         case .transfers: return "Transfers"
         case .protection: return "Protected folders"
         case .trash, .driveTrash: return "Trash"
-        case .normalization: return "Media Normalization"
         }
     }
     @MainActor @ViewBuilder var destination: some View {
@@ -36,7 +34,6 @@ struct SourceDestination: Identifiable, Hashable {
         case .protection: VaultsView(connection: connection)
         case .trash(let source): TrashList(connection: connection, source: source)
         case .driveTrash: DriveTrashView(connection: connection)
-        case .normalization: NormalizationView(connection: connection)
         }
     }
 }

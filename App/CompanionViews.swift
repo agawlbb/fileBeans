@@ -60,7 +60,6 @@ struct TransferList: View {
             Toggle("Show history", isOn: $showHistory)
         }
         .navigationTitle("Transfers")
-        .toolbar { NavigationLink(value: SourceDestination(connection: connection, kind: .normalization)) { Label("Media Normalization", systemImage: "film.stack") } }
         .refreshable { await refresh() }
         .task(id: phase) {
             guard phase == .active else { return }

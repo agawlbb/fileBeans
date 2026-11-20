@@ -85,7 +85,7 @@ final class SourceNavigationTests: XCTestCase {
         fixture.loadFinished = initial; window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil }
         await fulfillment(of: [initial], timeout: 5)
-        for kind in [SourceDestination.Kind.trash("disk"), .driveTrash, .transfers, .normalization, .protection] {
+        for kind in [SourceDestination.Kind.trash("disk"), .driveTrash, .transfers, .protection] {
             let special = SourceDestination(connection: connection, kind: kind)
             let opened = expectation(description: special.name + " opens")
             fixture.loadFinished = opened
