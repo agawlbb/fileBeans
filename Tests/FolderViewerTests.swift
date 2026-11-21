@@ -1,6 +1,7 @@
 import XCTest
 import SwiftUI
 import QuickLook
+import UIKit
 @testable import myFiles
 
 @MainActor
@@ -32,12 +33,18 @@ final class FolderViewerTests: XCTestCase {
             return .document(url)
         }
         let host = UIHostingController(rootView: FolderViewerPage(file: file, active: true))
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKeyWindow = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
         window.rootViewController = host
         window.makeKeyAndVisible()
+        host.loadViewIfNeeded()
+        host.view.layoutIfNeeded()
         defer {
             window.isHidden = true
             window.rootViewController = nil
+            previousKeyWindow?.makeKey()
             try? FileManager.default.removeItem(at: source)
             if let prepared { try? FileManager.default.removeItem(at: prepared.deletingLastPathComponent()) }
         }
@@ -47,7 +54,9 @@ final class FolderViewerTests: XCTestCase {
             if preview != nil { break }
             try await Task.sleep(for: .milliseconds(50))
         }
-        let controller = try XCTUnwrap(preview, "Loading must transition to the photo preview")
+        XCTAssertEqual(loads, 1, "The hosted page must start loading")
+        XCTAssertNotNil(prepared, "The download must finish")
+        let controller = try XCTUnwrap(preview, "Loading must transition to the photo preview; children: \(host.children)")
         // Allow appearance callbacks after the loading view has been replaced.
         try await Task.sleep(for: .milliseconds(500))
         let url = try XCTUnwrap(prepared)
