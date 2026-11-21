@@ -391,7 +391,7 @@ struct DriveBrowser: View {
                     return .movie(Movie(name: file.name,
                         stream: MediaStream(client: client.transport, request: request, name: file.name)))
                 }
-                return .document(try await FolderViewerSession.prepare(name: file.name) {
+                return .preview(try await FolderViewerSession.prepare(name: file.name) {
                     try await client.transport.download(path)
                 })
             }

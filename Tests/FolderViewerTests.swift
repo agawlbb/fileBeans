@@ -30,7 +30,7 @@ final class FolderViewerTests: XCTestCase {
             loads += 1
             let url = try await FolderViewerSession.prepare(name: "photo.png") { source }
             prepared = url
-            return .document(url)
+            return .preview(url)
         }
         let host = UIHostingController(rootView: FolderViewerPage(file: file, active: true))
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
@@ -48,9 +48,9 @@ final class FolderViewerTests: XCTestCase {
             try? FileManager.default.removeItem(at: source)
             if let prepared { try? FileManager.default.removeItem(at: prepared.deletingLastPathComponent()) }
         }
-        var preview: QLPreviewController?
+        var preview: UIImageView?
         for _ in 0..<100 {
-            preview = findPreview(in: host)
+            preview = findPhoto(in: host.view)
             if preview != nil { break }
             try await Task.sleep(for: .milliseconds(50))
         }
@@ -64,14 +64,14 @@ final class FolderViewerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: url.path), "Preview must retain its downloaded photo")
         XCTAssertEqual(try Data(contentsOf: url), png)
         XCTAssertNotNil(UIImage(contentsOfFile: url.path))
-        XCTAssertEqual(controller.dataSource?.numberOfPreviewItems(in: controller), 1)
-        XCTAssertEqual(controller.dataSource?.previewController(controller, previewItemAt: 0).previewItemURL, url)
+        XCTAssertNotNil(controller.image)
+        XCTAssertEqual(controller.accessibilityLabel, "photo.png")
     }
 
-    private func findPreview(in controller: UIViewController) -> QLPreviewController? {
-        if let preview = controller as? QLPreviewController { return preview }
-        for child in controller.children {
-            if let preview = findPreview(in: child) { return preview }
+    private func findPhoto(in view: UIView) -> UIImageView? {
+        if let image = view as? UIImageView, image.accessibilityLabel == "photo.png" { return image }
+        for child in view.subviews {
+            if let image = findPhoto(in: child) { return image }
         }
         return nil
     }

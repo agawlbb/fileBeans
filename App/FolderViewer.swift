@@ -10,7 +10,16 @@ struct FolderViewerFile: Identifiable {
 
 enum FolderViewerContent {
     case document(URL)
+    case image(URL, UIImage)
     case movie(Movie)
+
+    static func preview(_ url: URL) -> Self {
+        if UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true,
+           let image = UIImage(contentsOfFile: url.path) {
+            return .image(url, image)
+        }
+        return .document(url)
+    }
 }
 
 struct FolderViewerSession: Identifiable {
@@ -82,6 +91,7 @@ struct FolderViewerPage: View {
             if active, let content {
                 switch content {
                 case .document(let url): FolderDocumentPreview(url: url)
+                case .image(_, let image): FolderImagePreview(image: image, name: file.name)
                 case .movie(let movie): MovieView(movie: movie).id(movie.id)
                 }
             } else if let error {
@@ -110,7 +120,8 @@ struct FolderViewerPage: View {
 
     private func release(_ content: FolderViewerContent) {
         switch content {
-        case .document(let url): try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        case .document(let url), .image(let url, _):
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
         case .movie(let movie): movie.stream.cancel()
         }
     }
@@ -136,4 +147,64 @@ private struct FolderDocumentPreview: UIViewControllerRepresentable {
         return controller
     }
     func updateUIViewController(_ controller: QLPreviewController, context: Context) {}
+}
+
+/// A fitted photo leaves horizontal drags to the folder pager. Only zoomed photos pan.
+struct FolderImagePreview: UIViewRepresentable {
+    let image: UIImage
+    let name: String
+
+    func makeUIView(context: Context) -> FolderImageScrollView {
+        let view = FolderImageScrollView()
+        view.imageView.image = image
+        view.imageView.isAccessibilityElement = true
+        view.imageView.accessibilityLabel = name
+        view.imageView.accessibilityTraits = .image
+        return view
+    }
+    func updateUIView(_ view: FolderImageScrollView, context: Context) {}
+}
+
+final class FolderImageScrollView: UIScrollView, UIScrollViewDelegate {
+    let imageView = UIImageView()
+    private var layoutSize = CGSize.zero
+
+    init() {
+        super.init(frame: .zero)
+        delegate = self
+        minimumZoomScale = 1
+        maximumZoomScale = 5
+        showsHorizontalScrollIndicator = false
+        showsVerticalScrollIndicator = false
+        imageView.contentMode = .scaleAspectFit
+        addSubview(imageView)
+        let tap = UITapGestureRecognizer(target: self, action: #selector(toggleZoom(_:)))
+        tap.numberOfTapsRequired = 2
+        addGestureRecognizer(tap)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard layoutSize != bounds.size else { return }
+        layoutSize = bounds.size
+        setZoomScale(minimumZoomScale, animated: false)
+        imageView.frame = CGRect(origin: .zero, size: bounds.size)
+        contentSize = bounds.size
+    }
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        if gestureRecognizer === panGestureRecognizer, zoomScale <= minimumZoomScale + 0.01 { return false }
+        return super.gestureRecognizerShouldBegin(gestureRecognizer)
+    }
+    func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
+    @objc private func toggleZoom(_ gesture: UITapGestureRecognizer) {
+        if zoomScale > minimumZoomScale + 0.01 {
+            setZoomScale(minimumZoomScale, animated: true)
+        } else {
+            let point = gesture.location(in: imageView)
+            let size = CGSize(width: bounds.width / 2, height: bounds.height / 2)
+            zoom(to: CGRect(x: point.x - size.width / 2, y: point.y - size.height / 2,
+                            width: size.width, height: size.height), animated: true)
+        }
+    }
 }

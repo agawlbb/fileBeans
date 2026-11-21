@@ -67,12 +67,23 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
+  myFilesUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: myFiles
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: myFiles
+
 schemes:
   myFiles:
     build:
       targets:
         myFiles: all
     test:
-      targets: [myFilesTests]
+      targets: [myFilesTests, myFilesUITests]
     archive:
       config: Release

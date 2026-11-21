@@ -14,7 +14,7 @@ permissions:
 jobs:
   test:
     runs-on: ${{ inputs.runner || 'xcode-27' }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -36,7 +36,7 @@ jobs:
           echo "DEVICE_ID=$DEVICE_ID" >> "$GITHUB_ENV"
           xcrun simctl bootstatus "$DEVICE_ID" -b
       - name: Simulator tests
-        timeout-minutes: 20
+        timeout-minutes: 30
         run: |
           xcodebuild test -project myFiles.xcodeproj -scheme myFiles -destination "platform=iOS Simulator,id=$DEVICE_ID" -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO -resultBundlePath TestResults.xcresult
       - name: Build Release archive for iPhone and iPad

@@ -383,7 +383,7 @@ struct BrowserView: View {
                     return .movie(Movie(name: file.file.name,
                         stream: MediaStream(client: client, request: request, name: file.file.name)))
                 }
-                return .document(try await FolderViewerSession.prepare(name: file.file.name) {
+                return .preview(try await FolderViewerSession.prepare(name: file.file.name) {
                     try await client.download(source: file.source, path: file.file.path)
                 })
             }

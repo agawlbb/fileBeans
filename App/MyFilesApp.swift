@@ -7,7 +7,17 @@ struct MyFilesApp: App {
     @Environment(\.scenePhase) private var phase
     var body: some Scene {
         WindowGroup {
-            SourcesView()
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("--folder-viewer-gesture-test") {
+                FolderViewerFixture()
+            } else { appContent }
+            #else
+            appContent
+            #endif
+        }
+    }
+    private var appContent: some View {
+        SourcesView()
                 .task { UploadQueue.shared.recover() }
                 .onChange(of: phase) { _, phase in
                     if phase == .active { UploadQueue.shared.recover() }
@@ -15,8 +25,8 @@ struct MyFilesApp: App {
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
                     Task { await ThumbnailCache.shared.clearMemory() }
                 }
-        }
     }
+
 }
 
 @MainActor
