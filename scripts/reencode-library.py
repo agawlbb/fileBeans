@@ -6,6 +6,7 @@ The VPS downloads original Drive files and publishes locally. Neither modifies s
 or legacy normalization records. All configuration and detailed state remain private.
 """
 import argparse
+import bisect
 import concurrent.futures
 import contextlib
 import fcntl
@@ -77,6 +78,33 @@ def audio_args(stream):
     return ['-c:a','aac','-profile:a','aac_low','-b:a',str(target),'-ac',str(channels),'-ar',str(rate)]
 
 
+def validate_keyframe_timing(keys,duration,fps,source_frames=None,output_frames=None):
+    if not keys:raise RuntimeError('Output contains no readable keyframes')
+    gap=max([b-a for a,b in zip(keys,keys[1:])]+[max(0,duration-keys[-1])])
+    if gap<=1+1/fps+0.03:return gap,False
+    if source_frames is None or output_frames is None:
+        raise RuntimeError('Keyframe gap %.3fs requires source timestamp verification'%gap)
+    source_frames=sorted(source_frames);output_frames=sorted(output_frames)
+    if not source_frames or len(source_frames)!=len(output_frames):
+        raise RuntimeError('Video frame count changed: source %d, output %d'%(len(source_frames),len(output_frames)))
+    tolerance=max(0.003,min(0.01,0.1/fps))
+    offset=output_frames[0]-source_frames[0]
+    error=max(abs(a+offset-b) for a,b in zip(source_frames,output_frames))
+    if error>tolerance:raise RuntimeError('Video frame timestamps changed by %.3fs'%error)
+    # A missing source frame cannot carry an IDR. Verify that each one-second
+    # target has a keyframe on its first available output frame, with allowance
+    # for timestamp rounding at the boundary. Never excuse a missed available frame.
+    for second in range(1,math.floor(output_frames[-1])+1):
+        index=bisect.bisect_left(output_frames,second)
+        if index==len(output_frames):break
+        target=output_frames[index];lower=target
+        if index and output_frames[index-1]>=second-tolerance:lower=output_frames[index-1]
+        key_index=bisect.bisect_left(keys,lower-tolerance)
+        if key_index==len(keys) or keys[key_index]>target+tolerance:
+            raise RuntimeError('Missing keyframe at first available frame after %ds'%second)
+    return gap,True
+
+
 class PublicAPI:
     def __init__(self,config):
         self.config=config;self.connection=None
@@ -134,6 +162,10 @@ class Worker:
         spec=importlib.util.spec_from_file_location('media',Path(__file__).with_name('compare-video-encodings.py'))
         self.media=importlib.util.module_from_spec(spec);spec.loader.exec_module(self.media)
         for j in self.jobs:self.state['jobs'].setdefault(j['id'],{'phase':'pending','percent':0})
+        for receipt_path in (self.root/'manual-accepted').glob('*.json'):
+            receipt=json.loads(receipt_path.read_text());job_id=receipt_path.stem
+            if job_id in self.state['jobs'] and receipt.get('manually_accepted') and receipt.get('phase')=='completed' and self.state['jobs'][job_id]['phase']!='completed':
+                self.state['jobs'][job_id]=receipt
 
     def load(self):return json.loads(self.config_path.read_text())
 
@@ -297,18 +329,68 @@ class Worker:
         row=self.row(job)
         codec=self.config['profile']['codec']
         self.command(['ffmpeg','-v','error','-nostdin','-xerror','-threads','0','-i','/work/'+output.name,'-map','0:v:0','-map','0:a:0?','-f','null','-'])
-        out=self.probe(output);out_video=self.media.video_stream(out);assert out_video['codec_name']==codec
-        assert abs(float(out['format']['duration'])-duration)<max(0.6,1/fps)
-        out_audio=next((s for s in out['streams'] if s['codec_type']=='audio'),None);assert bool(out_audio)==bool(audio)
-        if out_audio:assert out_audio['codec_name']=='aac' and out_audio['profile']=='LC' and int(out_audio['channels'])<=2
+        out=self.probe(output);out_video=self.media.video_stream(out)
+        if out_video['codec_name']!=codec:raise RuntimeError('Output video codec does not match selected profile')
+        delta=float(out['format']['duration'])-duration
+        if abs(delta)>=max(0.6,1/fps):raise RuntimeError('Output duration differs from source by %.3fs'%delta)
+        out_audio=next((s for s in out['streams'] if s['codec_type']=='audio'),None)
+        if bool(out_audio)!=bool(audio):raise RuntimeError('Output audio presence differs from source')
+        if out_audio and not (out_audio['codec_name']=='aac' and out_audio['profile']=='LC' and int(out_audio['channels'])<=2):raise RuntimeError('Output audio is not compatible AAC-LC mono/stereo')
         frames=json.loads(self.command(['ffprobe','-v','error','-select_streams','v:0','-skip_frame','nokey','-show_frames','-show_entries','frame=best_effort_timestamp_time','-of','json','/work/'+output.name],True))
-        times=[float(f['best_effort_timestamp_time']) for f in frames['frames'] if 'best_effort_timestamp_time' in f];assert times
-        gap=max([b-a for a,b in zip(times,times[1:])]+[max(0,float(out['format']['duration'])-times[-1])]);assert gap<=1+1/fps+0.03
+        times=[float(f['best_effort_timestamp_time']) for f in frames['frames'] if 'best_effort_timestamp_time' in f]
+        duration_out=float(out['format']['duration'])
+        gap=max([b-a for a,b in zip(times,times[1:])]+[max(0,duration_out-times[-1])]) if times else float('inf')
+        source_frames=output_frames=None
+        if gap>1+1/fps+0.03:
+            source_frames=self.video_timeline(source);output_frames=self.video_timeline(output)
+        gap,timing_exception=validate_keyframe_timing(times,duration_out,fps,source_frames,output_frames)
+        row.pop('error',None)
+        row['source_timing_exception']=timing_exception
         source_video,source_audio=self.packet_rates(source,info);output_video,output_audio=self.packet_rates(output,out)
         row.update(phase='uploading',percent=100,source_video_bps=source_video,output_video_bps=output_video,source_audio_bps=source_audio,output_audio_bps=output_audio,
             output_size=output.stat().st_size,size_change_percent=100*(output.stat().st_size/job['source_size']-1),review=bool(source_video and output_video>source_video*(1+self.config.get('review_increase',0.20))),
             output_sha256=checksum(output),keyframe_max_seconds=gap,profile_hash=self.state['active_profile'])
         self.save();return output
+
+    def video_timeline(self,path):
+        data=json.loads(self.command(['ffprobe','-v','error','-select_streams','v:0','-show_packets','-show_entries','packet=pts_time','-of','json','/work/'+path.name],True))
+        frames=[]
+        for packet in data['packets']:
+            if 'pts_time' not in packet:raise RuntimeError('Source frame timestamps are unavailable')
+            frames.append(float(packet['pts_time']))
+        return frames
+
+    def recover_outputs(self):
+        if self.config.get('enabled'):raise RuntimeError('Stop and disable the worker before recovering retained outputs')
+        result={'recovered':[],'still_failed':[],'unfinished':[]}
+        self.ensure_runtime()
+        try:
+            for job in self.jobs:
+                row=self.row(job);output=self.root/(job['id']+'.mp4')
+                if row['phase']=='completed' or not output.exists():continue
+                previous=row['phase']
+                try:
+                    if not row.get('output_sha256'):
+                        try:self.probe(output)
+                        except RuntimeError:
+                            if previous=='failed':raise
+                            result['unfinished'].append(job['number']);continue
+                        source=self.prepare(job);info=self.probe(source);video=self.media.video_stream(info);audio=next((a for a in info['streams'] if a['codec_type']=='audio'),None)
+                        n,d=map(float,video.get('avg_frame_rate','30/1').split('/'));fps=max(0.01,n/d if d else 30)
+                        self.validate(job,source,output,info,audio,fps,float(info['format']['duration']))
+                    elif checksum(output)!=row['output_sha256']:raise RuntimeError('Retained output checksum changed')
+                    self.deliver(job,output)
+                    if row['phase']!='completed':raise RuntimeError(row.get('error','Publication failed'))
+                    (self.root/(job['id']+'.input')).unlink(missing_ok=True)
+                    result['recovered'].append(job['number'])
+                    print(json.dumps({'number':job['number'],'recovered':True,'source_timing_exception':row.get('source_timing_exception',False)}),flush=True)
+                except Exception as e:
+                    row.update(phase='failed',error=str(e));result['still_failed'].append({'number':job['number'],'error':str(e)});self.save()
+                    print(json.dumps({'number':job['number'],'error':str(e)}),flush=True)
+            self.save();self.status();return result
+        finally:
+            subprocess.run(self.engine+['rm','-f',self.container],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL);self.runtime=False
+            self.tasks.shutdown(wait=True)
 
     def verify_remote(self,job,row):
         path=str(PurePosixPath('/folder/pics')/relative(job['output_relative']))
@@ -439,9 +521,10 @@ class Worker:
 
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--config',type=Path,required=True);parser.add_argument('--check',action='store_true');a=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--config',type=Path,required=True);parser.add_argument('--check',action='store_true');parser.add_argument('--recover',action='store_true');a=parser.parse_args()
     worker=Worker(a.config)
     if a.check:worker.status();worker.save();print(json.dumps({'role':worker.role,'jobs':len(worker.jobs),'approved':approved(worker.config)}))
+    elif a.recover:print(json.dumps(worker.recover_outputs()),flush=True)
     else:worker.run()
 
 

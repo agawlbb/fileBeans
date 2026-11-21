@@ -103,4 +103,31 @@ class PreparationTests(unittest.TestCase):
             worker=m.Worker(config);(root/'cached.input').write_bytes(b'x');worker.stop.set();worker.process_job(job,m.profile_hash(profile))
             self.assertEqual(worker.row(job)['phase'],'ready');self.assertNotIn('error',worker.row(job));worker.guard.close();worker.tasks.shutdown()
 
+    def test_source_frame_gaps_allow_first_available_keyframe(self):
+        frames=[0,0.4,0.8,1.3,1.8,2.3,2.8,3.3]
+        gap,exception=m.validate_keyframe_timing([0,1.3,2.3,3.3],3.8,30,frames,frames)
+        self.assertAlmostEqual(gap,1.3);self.assertTrue(exception)
+
+    def test_source_frame_gap_does_not_excuse_missing_available_keyframe(self):
+        frames=[i/30 for i in range(91)]
+        with self.assertRaisesRegex(RuntimeError,'Missing keyframe'):
+            m.validate_keyframe_timing([0,1.3,2.3],3,30,frames,frames)
+
+    def test_dropped_or_shifted_frames_are_not_accepted(self):
+        source=[0,0.4,0.8,1.3,1.8,2.3,2.8,3.3]
+        with self.assertRaisesRegex(RuntimeError,'frame count changed'):
+            m.validate_keyframe_timing([0,1.3,2.3,3.3],3.8,30,source,source[1:])
+        changed=list(source);changed[3]+=0.1
+        with self.assertRaisesRegex(RuntimeError,'timestamps changed'):
+            m.validate_keyframe_timing([0,1.3,2.3,3.3],3.8,30,source,changed)
+
+    def test_manual_acceptance_is_preserved_on_worker_restart(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);job={'id':'accepted','number':1,'relative_path':'accepted.mp4','output_relative':'accepted.mp4','source_size':100}
+            queue=root/'queue.json';queue.write_text(json.dumps({'role':'vps','jobs':[job]}))
+            (root/'state.json').write_text(json.dumps({'jobs':{'accepted':{'phase':'failed','error':''}},'active_profile':None}))
+            receipts=root/'manual-accepted';receipts.mkdir();(receipts/'accepted.json').write_text(json.dumps({'phase':'completed','manually_accepted':True,'percent':100}))
+            config=root/'config.json';config.write_text(json.dumps({'role':'vps','queue':str(queue),'work':str(root),'public_status':str(root/'public.json'),'memory_bytes':123,'enabled':False,'profile':{'name':'test','approved':False,'keyframe_seconds':1}}))
+            worker=m.Worker(config);worker.status();result=json.loads((root/'public.json').read_text());self.assertEqual(result['completed'],1);self.assertEqual(result['failed'],0);worker.guard.close();worker.tasks.shutdown()
+
 if __name__=='__main__':unittest.main()
