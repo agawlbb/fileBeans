@@ -1,5 +1,45 @@
 # Signing and TestFlight
 
+## Photo display and swipe corrections — TestFlight 31 (November 21, 2026)
+
+Released app source `02cb7239c0b4f8ca2f847cec86e99cc8417fa5ea` as **0.1.0 (31)**.
+Build 29 introduced a white-screen photo regression. Build 30 restored display,
+confirmed by the owner, but embedded Quick Look still consumed photo swipes.
+Build 31 uses a fitted photo view that passes horizontal drags to the folder
+pager, while zoomed photos retain panning and double-tap/pinch zoom.
+
+- Remote-file eligibility now uses type information without probing a nonexistent
+  local file. Loading and cleanup attach to a stable container so the downloaded
+  preview survives the transition from loading to display.
+- [Validation](https://github.com/agawlbb/fileBeans/actions/runs/44910102053)
+  passed **119 unit tests and 2 UI gesture tests**, zero failures, and the
+  unsigned iPhone/iPad Release archive. The UI tests perform actual left/right
+  swipes through three synthetic photos, check both folder boundaries and full
+  screen continuity, and zoom/pan before resuming folder swipes. The fixture is
+  DEBUG-only and excluded from Release behavior.
+- Downloaded archive-artifact SHA-256 matched GitHub:
+  `729f4557b742c6dddd772ec23aace0934e1c8353fc62ad40db55e1e10f65a6c2`.
+  App, File Provider and Share identifiers, version 0.1.0, iOS 18 minimum and
+  iPhone/iPad device families were verified.
+- [Signed release](https://github.com/agawlbb/fileBeans/actions/runs/44910489214)
+  passed signing preflight, archive/export, upload with no errors and temporary
+  runner credential cleanup. Apple build `996f7202-30e4-4528-a09f-c6dae038d084`
+  is **VALID / IN_BETA_TESTING**, with automatic internal notifications enabled.
+  Source is pinned by `testflight/0.1.0-31`.
+- Intermediate [build 30](https://github.com/agawlbb/fileBeans/actions/runs/44908820198)
+  from `d8e5815f499f1dca3142115b91a6d83421272ddf` also uploaded successfully and
+  reached VALID / IN_BETA_TESTING. Source is pinned by `testflight/0.1.0-30`.
+  Its earlier preview-host test needed an active window scene; after correcting
+  that test, all 119 unit tests passed. The superseded validation run
+  `44907624417` was stopped during its long-running unsigned archive step after
+  the final build-31 validation and signed releases succeeded.
+
+The replacement internal TestFlight release is finished and verified. No server
+changes or deployment were needed. Temporary downloaded validation artifacts were
+removed; permanent signing credentials were preserved. Physical-device acceptance
+of mixed document/video/photo navigation remains under [viewer checks](TESTING.md#folder-viewer-swipes).
+
+
 ## Folder viewer swipes — TestFlight 29 (November 21, 2026)
 
 Released app source `611c1584c6df1255903a563c77b34c65f744763f` as **0.1.0 (29)**.
