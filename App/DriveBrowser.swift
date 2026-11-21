@@ -84,8 +84,7 @@ struct DriveBrowser: View {
     @State private var importing = false
     @State private var pickingPhotos = false
     @State private var photos: [PhotosPickerItem] = []
-    @State private var preview: URL?
-    @State private var movie: Movie?
+    @State private var viewer: FolderViewerSession?
     @State private var normalizing: DriveFile?
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var phase
@@ -147,11 +146,7 @@ struct DriveBrowser: View {
                     photos = []
                 }
             }
-            .quickLookPreview($preview)
-            .onChange(of: preview) { previous, current in
-                if current == nil, let previous { try? FileManager.default.removeItem(at: previous.deletingLastPathComponent()) }
-            }
-            .sheet(item: $movie) { MovieView(movie: $0) }
+            .fullScreenCover(item: $viewer) { FolderViewer(session: $0) }
     }
     private var browser: some View {
         BrowserFileCollection(items: visible, grid: grid, header: header, row: { item, large in entry(item, large: large) },
@@ -378,25 +373,30 @@ struct DriveBrowser: View {
     }
     private func open(_ item: DriveFile) {
         guard let client = model.client else { return }
-        Task {
-            _ = await model.perform {
-                if item.nativeDocument {
-                    let address = item.webViewLink.flatMap(URL.init(string:)) ?? URL(string: "https://drive.google.com/file/d/" + item.id + "/view")!
-                    guard address.scheme == "https", let host = address.host, host == "google.com" || host.hasSuffix(".google.com") else { throw APIError.invalidURL }
-                    openURL(address)
-                } else if item.media {
-                    let request = try client.transport.authorizedRequest("drive/files/" + item.id + "/content")
-                    movie = Movie(name: item.name, stream: MediaStream(client: client.transport, request: request, name: item.name))
-                } else if item.downloadable {
-                    _ = try FilePath.child(item.name, in: "/")
-                    let file = try await client.transport.download("drive/files/" + item.id + "/content")
-                    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-                    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                    let target = directory.appendingPathComponent(item.name)
-                    try FileManager.default.moveItem(at: file, to: target); preview = target
-                } else { throw CocoaError(.featureUnsupported) }
-            }
+        if item.nativeDocument {
+            guard let address = item.webViewLink.flatMap(URL.init(string:)),
+                  address.scheme == "https", let host = address.host,
+                  host == "google.com" || host.hasSuffix(".google.com") else { return }
+            openURL(address)
+            return
         }
+        let files = visible.filter {
+            $0.downloadable && !pending($0) && FolderViewerSession.canView(name: $0.name, media: $0.media)
+        }
+        viewer = FolderViewerSession(files: files.map { file in
+            FolderViewerFile(id: file.id, name: file.name) {
+                let path = "drive/files/" + file.id + "/content"
+                if file.media {
+                    let request = try client.transport.authorizedRequest(path)
+                    return .movie(Movie(name: file.name,
+                        stream: MediaStream(client: client.transport, request: request, name: file.name)))
+                }
+                return .document(try await FolderViewerSession.prepare(name: file.name) {
+                    try await client.transport.download(path)
+                })
+            }
+        }, selected: item.id)
+
     }
 }
 struct DriveThumbnailView: View {

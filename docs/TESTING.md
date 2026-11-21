@@ -1,3 +1,9 @@
+## Folder viewer swipes
+
+- In VPS, Samba, and Drive folders containing photos, videos, PDFs, unsupported files and subfolders, open a supported file and swipe left for next and right for previous. Confirm browser sort/search order, skipping folders, unsupported files, pending transfers and files without download permission. Confirm paging stops at either end.
+- Move between videos, photos and multi-page PDFs while full screen; confirm the presentation stays full screen. Check PDF scrolling, image zoom, video seeking, rotation and iPad layouts. Confirm only the selected video plays, leaving a video stops its stream, and Done closes the viewer.
+- Swipe during a slow download, dismiss during loading, and retry a failed load. Confirm no late presentation, stale playback or leftover downloaded previews. Drive paging covers the folder entries currently loaded in the browser.
+
 # Acceptance checks
 
 ## Media normalization

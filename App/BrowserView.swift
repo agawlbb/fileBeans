@@ -25,8 +25,7 @@ struct BrowserView: View {
     @State private var copying = false
     @State private var copyInProgress = false
     @State private var importing = false
-    @State private var preview: URL?
-    @State private var movie: Movie?
+    @State private var viewer: FolderViewerSession?
     @State private var pickingPhotos = false
     @State private var photos: [PhotosPickerItem] = []
     @Environment(\.scenePhase) private var scenePhase
@@ -110,11 +109,7 @@ struct BrowserView: View {
             model.canCreateProtectedFolder = false
             Task { await reload() }
         }
-        .quickLookPreview($preview)
-        .onChange(of: preview) { previous, current in
-            if current == nil, let previous { try? FileManager.default.removeItem(at: previous.deletingLastPathComponent()) }
-        }
-        .sheet(item: $movie) { MovieView(movie: $0) }
+        .fullScreenCover(item: $viewer) { FolderViewer(session: $0) }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await reload() } }
         }
@@ -377,23 +372,23 @@ struct BrowserView: View {
     private func reload() async { await model.load(connection: connection, parent: parent) }
     private func open(_ item: StoredItem) {
         guard let client = model.repository?.client else { return }
-        Task {
-            await model.perform {
-                if item.file.isMedia {
-                    let request = try await client.streamRequest(source: item.source, path: item.file.path)
-                    movie = Movie(name: item.file.name,
-                                  stream: MediaStream(client: client, request: request, name: item.file.name))
-                } else {
-                    _ = try FilePath.child(item.file.name, in: "/")
-                    let downloaded = try await client.download(source: item.source, path: item.file.path)
-                    let directory = try SharedStore().cacheDirectory(connection.id).appendingPathComponent("previews/" + UUID().uuidString)
-                    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                    let destination = directory.appendingPathComponent(item.file.name)
-                    try FileManager.default.moveItem(at: downloaded, to: destination)
-                    preview = destination
-                }
-            }
+        let files = visible.filter {
+            !$0.file.isDirectory && $0.permissions.download && !pending($0) &&
+            FolderViewerSession.canView(name: $0.file.name, media: $0.file.isMedia)
         }
+        viewer = FolderViewerSession(files: files.map { file in
+            FolderViewerFile(id: file.id, name: file.file.name) {
+                if file.file.isMedia {
+                    let request = try await client.streamRequest(source: file.source, path: file.file.path)
+                    return .movie(Movie(name: file.file.name,
+                        stream: MediaStream(client: client, request: request, name: file.file.name)))
+                }
+                return .document(try await FolderViewerSession.prepare(name: file.file.name) {
+                    try await client.download(source: file.source, path: file.file.path)
+                })
+            }
+        }, selected: item.id)
+
     }
 }
 
@@ -420,9 +415,13 @@ struct MovieView: View {
     @State private var started = false
     var body: some View {
         NavigationStack {
-            NativeVideoPlayer(player: player, stream: movie.stream)
+            VideoPlayer(player: player)
+                .onDisappear {
+                    player.pause()
+                    player.replaceCurrentItem(with: nil)
+                    movie.stream.cancel()
+                }
                 .navigationTitle(movie.name).navigationBarTitleDisplayMode(.inline)
-                .toolbar { Button("Done") { dismiss() } }
                 .task {
                     guard !started else { return }
                     started = true
