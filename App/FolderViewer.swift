@@ -19,7 +19,11 @@ struct FolderViewerSession: Identifiable {
     let selected: String
 
     static func canView(name: String, media: Bool) -> Bool {
-        media || QLPreviewController.canPreview(URL(fileURLWithPath: name) as NSURL)
+        // Folder entries are remote: Quick Look cannot inspect them before download.
+        if media { return true }
+        guard let type = UTType(filenameExtension: (name as NSString).pathExtension) else { return false }
+        return [UTType.image, .pdf, .text, .rtf, .spreadsheet, .presentation,
+                .compositeContent, .threeDContent].contains { type.conforms(to: $0) }
     }
 
     static func prepare(name: String, download: () async throws -> URL) async throws -> URL {
@@ -66,14 +70,15 @@ struct FolderViewer: View {
     }
 }
 
-private struct FolderViewerPage: View {
+struct FolderViewerPage: View {
     let file: FolderViewerFile
     let active: Bool
     @State private var content: FolderViewerContent?
     @State private var error: String?
 
     var body: some View {
-        Group {
+        // Keep lifecycle modifiers on a stable container, not the changing content.
+        ZStack {
             if active, let content {
                 switch content {
                 case .document(let url): FolderDocumentPreview(url: url)
