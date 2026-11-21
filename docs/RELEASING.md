@@ -1178,11 +1178,15 @@ permitted mask `00000000002000cb`, including the previously missing `CAP_SETUID`
 the ambient set matches. Authenticated capability, filesystem source, protection,
 vault and jobs endpoints returned HTTP 200 after restart.
 
-Protected folders remain locked until the owner unlocks them in fileBeans.
-Live UID 1000 writes to `/pics` and new gocryptfs child capabilities still require
-that unlock; the equivalent isolated local ext4/gocryptfs regression already
-passed. Existing encrypted contents were not rewritten. No iOS release or
-companion image rebuild was required.
+After the owner unlocked protected folders in fileBeans, all three new gocryptfs
+processes had the required effective/permitted capabilities. Live checks inside
+the existing companion container as UID/GID `1000:1000` passed mkdir, file write,
+read and rename in `/pics`, with directory/file modes `0770`/`0660` and ownership
+`1000:1000`. Authenticated companion API checks also passed protected mkdir,
+create, read, revision-checked replacement and rename. Both uniquely named probe
+directories and their files were removed and their absence verified. Existing
+encrypted contents were not rewritten. No iOS release or companion image rebuild
+was required. The requested server deployment is finished and verified.
 
 Local `.build/broker-18ce95a` and VPS `/var/tmp/filebeans-broker-18ce95a` staging
 were removed and their absence verified. The installed broker and systemd
