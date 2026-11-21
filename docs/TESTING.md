@@ -13,7 +13,11 @@
 - FolderViewerTests cover neighbor reuse, foreground-first loading, document
   exclusion, eviction, memory trimming and late cancelled-download cleanup.
   MediaStreamTests cover the bounded head request and reuse during playback.
-  These new Apple tests still require simulator/device execution.
+  These checks passed with 123 unit tests and 2 UI gesture tests in
+  [build-32 simulator validation](https://github.com/agawlbb/fileBeans/actions/runs/44960712154).
+  The duplicate unsigned archive step was cancelled after the signed Release
+  archive/export succeeded. Signed **0.1.0 (32)** is VALID / IN_BETA_TESTING;
+  mixed-media and slow-network physical-device checks remain manual.
 
 Source `02cb723` passed 119 unit tests and 2 real UI gesture tests in
 [Apple validation 44910102053](https://github.com/agawlbb/fileBeans/actions/runs/44910102053).

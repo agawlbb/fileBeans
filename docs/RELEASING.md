@@ -1,5 +1,39 @@
 # Signing and TestFlight
 
+## Adjacent prefetch and text editing — TestFlight 32 (November 21, 2026)
+
+Released app source `de91c439d4ee7c00fb079ce18ec00060b528afa8` as **0.1.0 (32)**.
+The viewer prefetches adjacent images and up to 256 KiB of each adjacent video's
+opening bytes for VPS, Samba and Drive. Cached images appear during swipes;
+video playback reuses prefetched bytes without playing offscreen. The viewer
+prioritizes the selected file, retains only its immediate neighbors and releases
+downloads on eviction, memory pressure, dismissal or protection changes. This
+release also includes creation and UTF-8 editing of `.txt` files in VPS/Samba
+folders, with revision checks and discard confirmation.
+
+- [Simulator validation](https://github.com/agawlbb/fileBeans/actions/runs/44960712154)
+  passed **123 unit tests and 2 UI gesture tests**, zero failures, including the
+  new neighbor reuse, eviction/cancellation and video-head reuse checks. Its
+  duplicate unsigned archive step was cancelled after the signed device archive
+  and export succeeded; the workflow conclusion is cancelled, while its
+  simulator-test step succeeded. The retained simulator result artifact was
+  downloaded with a size ceiling, SHA-256 and ZIP/result-bundle integrity checked:
+  `11908a82ac625f22199638c97c2deb418cd618848f2abb2587dc2c0507b3367b`.
+- [Signed release](https://github.com/agawlbb/fileBeans/actions/runs/44962319896)
+  passed signing preflight, device archive/export, upload with no errors and
+  temporary runner credential cleanup. Apple build
+  `0e1c7c14-6676-41f9-96b7-cf62076da631` is **VALID / IN_BETA_TESTING**, version
+  0.1.0, build 32, iOS 18 minimum. Existing internal audience and automatic
+  notification settings were preserved; no external review was submitted.
+- Release source is pinned by `testflight/0.1.0-32`. No server changes were
+  required. Temporary result-bundle downloads were removed and absence verified;
+  permanent signing credentials were preserved. The GitHub simulator artifact
+  follows the existing seven-day workflow retention.
+
+The requested internal TestFlight release is finished and verified. Mixed
+photo/video/document navigation, slow-network behavior and text editing on a
+physical device remain covered by the acceptance checks in [TESTING.md](TESTING.md).
+
 ## Photo display and swipe corrections — TestFlight 31 (November 21, 2026)
 
 Released app source `02cb7239c0b4f8ca2f847cec86e99cc8417fa5ea` as **0.1.0 (31)**.
