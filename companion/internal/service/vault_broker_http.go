@@ -269,6 +269,9 @@ func RunVaultBroker(ctx context.Context, configPath string) error {
 	if os.Geteuid() != 0 {
 		return ErrAuthorization
 	}
+	if e := requireBrokerCapabilities(); e != nil {
+		return e
+	}
 	if e := brokerTrustedExecutable(configPath, false); e != nil {
 		return e
 	}

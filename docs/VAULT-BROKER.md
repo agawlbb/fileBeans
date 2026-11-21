@@ -85,6 +85,32 @@ It runs under a different UID from the companion, with their common primary GID.
 
 Templates are source only, not installation commands:
 
+The broker and its gocryptfs children require **effective and permitted**
+`CAP_SYS_ADMIN`, `CAP_CHOWN`, `CAP_DAC_OVERRIDE`, `CAP_FOWNER`, `CAP_SETUID`,
+and `CAP_SETGID`. The unit explicitly requests these through both
+`CapabilityBoundingSet` and `AmbientCapabilities`; the bounding set alone is
+only a ceiling. Startup checks the actual effective/permitted sets before
+opening the registry or mounting any vault and reports missing capabilities.
+Keep these capabilities confined to the broker; web containers do not need them.
+
+On local ext4 storage, gocryptfs preserves requesting-user ownership. Its mkdir
+path switches thread groups, GID and UID before creating the directory. Missing
+`CAP_SETUID` can therefore return `EPERM` for a UID 1000 companion even when the
+directory is `10001:1000` with mode `0770`, while root writes succeed. The reported
+`CapPrm/CapEff=000000000020004b` lacks that capability; the required mask is
+`00000000002000cb`. Inspect the running broker and gocryptfs, not only the unit
+file or `CapBnd`. Applying a unit update requires a systemd daemon reload and
+broker restart during an explicitly requested deployment, followed by unlocking
+and testing writes as the companion identity. Existing encrypted data does not
+need reconversion or ownership rewriting. The separate CIFS `force_owner` path
+does not establish that local ownership-preserving writes work.
+
+Regression coverage includes rejecting the reported capability masks,
+reproducing the credential-switch `EPERM` in an isolated subprocess, and creating
+and verifying a file as UID 1000 through an actual local gocryptfs mount. Run
+`TestBrokerCapabilities`, `TestBrokerSetUIDCredentialSwitch` and
+`TestBrokerLocalVaultUnprivilegedWrites` in the bounded filesystem test runtime.
+
 - `companion/deploy/vault-broker.example.json` and
   `filebeans-vault-broker.service`: host root broker with allowlisted roots and
   fixed administrator-owned executables. Keep its host mount namespace.
