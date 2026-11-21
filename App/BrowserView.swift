@@ -18,6 +18,8 @@ struct BrowserView: View {
     @State private var renameItem: StoredItem?
     @State private var proposedName = ""
     @State private var newFolder = false
+    @State private var newTextFile = false
+    @State private var editingText: StoredItem?
     @State private var newProtectedFolder = false
     @State private var protectedSelection: StoredItem?
     @State private var deleting = false
@@ -110,6 +112,16 @@ struct BrowserView: View {
             Task { await reload() }
         }
         .fullScreenCover(item: $viewer) { FolderViewer(session: $0) }
+        .sheet(isPresented: $newTextFile) {
+            if let parent, let repository = model.repository {
+                TextFileEditor(repository: repository, parent: parent, item: nil) { Task { await reload() } }
+            }
+        }
+        .sheet(item: $editingText) { item in
+            if let parent, let repository = model.repository {
+                TextFileEditor(repository: repository, parent: parent, item: item) { Task { await reload() } }
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await reload() } }
         }
@@ -299,6 +311,7 @@ struct BrowserView: View {
                     if let parent, parent.permissions.create, model.parentProtection?.unlocked != false {
                         Menu {
                             Button("New Folder", systemImage: "folder.badge.plus") { proposedName = ""; newFolder = true }
+                            Button("New Text File", systemImage: "doc.badge.plus") { newTextFile = true }
                             if connection.companionURL != nil && model.canCreateProtectedFolder && model.parentProtection == nil {
                                 Button("Add Protected Folder", systemImage: "lock.fill") {
                                     ProtectedFolderDraft.shared.finish()
@@ -328,6 +341,10 @@ struct BrowserView: View {
         }
         .disabled(pending(item))
         .contextMenu {
+            if !item.file.isDirectory, item.file.name.lowercased().hasSuffix(".txt"),
+               item.permissions.download, item.permissions.modify, !protected(item) {
+                Button("Edit Text", systemImage: "square.and.pencil") { editingText = item }
+            }
             if let protection = item.protection, protection.isRoot {
                 Button(protection.unlocked ? "Lock" : "Unlock", systemImage: protection.symbol) {
                     changeLock(item, action: protection.unlocked ? "lock" : "unlock")

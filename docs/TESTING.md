@@ -13,6 +13,13 @@ remote-photo eligibility and preservation of the downloaded image during display
 
 # Acceptance checks
 
+## Text files
+
+- In a writable VPS or Samba folder, choose **Add → New Text File**, enter a name and text, and save. Confirm `.txt` is appended when omitted, empty files save, and duplicate names fail without replacing existing files.
+- Use **Edit Text** on a writable UTF-8 `.txt` file. Save multiline and Unicode edits, reopen, and verify contents. Cancel with changes and verify Discard leaves the file unchanged. Check failed saves retain the draft and read-only files have no edit action.
+- Change the same file from another client after opening the editor; saving must report a conflict and preserve the newer remote file. Verify locked protected folders reject saves. Invalid UTF-8 must fail to open without replacing contents.
+- Text creation/editing currently covers filesystem sources; Drive retains its existing preview/upload controls. Apple compilation and device acceptance are still required.
+
 ## Media normalization
 
 - In **Transfers → Media Normalization**, verify the configured VPS library and sequential status. Import the configured Drive folder; repeat the request and confirm completed files are deduplicated.
