@@ -1,5 +1,32 @@
 # Signing and TestFlight
 
+## Folder viewer swipes — TestFlight 29 (November 21, 2026)
+
+Released app source `611c1584c6df1255903a563c77b34c65f744763f` as **0.1.0 (29)**.
+The viewer pages through supported files in the current browser listing and keeps
+one full-screen presentation across photos, videos and documents.
+
+- [Apple validation](https://github.com/agawlbb/fileBeans/actions/runs/44903740923)
+  passed all **117 simulator tests**, zero failures, and the unsigned iPhone/iPad
+  Release archive. Downloaded artifact SHA-256 matched GitHub:
+  `fec261227a93b212ed27942802c43265a96400e704e5a78dccc8eceb64e7d9d0`.
+  App, File Provider and Share identifiers, version 0.1.0, iOS 18 minimum and both
+  device families were verified.
+- [Signed release](https://github.com/agawlbb/fileBeans/actions/runs/44905157699)
+  passed signing preflight, archive/export, TestFlight upload with no errors,
+  and temporary runner credential cleanup.
+- Apple build `e7e0753e-3ccb-4c38-835b-68175810cebc` is **VALID /
+  IN_BETA_TESTING**, with automatic internal notifications enabled. Existing
+  audience settings were preserved. Release source is pinned by
+  `testflight/0.1.0-29`.
+
+The requested internal TestFlight release is finished and verified. Swipe, zoom,
+PDF scroll and playback interactions still require physical-device acceptance
+under [Folder viewer swipes](TESTING.md#folder-viewer-swipes). No server deployment
+was needed. The temporary validation archive download was removed; permanent
+signing credentials were preserved.
+
+
 ## Resumable uploads and Apple integration — November 20, 2026
 
 Server source `015534637d92149477a747a41a27e86267908ed9` is deployed as
