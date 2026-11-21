@@ -29,6 +29,43 @@ final class MediaStreamTests: XCTestCase {
     override func tearDown() { MediaProtocol.respond = nil; MediaProtocol.delay = 0 }
 
     @MainActor
+    func testPrefetchIsBoundedAndPlaybackReusesOpeningBytes() async throws {
+        let content = Data(repeating: 0x42, count: 512 * 1024)
+        var ranges: [String] = []
+        MediaProtocol.respond = { request in
+            let range = try XCTUnwrap(request.value(forHTTPHeaderField: "Range"))
+            ranges.append(range)
+            let bounds = range.dropFirst(6).split(separator: "-")
+            let start = try XCTUnwrap(Int(bounds[0]))
+            let end = min(try XCTUnwrap(Int(bounds[1])), content.count - 1)
+            return (206, ["Content-Type": "video/mp4", "Content-Range": "bytes \(start)-\(end)/\(content.count)"], content.subdata(in: start..<end + 1))
+        }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MediaProtocol.self]
+        let client = FilesystemClient(connection: Connection(name: "Fixture", url: URL(string: "https://files.example")!),
+                                      token: "synthetic-token", configuration: config)
+        defer { client.close() }
+        let request = try client.request("content", query: ["path": "/probe.mp4", "source": "disk"])
+        let stream = MediaStream(client: client, request: request, name: "probe.mp4")
+        defer { stream.cancel(); stream.clearPrefetch() }
+        try await stream.prefetch()
+        try await stream.prefetch()
+        XCTAssertEqual(stream.loadingRequestCount, 0, "Prefetch must not create a player or begin playback")
+        XCTAssertEqual(ranges, ["bytes=0-262143"])
+        let probe = try await stream.readChunk(offset: 0, length: 2)
+        XCTAssertEqual(probe.data, content.prefix(2))
+        XCTAssertEqual(probe.totalLength, Int64(content.count))
+        let start = try await stream.readChunk(offset: 2, length: 65536)
+        XCTAssertEqual(start.data.count, 65536)
+        XCTAssertEqual(ranges.count, 1, "Player probes must reuse the prefetched opening bytes")
+        _ = try await stream.readChunk(offset: 262144, length: 65536)
+        XCTAssertEqual(ranges.count, 2, "Playback beyond the head must continue using bounded requests")
+        stream.clearPrefetch()
+        _ = try await stream.readChunk(offset: 0, length: 2)
+        XCTAssertEqual(ranges.count, 3, "Eviction must release the prefetched bytes")
+    }
+
+    @MainActor
     func testPlaybackAdvancesAndDecodesMultipleFrames() async throws {
         try await assertPlayback(fixtureName: "playback-probe")
     }

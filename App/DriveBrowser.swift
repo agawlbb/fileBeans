@@ -384,7 +384,7 @@ struct DriveBrowser: View {
             $0.downloadable && !pending($0) && FolderViewerSession.canView(name: $0.name, media: $0.media)
         }
         viewer = FolderViewerSession(files: files.map { file in
-            FolderViewerFile(id: file.id, name: file.name) {
+            FolderViewerFile(id: file.id, name: file.name, media: file.media) {
                 let path = "drive/files/" + file.id + "/content"
                 if file.media {
                     let request = try client.transport.authorizedRequest(path)

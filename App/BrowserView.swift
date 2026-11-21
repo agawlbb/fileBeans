@@ -394,7 +394,7 @@ struct BrowserView: View {
             FolderViewerSession.canView(name: $0.file.name, media: $0.file.isMedia)
         }
         viewer = FolderViewerSession(files: files.map { file in
-            FolderViewerFile(id: file.id, name: file.file.name) {
+            FolderViewerFile(id: file.id, name: file.file.name, media: file.file.isMedia) {
                 if file.file.isMedia {
                     let request = try await client.streamRequest(source: file.source, path: file.file.path)
                     return .movie(Movie(name: file.file.name,

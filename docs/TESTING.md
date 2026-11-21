@@ -1,5 +1,20 @@
 ## Folder viewer swipes
 
+- Adjacent prefetch: open a middle image in a VPS, Samba or Drive folder and
+  verify only the selected file and its immediate image/video neighbors load.
+  Swipe both ways and confirm cached images open without another download.
+  Neighboring videos fetch at most 256 KiB each without playing; opening them
+  reuses those bytes and continues streaming with bounded range requests.
+  Check first/last boundaries and a document between images. Rapidly swipe,
+  dismiss during downloads, retry after a failed neighbor request, and trigger
+  a memory warning; no late results or temporary previews should survive
+  eviction/dismissal. Lock protection while viewing and confirm dismissal and
+  cache cleanup. Repeat with slow networking and video full screen controls.
+- FolderViewerTests cover neighbor reuse, foreground-first loading, document
+  exclusion, eviction, memory trimming and late cancelled-download cleanup.
+  MediaStreamTests cover the bounded head request and reuse during playback.
+  These new Apple tests still require simulator/device execution.
+
 Source `02cb723` passed 119 unit tests and 2 real UI gesture tests in
 [Apple validation 44910102053](https://github.com/agawlbb/fileBeans/actions/runs/44910102053).
 The UI tests cover photo swipes in both directions, first/last boundaries, full

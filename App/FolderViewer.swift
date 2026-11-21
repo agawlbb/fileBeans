@@ -5,7 +5,14 @@ import UniformTypeIdentifiers
 struct FolderViewerFile: Identifiable {
     let id: String
     let name: String
+    let canPrefetch: Bool
     let load: () async throws -> FolderViewerContent
+
+    init(id: String, name: String, media: Bool = false, load: @escaping () async throws -> FolderViewerContent) {
+        self.id = id; self.name = name; self.load = load
+        let type = UTType(filenameExtension: (name as NSString).pathExtension)
+        canPrefetch = media || type?.conforms(to: .image) == true || type?.conforms(to: .audiovisualContent) == true
+    }
 }
 
 enum FolderViewerContent {
@@ -13,12 +20,98 @@ enum FolderViewerContent {
     case image(URL, UIImage)
     case movie(Movie)
 
+    @MainActor func release() {
+        switch self {
+        case .document(let url), .image(let url, _):
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        case .movie(let movie): movie.stream.cancel(); movie.stream.clearPrefetch()
+        }
+    }
+
     static func preview(_ url: URL) -> Self {
         if UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true,
            let image = UIImage(contentsOfFile: url.path) {
             return .image(url, image)
         }
         return .document(url)
+    }
+}
+
+/// Own downloads independently of SwiftUI's offscreen page lifetime.
+@MainActor
+final class FolderViewerCache: ObservableObject {
+    @Published private(set) var contents: [String: FolderViewerContent] = [:]
+    @Published private(set) var errors: [String: String] = [:]
+    private let files: [FolderViewerFile]
+    private var tasks: [String: Task<Void, Never>] = [:]
+    private var wanted = Set<String>()
+    private var selected: String?
+
+    init(files: [FolderViewerFile]) { self.files = files }
+
+    func select(_ id: String) {
+        guard let index = files.firstIndex(where: { $0.id == id }) else { clear(); return }
+        selected = id
+        wanted = [id]
+        for neighbor in [index - 1, index + 1] where files.indices.contains(neighbor) && files[neighbor].canPrefetch {
+            wanted.insert(files[neighbor].id)
+        }
+        evict()
+        // Speculative failures do not prevent a fresh foreground attempt.
+        errors.removeValue(forKey: id)
+        start(files[index])
+        if contents[id] != nil { warmNeighbors() }
+    }
+
+    func retry(_ file: FolderViewerFile) { errors.removeValue(forKey: file.id); start(file) }
+
+    func trimToSelected() {
+        wanted = Set(selected.map { [$0] } ?? [])
+        evict()
+    }
+
+    func clear() { selected = nil; wanted = []; evict() }
+
+    private func evict() {
+        for id in Array(tasks.keys) where !wanted.contains(id) { tasks.removeValue(forKey: id)?.cancel() }
+        for id in Array(contents.keys) where !wanted.contains(id) { contents.removeValue(forKey: id)?.release() }
+        errors = errors.filter { wanted.contains($0.key) }
+    }
+
+    private func warmNeighbors() {
+        for file in files where wanted.contains(file.id) && file.id != selected { start(file) }
+    }
+
+    private func start(_ file: FolderViewerFile) {
+        guard wanted.contains(file.id), tasks[file.id] == nil else { return }
+        if let content = contents[file.id] {
+            // A movie opened first has no speculative head yet. Warm it when
+            // it becomes a neighbor too, so swiping backward benefits equally.
+            if file.id != selected, case .movie(let movie) = content {
+                tasks[file.id] = Task(priority: .utility) { @MainActor [weak self] in
+                    try? await movie.stream.prefetch()
+                    guard !Task.isCancelled else { return }
+                    self?.tasks.removeValue(forKey: file.id)
+                }
+            }
+            return
+        }
+        let speculative = file.id != selected
+        tasks[file.id] = Task(priority: speculative ? .utility : .userInitiated) { @MainActor [weak self] in
+            do {
+                let loaded = try await file.load()
+                if speculative, case .movie(let movie) = loaded { try? await movie.stream.prefetch() }
+                guard let self, !Task.isCancelled, self.wanted.contains(file.id) else { loaded.release(); return }
+                self.tasks.removeValue(forKey: file.id)
+                self.contents[file.id] = loaded
+                if self.selected == file.id { self.warmNeighbors() }
+            } catch {
+                guard let self, !Task.isCancelled else { return }
+                self.tasks.removeValue(forKey: file.id)
+                // A failed neighbor is retried when selected, without an offscreen alert.
+                if self.selected == file.id { self.errors[file.id] = error.localizedDescription }
+            }
+        }
     }
 }
 
@@ -57,21 +150,28 @@ struct FolderViewerSession: Identifiable {
 struct FolderViewer: View {
     let session: FolderViewerSession
     @State private var selected: String
+    @StateObject private var cache: FolderViewerCache
     @Environment(\.dismiss) private var dismiss
 
     init(session: FolderViewerSession) {
         self.session = session
         _selected = State(initialValue: session.selected)
+        _cache = StateObject(wrappedValue: FolderViewerCache(files: session.files))
     }
 
     var body: some View {
         TabView(selection: $selected) {
             ForEach(session.files) { file in
-                FolderViewerPage(file: file, active: selected == file.id)
+                FolderViewerPage(file: file, active: selected == file.id, cache: cache)
                     .tag(file.id)
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
+        .onAppear { cache.select(selected) }
+        .onChange(of: selected) { _, id in cache.select(id) }
+        .onDisappear { cache.clear() }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in cache.trimToSelected() }
+        .onReceive(NotificationCenter.default.publisher(for: .fileBeansProtectionChanged)) { _ in cache.clear(); dismiss() }
         .overlay(alignment: .topTrailing) {
             Button("Done") { dismiss() }
                 .padding().background(.regularMaterial, in: Capsule()).padding()
@@ -82,53 +182,26 @@ struct FolderViewer: View {
 struct FolderViewerPage: View {
     let file: FolderViewerFile
     let active: Bool
-    @State private var content: FolderViewerContent?
-    @State private var error: String?
+    @ObservedObject var cache: FolderViewerCache
 
     var body: some View {
-        // Keep lifecycle modifiers on a stable container, not the changing content.
         ZStack {
-            if active, let content {
+            if let content = cache.contents[file.id] {
                 switch content {
-                case .document(let url): FolderDocumentPreview(url: url)
+                case .document(let url):
+                    if active { FolderDocumentPreview(url: url) } else { ProgressView() }
                 case .image(_, let image): FolderImagePreview(image: image, name: file.name)
-                case .movie(let movie): MovieView(movie: movie).id(movie.id)
+                case .movie(let movie):
+                    if active { MovieView(movie: movie).id(movie.id) } else { ProgressView() }
                 }
-            } else if let error {
+            } else if let error = cache.errors[file.id] {
                 ContentUnavailableView {
                     Label(file.name, systemImage: "doc")
                 } description: { Text(error) } actions: {
-                    Button("Retry") { self.error = nil }
+                    Button("Retry") { cache.retry(file) }
                 }
             } else { ProgressView() }
         }
-        .task(id: "\(active)-\(error == nil)") {
-            guard active, content == nil, error == nil else { return }
-            do {
-                let loaded = try await file.load()
-                if Task.isCancelled { release(loaded); return }
-                content = loaded
-            } catch {
-                if !Task.isCancelled { self.error = error.localizedDescription }
-            }
-        }
-        .onChange(of: active) { _, active in
-            if !active { clear() }
-        }
-        .onDisappear { clear() }
-    }
-
-    private func release(_ content: FolderViewerContent) {
-        switch content {
-        case .document(let url), .image(let url, _):
-            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
-        case .movie(let movie): movie.stream.cancel()
-        }
-    }
-    private func clear() {
-        if let content { release(content) }
-        content = nil
-        error = nil
     }
 }
 

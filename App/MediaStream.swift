@@ -12,6 +12,27 @@ final class MediaStream: NSObject, @preconcurrency AVAssetResourceLoaderDelegate
     private(set) var loadingRequestCount = 0
     private(set) var completedRequestCount = 0
     private(set) var suppliedByteCount: Int64 = 0
+    private var prefetched: MediaChunk?
+
+    // At most 256 KiB per adjacent video, retained only by its viewer entry.
+    func prefetch() async throws {
+        guard prefetched == nil else { return }
+        let chunk = try await fetch(request, 0, 256 * 1024)
+        try Task.checkCancellation()
+        prefetched = chunk
+    }
+
+    func clearPrefetch() { prefetched = nil }
+
+    func readChunk(offset: Int64, length: Int) async throws -> MediaChunk {
+        try Task.checkCancellation()
+        if let prefetched, offset >= 0, offset < Int64(prefetched.data.count), length > 0 {
+            let start = Int(offset)
+            let end = start + min(length, prefetched.data.count - start)
+            return MediaChunk(data: prefetched.data.subdata(in: start..<end), totalLength: prefetched.totalLength, mimeType: prefetched.mimeType)
+        }
+        return try await fetch(request, offset, length)
+    }
 
     init(client: FilesystemClient, request: URLRequest, name: String) {
         self.fetch = { try await client.streamChunk($0, offset: $1, length: $2) }; self.request = request; self.name = name
@@ -69,7 +90,7 @@ final class MediaStream: NSObject, @preconcurrency AVAssetResourceLoaderDelegate
                     return
                 }
                 try await MediaRange.read(offset: offset, length: length, firstChunkSize: 64 * 1024, fetch: { offset, count in
-                    try await self.fetch(self.request, offset, count)
+                    try await self.readChunk(offset: offset, length: count)
                 }, receive: { chunk in
                     try Task.checkCancellation()
                     guard !loading.isCancelled else { throw CancellationError() }
