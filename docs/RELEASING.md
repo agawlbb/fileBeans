@@ -1160,3 +1160,30 @@ Transferred archives and the preceding MakeLORA application directory remain in
 `/opt/services/filebeans/deploy/originals-b5c4c7f/` and
 `private/makelora/app-originals-3fdbcf6`; automatic approval review rejected their
 removal to preserve recovery evidence. Earlier trial recovery files remain intact.
+## Local protected-folder write capability deployment — November 21, 2026
+
+Broker source `18ce95a` was built on VM-laptop and installed on the VPS after
+authenticated API checks found no active transfer jobs and protection was safely
+locked. Only `filebeans-vault-broker.service` restarted. The companion container
+identity and start time stayed unchanged, with restart count zero.
+
+The installed and running executable SHA-256 matches the VM artifact:
+`261bb9ee4da9a4fd90c675179f03c3cabf5bff000521ece21a4b93738b13c44e`.
+The root-owned systemd override
+`/etc/systemd/system/filebeans-vault-broker.service.d/capabilities.conf` explicitly
+requests the six required ambient capabilities while preserving the existing
+unit, roots dependency, runtime preservation and capability bounding set.
+Systemd unit validation passed. All nine broker threads reported effective and
+permitted mask `00000000002000cb`, including the previously missing `CAP_SETUID`;
+the ambient set matches. Authenticated capability, filesystem source, protection,
+vault and jobs endpoints returned HTTP 200 after restart.
+
+Protected folders remain locked until the owner unlocks them in fileBeans.
+Live UID 1000 writes to `/pics` and new gocryptfs child capabilities still require
+that unlock; the equivalent isolated local ext4/gocryptfs regression already
+passed. Existing encrypted contents were not rewritten. No iOS release or
+companion image rebuild was required.
+
+Local `.build/broker-18ce95a` and VPS `/var/tmp/filebeans-broker-18ce95a` staging
+were removed and their absence verified. The installed broker and systemd
+override are the retained runtime files; no disposable artifacts were retained.
