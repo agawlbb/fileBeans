@@ -1,5 +1,33 @@
 # Signing and TestFlight
 
+## Media screen wake protection — TestFlight 33 (November 22, 2026)
+
+Released source `9bb028fc0c0abfbae14ad8935b9e046fe38073c7` as **0.1.0 (33)**,
+pinned by `testflight/0.1.0-33`. Photos and videos keep the screen awake while
+the viewer is active, including paused videos. Closing the viewer, selecting
+a document or leaving the active scene restores normal dimming. Multiple
+windows retain independent wake requests.
+
+- [Apple validation](https://github.com/agawlbb/fileBeans/actions/runs/45017981905)
+  passed **123 unit tests and 2 UI tests**, zero failures, and the unsigned
+  iPhone/iPad Release archive on its second attempt. The first attempt passed
+  all unit tests but one UI test timed out launching the app through Xcode;
+  both UI tests passed on the fresh runner without source changes.
+- [Signed release](https://github.com/agawlbb/fileBeans/actions/runs/45020298937)
+  passed preflight, archive/export, TestFlight upload with no errors and
+  temporary runner credential cleanup.
+- Apple build `b4cd2cea-3e64-4752-81b6-537e63bf565c` is **VALID /
+  IN_BETA_TESTING**, with automatic internal notification enabled. Existing
+  tester settings were preserved; no external review was submitted.
+
+The internal TestFlight release is finished and verified. Physical-device
+acceptance remains: view photos and paused/playing videos beyond the configured
+Auto-Lock interval, then close the viewer, select a document or background the
+app and confirm normal dimming returns. No server deployment was needed. No
+local build artifacts or temporary files were created; runner credentials were
+cleaned and permanent signing credentials preserved. Validation artifacts retain
+the existing seven-day workflow retention.
+
 ## Adjacent prefetch and text editing — TestFlight 32 (November 21, 2026)
 
 Released app source `de91c439d4ee7c00fb079ce18ec00060b528afa8` as **0.1.0 (32)**.
