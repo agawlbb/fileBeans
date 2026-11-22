@@ -147,11 +147,30 @@ struct FolderViewerSession: Identifiable {
 }
 
 /// One presentation contains every file, so paging never exits full screen.
+/// Multiple windows may independently keep media visible.
+@MainActor
+private enum MediaScreenAwake {
+    static var viewers = Set<UUID>()
+
+    static func update(_ viewer: UUID, enabled: Bool) {
+        if enabled { viewers.insert(viewer) } else { viewers.remove(viewer) }
+        UIApplication.shared.isIdleTimerDisabled = !viewers.isEmpty
+    }
+}
+
 struct FolderViewer: View {
     let session: FolderViewerSession
     @State private var selected: String
     @StateObject private var cache: FolderViewerCache
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var visible = false
+    @State private var wakeID = UUID()
+
+    private func updateScreenAwake() {
+        let media = session.files.first(where: { $0.id == selected })?.canPrefetch == true
+        MediaScreenAwake.update(wakeID, enabled: visible && scenePhase == .active && media)
+    }
 
     init(session: FolderViewerSession) {
         self.session = session
@@ -167,9 +186,10 @@ struct FolderViewer: View {
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
-        .onAppear { cache.select(selected) }
-        .onChange(of: selected) { _, id in cache.select(id) }
-        .onDisappear { cache.clear() }
+        .onAppear { visible = true; cache.select(selected); updateScreenAwake() }
+        .onChange(of: selected) { _, id in cache.select(id); updateScreenAwake() }
+        .onChange(of: scenePhase) { _, _ in updateScreenAwake() }
+        .onDisappear { visible = false; updateScreenAwake(); cache.clear() }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in cache.trimToSelected() }
         .onReceive(NotificationCenter.default.publisher(for: .fileBeansProtectionChanged)) { _ in cache.clear(); dismiss() }
         .overlay(alignment: .topTrailing) {
