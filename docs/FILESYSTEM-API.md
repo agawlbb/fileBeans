@@ -29,13 +29,16 @@ the companion, using the three Compose files recorded on the running container
 timeouts and the prohibition on building or pulling images. The former separate
 normalizer container is absent and must not be recreated by this unit.
 
-Deployment is pending explicit authorization. Install the replacement as
-`/etc/systemd/system/filebeans-protected-stack.service` and remove the obsolete
+Deployed with owner authorization on November 23, 2026. Installed the replacement
+as `/etc/systemd/system/filebeans-protected-stack.service` and removed the obsolete
 `/etc/systemd/system/filebeans-protected-stack.service.d/filesystem-trial.conf`
-override; otherwise its command resets still replace the corrected commands.
-Reload systemd, validate the effective unit and Compose service selection, then
-start the stack unit and verify companion health and authenticated source
-discovery. No app build or image build is required.
+override. Unit SHA-256 matched the tracked source; systemd verification passed,
+Compose selected only `companion`, and the reloaded unit started successfully
+(`active/exited`, result `success`). It remains enabled for boot. The companion
+remained running with its original November 22 start time. Authenticated HTTPS
+capabilities and filesystem source discovery returned 200; anonymous source
+discovery returned 401. No app/image build, staging files or rollback copies
+were needed; the obsolete override was verified absent. Boot was not reboot-tested.
 
 The existing Go companion hosts both `/v1/fs/*` and its existing job, Trash,
 Drive and protection routes. There is no database schema change. The private
