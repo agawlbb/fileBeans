@@ -15,6 +15,28 @@ Files remains a deferred follow-up.
 
 ## Service and API
 
+### Boot unit correction (November 23, 2026)
+
+Read-only VPS inspection found `filebeans-protected-stack.service` failed:
+both its base unit and `filesystem-trial.conf` drop-in referenced the retired
+`/opt/services/filebrowser/compose.yaml`. The effective startup first tried to
+stop Quantum, so the missing file prevented the companion startup command.
+
+The replacement is tracked at
+`companion/deploy/filebeans-protected-stack.service`. It starts and stops only
+the companion, using the three Compose files recorded on the running container
+(base, filesystem trial, and MakeLORA datasets). It preserves broker ordering,
+timeouts and the prohibition on building or pulling images. The former separate
+normalizer container is absent and must not be recreated by this unit.
+
+Deployment is pending explicit authorization. Install the replacement as
+`/etc/systemd/system/filebeans-protected-stack.service` and remove the obsolete
+`/etc/systemd/system/filebeans-protected-stack.service.d/filesystem-trial.conf`
+override; otherwise its command resets still replace the corrected commands.
+Reload systemd, validate the effective unit and Compose service selection, then
+start the stack unit and verify companion health and authenticated source
+discovery. No app build or image build is required.
+
 The existing Go companion hosts both `/v1/fs/*` and its existing job, Trash,
 Drive and protection routes. There is no database schema change. The private
 Bearer token authorizes all configured roots; this is a personal server, not a

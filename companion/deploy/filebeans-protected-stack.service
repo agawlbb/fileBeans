@@ -1,0 +1,15 @@
+[Unit]
+Description=fileBeans protected consumers
+Requires=docker.service filebeans-vault-broker.service
+After=docker.service filebeans-vault-broker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/docker compose -f /opt/services/filebeans/compose.yaml -f /opt/services/filebeans/filesystem-trial.compose.yaml -f /opt/services/filebeans/makelora-datasets.compose.yaml up -d --no-build --no-deps --pull never companion
+ExecStop=/usr/bin/docker compose -f /opt/services/filebeans/compose.yaml -f /opt/services/filebeans/filesystem-trial.compose.yaml -f /opt/services/filebeans/makelora-datasets.compose.yaml stop -t 90 companion
+TimeoutStartSec=180
+TimeoutStopSec=240
+
+[Install]
+WantedBy=multi-user.target
