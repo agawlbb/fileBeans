@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -117,6 +118,26 @@ func testFilesystemProtectedLifecycle(t *testing.T, smb bool) {
 		t.Fatal("protected thumbnail spilled into private plaintext state", err)
 	}
 	t.Run("resumable-protected-upload", func(t *testing.T) {
+		if smb {
+			// The loopback SMB fixture may lack hardlinks; completion uses
+			// them to preserve upload identity across a lost response.
+			probe := filepath.Join(b.config.Roots[0].Path, ".hardlink-capability")
+			if err := os.WriteFile(probe, []byte("fixture"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			err := os.Link(probe, probe+".link")
+			os.Remove(probe + ".link")
+			os.Remove(probe)
+			if errors.Is(err, os.ErrPermission) {
+				t.Fatal("unexpected fixture permissions", err)
+			}
+			if errors.Is(err, syscall.EOPNOTSUPP) || errors.Is(err, syscall.ENOSYS) {
+				t.Skip("synthetic SMB server does not implement hardlinks", err)
+			}
+			if err != nil {
+				t.Fatal("synthetic hardlink capability", err)
+			}
+		}
 		route := "uploads/12345678-1234-1234-1234-123456789abc"
 		p := "/Private/resumed.txt"
 		if out := call("POST", route, p, strings.NewReader(`{"size":6}`), nil); out.Code != 200 {

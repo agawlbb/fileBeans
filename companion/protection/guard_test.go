@@ -96,7 +96,7 @@ func fixture(t *testing.T) (*Guard, string) {
 	}
 	g.owner = uint32(os.Getuid())
 	g.mounted = func(string, string) bool { return true }
-	writeSnapshot(t, g, Snapshot{Protocol, []Vault{{ID: strings.Repeat("a", 32), Source: "disk", Path: "/Private", State: "unlocked", Initialized: true}}})
+	writeSnapshot(t, g, Snapshot{Version: Protocol, Vaults: []Vault{{ID: strings.Repeat("a", 32), Source: "disk", Path: "/Private", State: "unlocked", Initialized: true}}})
 	return g, root
 }
 
@@ -108,6 +108,32 @@ func writeSnapshot(t *testing.T, g *Guard, s Snapshot) {
 	}
 	if e = os.WriteFile(filepath.Join(g.runtime, "status.json"), data, 0640); e != nil {
 		t.Fatal(e)
+	}
+}
+
+func TestUnavailableSourceDoesNotBlockHealthySource(t *testing.T) {
+	g, root := fixture(t)
+	remote := filepath.Join(filepath.Dir(root), "remote")
+	if err := os.Mkdir(remote, 0700); err != nil {
+		t.Fatal(err)
+	}
+	g.roots["remote"] = remote
+	writeSnapshot(t, g, Snapshot{Version: Protocol, UnavailableSources: []string{"remote"}})
+	lease, err := g.Acquire()
+	if err != nil {
+		t.Fatal("unavailable source prevented acquiring healthy snapshot", err)
+	}
+	defer lease.Close()
+	if err := lease.Check(filepath.Join(root, "Normal"), false); err != nil {
+		t.Fatal("healthy source blocked", err)
+	}
+	for _, path := range []string{remote, filepath.Join(remote, "file"), filepath.Join(remote, "new", "file")} {
+		if err := lease.Check(path, false); !errors.Is(err, ErrUnavailable) {
+			t.Fatalf("unverified read accepted: %s: %v", path, err)
+		}
+		if err := lease.Mutation(path, ""); !errors.Is(err, ErrUnavailable) {
+			t.Fatalf("unverified write accepted: %s: %v", path, err)
+		}
 	}
 }
 

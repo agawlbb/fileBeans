@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,11 +73,13 @@ type BrokerVault struct {
 }
 
 type brokerSnapshot struct {
-	Version int           `json:"version"`
-	Vaults  []BrokerVault `json:"vaults"`
+	UnavailableSources []string      `json:"unavailableSources,omitempty"`
+	Version            int           `json:"version"`
+	Vaults             []BrokerVault `json:"vaults"`
 }
 
 type mountBroker struct {
+	unavailableSources    map[string]error
 	datasetActivity       time.Time
 	locationKey           []byte
 	privateLocationsSaved map[string]bool
@@ -166,6 +169,7 @@ func newMountBrokerWithChecks(c BrokerConfig, lockedCheck func(brokerEntry) bool
 	b := &mountBroker{config: c, registry: brokerRegistry{Version: brokerProtocol}, manager: &vaultManager{
 		keyFile: filepath.Join(c.State, "vault-key-id"), lockFile: owner,
 	}}
+	b.unavailableSources = map[string]error{}
 	b.lockedCheck = lockedCheck
 	b.publicPins = map[string]*os.File{}
 	b.mountFiles = func(from, to string) error { return unix.Mount(from, to, "", unix.MS_BIND, "") }
@@ -235,37 +239,8 @@ func newMountBrokerWithChecks(c BrokerConfig, lockedCheck func(brokerEntry) bool
 		if e = b.validateLocation(entry.Source, location, previous); e != nil {
 			return nil, e
 		}
-		if entry.Trashed > 0 {
-			v := b.vaultConfig(entry)
-			if mounted(v.Mount, "") {
-				return nil, ErrVaultBusy
-			}
-			b.manager.states = append(b.manager.states, &vaultState{config: v})
-			continue
-		}
-		if mounted(b.publicPath(entry), "filebeans-locked-"+entry.ID) {
-			if e = b.unmountFiles(b.publicPath(entry)); e != nil {
-				return nil, ErrVaultBusy
-			}
-		}
-		public, e := b.publicDir(entry)
-		if e != nil {
-			return nil, e
-		}
-		public.Close()
-		v := b.vaultConfig(entry)
-		if mounted(v.Mount, "") || mounted(b.publicPath(entry), "") {
-			return nil, ErrVaultBusy
-		}
-		if e = os.MkdirAll(v.Mount, 0500); e != nil {
-			return nil, e
-		}
-		if e = emptyMount(v.Mount); e != nil {
-			return nil, e
-		}
-		b.manager.states = append(b.manager.states, &vaultState{config: v})
-		if e = b.installLockedMount(entry); e != nil {
-			return nil, e
+		if e = b.recoverLegacyEntry(entry); e != nil {
+			b.quarantineSource(entry.Source, e)
 		}
 	}
 	if e = b.publish(); e != nil {
@@ -273,6 +248,46 @@ func newMountBrokerWithChecks(c BrokerConfig, lockedCheck func(brokerEntry) bool
 	}
 	ok = true
 	return b, nil
+}
+
+func (b *mountBroker) recoverLegacyEntry(entry brokerEntry) error {
+	if _, err := b.root(entry.Source); err != nil {
+		return err
+	}
+	var e error
+	if entry.Trashed > 0 {
+		v := b.vaultConfig(entry)
+		if mounted(v.Mount, "") {
+			return ErrVaultBusy
+		}
+		b.manager.states = append(b.manager.states, &vaultState{config: v})
+		return nil
+	}
+	if mounted(b.publicPath(entry), "filebeans-locked-"+entry.ID) {
+		if e = b.unmountFiles(b.publicPath(entry)); e != nil {
+			return ErrVaultBusy
+		}
+	}
+	public, e := b.publicDir(entry)
+	if e != nil {
+		return e
+	}
+	public.Close()
+	v := b.vaultConfig(entry)
+	if mounted(v.Mount, "") || mounted(b.publicPath(entry), "") {
+		return ErrVaultBusy
+	}
+	if e = os.MkdirAll(v.Mount, 0500); e != nil {
+		return e
+	}
+	if e = emptyMount(v.Mount); e != nil {
+		return e
+	}
+	b.manager.states = append(b.manager.states, &vaultState{config: v})
+	if e = b.installLockedMount(entry); e != nil {
+		return e
+	}
+	return nil
 }
 
 func validBrokerID(id string) bool {
@@ -284,6 +299,9 @@ func validBrokerID(id string) bool {
 }
 
 func (b *mountBroker) root(source string) (Root, error) {
+	if b.unavailableSources[source] != nil {
+		return Root{}, ErrMount
+	}
 	r, e := b.configuredRoot(source)
 	if e != nil {
 		return Root{}, e
@@ -337,7 +355,7 @@ func (b *mountBroker) validateLocation(source, path string, entries []brokerEntr
 			return ErrUnsafe
 		}
 	}
-	if _, e = b.root(source); e != nil {
+	if _, e = b.configuredRoot(source); e != nil {
 		return e
 	}
 	for _, v := range entries {
@@ -443,7 +461,7 @@ func (b *mountBroker) statuses() []BrokerVault {
 			v.Name = filepath.Base(e.OriginalPath)
 		}
 		r, err := b.configuredRoot(e.Source)
-		if err != nil || r.Mount != "" && !mounted(r.Mount, r.MountSource) {
+		if err != nil || b.unavailableSources[e.Source] != nil || r.Mount != "" && !mounted(r.Mount, r.MountSource) {
 			v.State = "error"
 			v.Path = ""
 			v.Name = ""
@@ -505,7 +523,13 @@ func (b *mountBroker) publish() error {
 			}
 		}
 	}
-	return brokerAtomicJSON(filepath.Join(b.config.Runtime, "status.json"), brokerSnapshot{brokerProtocol, active}, 0640, b.config.GID)
+	unavailable := []string{}
+	for _, root := range b.config.Roots {
+		if _, err := b.root(root.Name); err != nil {
+			unavailable = append(unavailable, root.Name)
+		}
+	}
+	return brokerAtomicJSON(filepath.Join(b.config.Runtime, "status.json"), brokerSnapshot{Version: brokerProtocol, Vaults: active, UnavailableSources: unavailable}, 0640, b.config.GID)
 }
 
 // Every cooperating reader holds a shared lock for its entire filesystem
@@ -921,4 +945,17 @@ func (b *mountBroker) close() {
 		f.Close()
 		delete(b.publicPins, id)
 	}
+}
+
+// Retry quarantined sources independently; availability alone never overrides
+// the configured share and marker identities.
+func (b *mountBroker) quarantineSource(source string, err error) {
+	if b.unavailableSources == nil {
+		b.unavailableSources = map[string]error{}
+	}
+	if b.unavailableSources[source] != nil {
+		return
+	}
+	b.unavailableSources[source] = err
+	log.Printf("Storage source %q unavailable; identity checks remain enforced", source)
 }

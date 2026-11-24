@@ -7,6 +7,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -325,7 +326,7 @@ func (b *mountBroker) unparkPublic(e *brokerEntry) error {
 }
 
 func (b *mountBroker) recoverClosedMarker(e *brokerEntry) error {
-	root, err := b.configuredRoot(e.Source)
+	root, err := b.root(e.Source)
 	if err != nil {
 		return err
 	}
@@ -386,31 +387,40 @@ func (b *mountBroker) recoverClosedMarker(e *brokerEntry) error {
 	return nil
 }
 func (b *mountBroker) recoverPrivateRegistry() error {
-	kept := b.registry.Entries[:0]
-	for _, e := range b.registry.Entries {
-		if e.Purging {
-			if err := b.purgeVaultFiles(e); err != nil {
-				return err
-			}
-		} else {
-			kept = append(kept, e)
-		}
-	}
-	b.registry.Entries = kept
+	// Validate registry structure globally before touching any source. Corrupt
+	// shared state is still fatal; storage failures are isolated by source.
 	ids, requests := map[string]bool{}, map[string]bool{}
-	for i := range b.registry.Entries {
-		e := &b.registry.Entries[i]
+	for _, e := range b.registry.Entries {
 		if !validBrokerID(e.ID) || len(e.RequestHash) != 64 || ids[e.ID] || requests[e.RequestHash] || e.Inode == 0 {
 			return ErrUnsafe
 		}
-		ids[e.ID] = true
-		requests[e.RequestHash] = true
-		if err := b.recoverClosedMarker(e); err != nil {
+		if _, err := hex.DecodeString(e.RequestHash); err != nil {
+			return ErrUnsafe
+		}
+		if _, err := b.configuredRoot(e.Source); err != nil {
 			return err
 		}
-		clearLocation(e)
-		b.manager.states = append(b.manager.states, &vaultState{config: b.vaultConfig(*e)})
+		ids[e.ID], requests[e.RequestHash] = true, true
 	}
+	b.reconcileSourceDevices()
+	kept := make([]brokerEntry, 0, len(b.registry.Entries))
+	for _, e := range b.registry.Entries {
+		if _, err := b.root(e.Source); err != nil {
+			b.quarantineSource(e.Source, err)
+		} else if e.Purging {
+			if err := b.purgeVaultFiles(e); err != nil {
+				b.quarantineSource(e.Source, err)
+			} else {
+				continue
+			}
+		} else if err := b.recoverClosedMarker(&e); err != nil {
+			b.quarantineSource(e.Source, err)
+		}
+		clearLocation(&e)
+		kept = append(kept, e)
+		b.manager.states = append(b.manager.states, &vaultState{config: b.vaultConfig(e)})
+	}
+	b.registry.Entries = kept
 	return b.saveRegistry()
 }
 func (b *mountBroker) forgetClosedLocations() {

@@ -300,3 +300,33 @@ conversion. The previous normalizer held that gate continuously. Rollback Compos
 configuration is retained in root-only
 `/opt/services/filebeans/deploy/vault-busy-6b8147c`. This change requires no new
 mobile build; TestFlight 18 remains current.
+
+### Source availability and reboot recovery — November 24, 2026
+
+Storage checks protect a specific operation or source, rather than making an
+unavailable Samba share a prerequisite for the whole service. CIFS device numbers
+are temporary Linux mount identities. On startup, the broker reconciles a changed
+device number against the configured CIFS share and all parked marker inodes;
+it does not change marker inodes or encrypted locations. A mismatching marker
+leaves only that source unavailable. Returning sources are retried under the
+existing filesystem gate, without restarting healthy consumers. Unlock failures
+roll back that source rather than closing unrelated vaults.
+
+The protection snapshot names unavailable sources so filesystem consumers reject
+operations on them while continuing to serve healthy sources. Ordinary encrypted
+file confidentiality comes from encryption, not these availability checks.
+
+Samba now lives below a stable shared bind parent: `/samba/share` is the configured
+source, and the consumer binds `/samba` with slave propagation. The storage-parent
+unit does not require the remote mount. A small, bounded systemd refresh service
+retries the existing CIFS mount and attaches its alias independently; the broker
+then recovers that source. The local `/folder` alias is unchanged. The new helper,
+units and timer are in `companion/deploy/filebeans-vault-roots*` and
+`companion/deploy/filebeans-samba-refresh*`.
+
+VM validation passed Go race tests and vet, source failure/recovery regressions,
+real synthetic CIFS device reconciliation, changed-marker rejection, late-mount
+propagation and protected local/CIFS lifecycle checks. The synthetic SMB server
+cannot hardlink: only its resumable-upload completion subtest skips after checking
+that exact capability; the local encrypted resumable-upload test passes.
+Deployment verification is pending.

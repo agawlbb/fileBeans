@@ -1,0 +1,12 @@
+[Unit]
+Description=Reconnect fileBeans Samba storage
+After=filebeans-vault-roots.service
+Requires=filebeans-vault-roots.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/filebeans-vault-roots --refresh
+MemoryMax=32M
+MemorySwapMax=0
+TasksMax=16
+TimeoutStartSec=30

@@ -71,12 +71,17 @@ func (b *mountBroker) unlockAll(key []byte) error {
 	}
 	entries := append([]brokerEntry(nil), b.registry.Entries...)
 	for _, e := range entries {
-		if !e.Initialized {
+		if !e.Initialized || b.unavailableSources[e.Source] != nil {
 			continue
 		}
 		if err := b.open(e, key); err != nil {
-			_ = b.lockAll()
-			return err
+			// Roll back only this source; unrelated vaults remain available.
+			for _, other := range entries {
+				if other.Source == e.Source {
+					_ = b.lock(other)
+				}
+			}
+			b.quarantineSource(e.Source, err)
 		}
 	}
 	return b.publish()

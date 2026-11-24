@@ -1,0 +1,18 @@
+[Unit]
+Description=fileBeans storage mount parents
+After=network-online.target tailscaled.service
+Wants=network-online.target
+RequiresMountsFor=/opt/services/filebrowser/files
+Before=filebeans-vault-broker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/libexec/filebeans-vault-roots
+MemoryMax=32M
+MemorySwapMax=0
+TasksMax=16
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target

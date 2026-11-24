@@ -174,6 +174,7 @@ func (b *mountBroker) autoLockVaults(ctx context.Context) {
 	}()
 	for ctx.Err() == nil {
 		b.mu.Lock()
+		b.retryUnavailableSources()
 		b.pollIdleVaults(watches, time.Now())
 		b.mu.Unlock()
 		wait(ctx, 5*time.Second)

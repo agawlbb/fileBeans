@@ -327,5 +327,10 @@ func (s *Service) guarded(root *os.Root) (rootFS, error) {
 		root.Close()
 		return nil, protectionError(e)
 	}
+	if e = lease.Check(root.Name(), false); e != nil {
+		lease.Close()
+		root.Close()
+		return nil, protectionError(e)
+	}
 	return &guardedRoot{Root: root, lease: lease}, nil
 }

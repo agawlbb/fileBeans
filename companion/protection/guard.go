@@ -41,8 +41,9 @@ type Vault struct {
 }
 
 type Snapshot struct {
-	Version int     `json:"version"`
-	Vaults  []Vault `json:"vaults"`
+	UnavailableSources []string `json:"unavailableSources,omitempty"`
+	Version            int      `json:"version"`
+	Vaults             []Vault  `json:"vaults"`
 }
 
 type Guard struct {
@@ -224,6 +225,11 @@ func (l *Lease) classify(path string) (*Vault, bool, error) {
 	for _, root := range l.guard.roots {
 		if within(path, root) {
 			sourceRoot = root
+			for _, source := range l.Snapshot.UnavailableSources {
+				if l.guard.roots[source] == root {
+					return nil, false, ErrUnavailable
+				}
+			}
 			break
 		}
 	}

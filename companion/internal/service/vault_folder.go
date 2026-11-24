@@ -79,9 +79,11 @@ func (b *mountBroker) recoverPublicChanges() error {
 	for _, entry := range b.registry.Entries {
 		if entry.Purging {
 			if err := b.purgeVaultFiles(entry); err != nil {
-				return err
+				b.quarantineSource(entry.Source, err)
+				kept = append(kept, entry)
+			} else {
+				changed = true
 			}
-			changed = true
 		} else {
 			kept = append(kept, entry)
 		}
@@ -101,9 +103,10 @@ func (b *mountBroker) recoverPublicChanges() error {
 				return err
 			}
 			if err := b.movePublic(e); err != nil {
-				return err
+				b.quarantineSource(e.Source, err)
+			} else {
+				changed = true
 			}
-			changed = true
 		}
 	}
 	if changed {

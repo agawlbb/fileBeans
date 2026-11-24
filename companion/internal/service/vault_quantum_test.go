@@ -531,7 +531,7 @@ func mountSyntheticSMB(t *testing.T, b *mountBroker) string {
 		t.Fatal("synthetic SMB server unavailable", output.String())
 	}
 	root := b.config.Roots[0].Path
-	options := "vers=2.0,username=fixture,password=fixture-only,ip=127.0.0.1,port=1445,uid=1000,gid=1000,dir_mode=0770,file_mode=0660,nounix,noperm,soft,echo_interval=1"
+	options := "vers=2.0,username=fixture,password=fixture-only,ip=127.0.0.1,port=1445,uid=1000,gid=1000,dir_mode=0770,file_mode=0660,nounix,noperm,noserverino,nosharesock,soft,echo_interval=1"
 	if e := unix.Mount("//127.0.0.1/vaults", root, "cifs", unix.MS_NOSUID|unix.MS_NODEV, options); e != nil {
 		cancel()
 		_ = server.Wait()

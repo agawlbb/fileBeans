@@ -1,0 +1,86 @@
+#!/usr/bin/python3
+"""Keep stable consumer bind parents; attach Samba independently when available."""
+import fcntl
+import json
+import os
+import pathlib
+import subprocess
+import sys
+
+def expected_share():
+    config = json.loads(pathlib.Path('/etc/filebeans/vault-broker.json').read_text())
+    return next(root['mountSource'] for root in config['roots'] if root['name'] == 'Samba')
+
+
+def mounts():
+    result = {}
+    for line in pathlib.Path('/proc/self/mountinfo').read_text().splitlines():
+        left, right = line.split(' - ', 1)
+        result[left.split()[4]] = right.split()[:2]
+    return result
+
+
+def bind(source, target):
+    if os.path.realpath(source) != source:
+        raise RuntimeError('Storage path contains symlinks')
+    fd = os.open(source, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        subprocess.run(['mount', '--no-canonicalize', '--bind',
+                        f'/proc/self/fd/{fd}', target], pass_fds=(fd,), check=True)
+    finally:
+        os.close(fd)
+
+
+def setup():
+    local = '/opt/services/filebrowser/files'
+    pathlib.Path('/folder').mkdir(exist_ok=True)
+    if '/folder' not in mounts():
+        bind(local, '/folder')
+    if (os.stat(local).st_dev, os.stat(local).st_ino) != (os.stat('/folder').st_dev, os.stat('/folder').st_ino):
+        raise RuntimeError('Unexpected local storage alias')
+    subprocess.run(['mount', '--make-rshared', '/folder'], check=True)
+    parent = pathlib.Path('/samba')
+    parent.mkdir(exist_ok=True)
+    if '/samba' not in mounts():
+        if any(parent.iterdir()):
+            raise RuntimeError('Unexpected files in Samba bind parent')
+        bind('/samba', '/samba')
+    if mounts()['/samba'][0] == 'cifs':
+        raise RuntimeError('Legacy Samba alias requires migration')
+    subprocess.run(['mount', '--make-rshared', '/samba'], check=True)
+    pathlib.Path('/samba/share').mkdir(mode=0o000, exist_ok=True)
+
+
+def refresh():
+    current = mounts()
+    if current.get('/mnt/filebrowser') != ['cifs', expected_share()]:
+        subprocess.run(['systemctl', 'start', '--no-block', 'mnt-filebrowser.mount'], check=False)
+        return
+    source = os.stat('/mnt/filebrowser')
+    target = os.stat('/samba/share')
+    if (source.st_dev, source.st_ino) == (target.st_dev, target.st_ino):
+        return
+    # Cooperate with active filesystem requests and protected mount transitions.
+    gate = None
+    try:
+        if os.path.exists('/run/filebeans-vaults/gate'):
+            gate = open('/run/filebeans-vaults/gate', 'rb')
+            try:
+                fcntl.flock(gate, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return
+        if '/samba/share' in current:
+            subprocess.run(['umount', '/samba/share'], check=True)
+        bind('/mnt/filebrowser', '/samba/share')
+    finally:
+        if gate is not None:
+            gate.close()
+
+
+if __name__ == '__main__':
+    if '--refresh' not in sys.argv:
+        setup()
+    try:
+        refresh()
+    except (OSError, RuntimeError, subprocess.CalledProcessError):
+        print('Samba unavailable; retry scheduled', file=sys.stderr)

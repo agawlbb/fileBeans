@@ -244,7 +244,9 @@ func emptyMount(path string) error {
 	// mounted files. Never create the public files directory outside the mount.
 	return os.Chmod(path, 0500)
 }
-func mounted(path, source string) bool {
+func mounted(path, source string) bool { return mountedFilesystem(path, source, "") }
+
+func mountedFilesystem(path, source, filesystem string) bool {
 	b, e := os.ReadFile("/proc/self/mountinfo")
 	if e != nil {
 		// A failed mount inspection must never report a successful lock.
@@ -257,7 +259,7 @@ func mounted(path, source string) bool {
 			continue
 		}
 		a, b := strings.Fields(p[0]), strings.Fields(p[1])
-		if len(a) > 4 && len(b) > 1 && decode.Replace(a[4]) == path && (source == "" || decode.Replace(b[1]) == source) {
+		if len(a) > 4 && len(b) > 1 && decode.Replace(a[4]) == path && (source == "" || decode.Replace(b[1]) == source) && (filesystem == "" || b[0] == filesystem) {
 			return true
 		}
 	}

@@ -1,0 +1,10 @@
+[Unit]
+Description=Retry fileBeans Samba storage independently
+
+[Timer]
+OnBootSec=10s
+OnUnitInactiveSec=10s
+Unit=filebeans-samba-refresh.service
+
+[Install]
+WantedBy=timers.target
