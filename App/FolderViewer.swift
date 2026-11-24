@@ -194,6 +194,10 @@ struct FolderViewer: View {
         .background(fullScreen ? Color.black : Color(uiColor: .systemBackground))
         .statusBarHidden(fullScreen)
         .persistentSystemOverlays(fullScreen ? .hidden : .automatic)
+        .contentShape(Rectangle())
+        .simultaneousGesture(TapGesture().onEnded {
+            fullScreen = false
+        }, including: fullScreen ? .all : .subviews)
         .onAppear { visible = true; cache.select(selected); updateScreenAwake() }
         .onChange(of: selected) { _, id in cache.select(id); updateScreenAwake() }
         .onChange(of: scenePhase) { _, _ in updateScreenAwake() }
@@ -201,20 +205,22 @@ struct FolderViewer: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in cache.trimToSelected() }
         .onReceive(NotificationCenter.default.publisher(for: .fileBeansProtectionChanged)) { _ in cache.clear(); dismiss() }
         .overlay(alignment: .topLeading) {
-            if session.files.first(where: { $0.id == selected })?.canPrefetch == true {
+            if !fullScreen, session.files.first(where: { $0.id == selected })?.canPrefetch == true {
                 Button {
-                    fullScreen.toggle()
+                    fullScreen = true
                 } label: {
-                    Image(systemName: fullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
                         .frame(width: 44, height: 44)
                 }
-                .accessibilityLabel(fullScreen ? "Exit Full Screen" : "Full Screen")
+                .accessibilityLabel("Full Screen")
                 .background(.regularMaterial, in: Capsule()).padding()
             }
         }
         .overlay(alignment: .topTrailing) {
-            Button("Done") { dismiss() }
-                .padding().background(.regularMaterial, in: Capsule()).padding()
+            if !fullScreen {
+                Button("Done") { dismiss() }
+                    .padding().background(.regularMaterial, in: Capsule()).padding()
+            }
         }
     }
 }

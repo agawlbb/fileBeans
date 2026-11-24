@@ -2,8 +2,10 @@
 
 - Full screen: open a photo from VPS, Samba and Drive, tap **Full Screen**, and
   confirm the image uses the screen edges and system bars hide. Swipe to the
-  next and previous photo/video; full screen must remain selected. Exit full
-  screen and confirm the selected file is retained. For a video, toggle while
+  next and previous photo/video; full screen must remain selected with no
+  Full Screen/Done buttons visible. A single tap exits full screen and restores
+  the controls; swiping in either direction must not exit. Confirm the selected
+  file is retained after tapping. For a video, toggle while
   playing and paused: playback position, pause state and the existing stream
   must survive. Check rotation, image zoom/pan and Done on iPhone and iPad.
   Leave photos and paused/playing videos visible beyond the Auto-Lock interval
