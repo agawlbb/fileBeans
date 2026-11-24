@@ -62,6 +62,96 @@ func TestProtectionWaitDoesNotBlockBrokerReaders(t *testing.T) {
 		t.Fatal("lock did not resume after lease release")
 	}
 }
+
+// Creation competes with folder enumeration and thumbnail requests for the
+// same gate. A short read must delay creation, not reject it immediately.
+func TestCreationWaitDoesNotBlockBrokerReaders(t *testing.T) {
+	b := testBroker(t)
+	b.consumerReady = time.Now()
+	held, err := os.Open(filepath.Join(b.config.Runtime, "gate"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	if err = unix.Flock(int(held.Fd()), unix.LOCK_SH); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(map[string]string{"source": "missing", "parent": "/", "name": "New", "key": recoveryCode(bytes.Repeat([]byte{0x42}, 32))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan *httptest.ResponseRecorder, 1)
+	go func() { result <- brokerRequest(b, &b.config.ControlUID, "POST", "/v1/vaults", string(payload)) }()
+	time.Sleep(75 * time.Millisecond)
+	select {
+	case w := <-result:
+		t.Fatalf("creation rejected a temporary reader: HTTP %d %s", w.Code, w.Body.String())
+	default:
+	}
+	ready := make(chan *httptest.ResponseRecorder, 1)
+	go func() { ready <- brokerRequest(b, &b.config.ReaderUID, "GET", "/v1/ready", "") }()
+	select {
+	case w := <-ready:
+		if w.Code != 200 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("creation wait held broker mutex")
+	}
+	held.Close()
+	select {
+	case w := <-result:
+		// An unknown source intentionally stops before any mounts or user data
+		// are created, after proving the real HTTP creation handler resumed.
+		if w.Code != 400 {
+			t.Fatalf("creation did not reach source validation: %d %s", w.Code, w.Body.String())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("creation did not resume after the reader finished")
+	}
+	if len(b.registry.Entries) != 0 {
+		t.Fatal("invalid source created a reservation")
+	}
+}
+
+func TestCreationWaitHonorsCancellation(t *testing.T) {
+	b := testBroker(t)
+	b.consumerReady = time.Now()
+	held, err := os.Open(filepath.Join(b.config.Runtime, "gate"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	if err = unix.Flock(int(held.Fd()), unix.LOCK_SH); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	payload, _ := json.Marshal(map[string]string{"source": "disk", "parent": "/", "name": "New", "key": recoveryCode(bytes.Repeat([]byte{0x42}, 32))})
+	request := httptest.NewRequest("POST", "/v1/vaults", bytes.NewReader(payload))
+	request = request.WithContext(context.WithValue(ctx, brokerPeer{}, b.config.ControlUID))
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() { w := httptest.NewRecorder(); b.handler().ServeHTTP(w, request); done <- w }()
+	time.Sleep(75 * time.Millisecond)
+	select {
+	case w := <-done:
+		t.Fatalf("creation returned before cancellation: HTTP %d", w.Code)
+	default:
+	}
+	cancel()
+	select {
+	case w := <-done:
+		if w.Code < 400 {
+			t.Fatal("cancelled creation succeeded")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancelled creation did not stop")
+	}
+	if len(b.registry.Entries) != 0 {
+		t.Fatal("cancelled creation created a reservation")
+	}
+}
+
 func TestProtectionWaitHonorsCancellation(t *testing.T) {
 	b := testBroker(t)
 	held, err := os.Open(filepath.Join(b.config.Runtime, "gate"))

@@ -43,6 +43,69 @@ func (b *mountBroker) keyMatches(key []byte) error {
 	return nil
 }
 
+func (b *mountBroker) createProtectedFolder(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Source string `json:"source"`
+		Parent string `json:"parent"`
+		Name   string `json:"name"`
+		Key    string `json:"key"`
+	}
+	if e := body(r, &req); e != nil {
+		brokerFail(w, e)
+		return
+	}
+	key, e := parseVaultKey(req.Key)
+	req.Key = ""
+	if e != nil {
+		brokerFail(w, e)
+		return
+	}
+	defer clear(key)
+	// Readers can need broker status requests to finish. Wait for their
+	// leases before taking b.mu, just as global lock/unlock does.
+	gate, e := b.exclusiveContext(r.Context())
+	if e != nil {
+		brokerFail(w, e)
+		return
+	}
+	defer gate.Close()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if e = b.keyMatches(key); e != nil {
+		brokerFail(w, e)
+		return
+	}
+	if time.Since(b.consumerReady) >= 15*time.Second {
+		brokerFail(w, errVault)
+		return
+	}
+	if e = b.activateLocations(key); e != nil {
+		brokerFail(w, e)
+		return
+	}
+	if e = b.unlockAll(key); e != nil {
+		brokerFail(w, e)
+		return
+	}
+	entry, e := b.reserve(req.Source, req.Parent, req.Name, keyHeader(r))
+	if e != nil {
+		brokerFail(w, e)
+		return
+	}
+	if e = b.open(entry, key); e != nil {
+		_ = b.publish()
+		brokerFail(w, e)
+		return
+	}
+	for _, status := range b.statuses() {
+		if status.ID == entry.ID {
+			reply(w, 201, status)
+			return
+		}
+	}
+	brokerFail(w, errVault)
+}
+
 func (b *mountBroker) handler() http.Handler {
 	fail := brokerFail
 	mux := http.NewServeMux()
@@ -120,64 +183,7 @@ func (b *mountBroker) handler() http.Handler {
 		b.consumerReady = time.Now()
 		reply(w, 200, map[string]int{"version": brokerProtocol})
 	})
-	mux.HandleFunc("POST /v1/vaults", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Source string `json:"source"`
-			Parent string `json:"parent"`
-			Name   string `json:"name"`
-			Key    string `json:"key"`
-		}
-		if e := body(r, &req); e != nil {
-			fail(w, e)
-			return
-		}
-		key, e := parseVaultKey(req.Key)
-		req.Key = ""
-		if e != nil {
-			fail(w, e)
-			return
-		}
-		defer clear(key)
-		if e = b.keyMatches(key); e != nil {
-			fail(w, e)
-			return
-		}
-		if time.Since(b.consumerReady) >= 15*time.Second {
-			fail(w, errVault)
-			return
-		}
-		gate, e := b.exclusive()
-		if e != nil {
-			fail(w, e)
-			return
-		}
-		defer gate.Close()
-		if e = b.activateLocations(key); e != nil {
-			fail(w, e)
-			return
-		}
-		if e = b.unlockAll(key); e != nil {
-			fail(w, e)
-			return
-		}
-		entry, e := b.reserve(req.Source, req.Parent, req.Name, keyHeader(r))
-		if e != nil {
-			fail(w, e)
-			return
-		}
-		if e = b.open(entry, key); e != nil {
-			_ = b.publish()
-			fail(w, e)
-			return
-		}
-		for _, status := range b.statuses() {
-			if status.ID == entry.ID {
-				reply(w, 201, status)
-				return
-			}
-		}
-		fail(w, errVault)
-	})
+	mux.HandleFunc("POST /v1/vaults", b.createProtectedFolder)
 	b.folderRoutes(mux)
 	for _, action := range []string{"unlock", "lock"} {
 		mux.HandleFunc("POST /v1/vaults/{id}/"+action, func(w http.ResponseWriter, r *http.Request) {
@@ -253,6 +259,11 @@ func (b *mountBroker) handler() http.Handler {
 		isLegacy := strings.HasPrefix(r.URL.Path, "/v1/vaults/") && protectionAction(r.URL.Path) != ""
 		if r.Method == "POST" && (isGlobal || isLegacy) {
 			b.globalProtection(w, r)
+			return
+		}
+		if r.Method == "POST" && r.URL.Path == "/v1/vaults" {
+			// Creation owns its gate/mutex ordering, including cancellable wait.
+			mux.ServeHTTP(w, r)
 			return
 		}
 		b.mu.Lock()

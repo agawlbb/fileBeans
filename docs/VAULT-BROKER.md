@@ -355,3 +355,31 @@ VM `.build/source-isolation`, its bounded `.ext4` filesystem, test bundle symlin
 binaries, image export, caches and task helpers were removed; `.build` is empty.
 Only current runtime configuration, executables, recovery units and the live API
 image remain. No Apple app build or release was needed.
+
+
+### Protected-folder creation and temporary readers — November 24, 2026
+
+The creation route used a single nonblocking exclusive-gate attempt, unlike
+manual lock/unlock. An overlapping folder listing, thumbnail or file read could
+therefore reject Add Protected Folder immediately with HTTP 409 / `Protected
+folder is busy`. A read-only live gate snapshot during investigation showed a
+shared lease held by a `filebeans` process; no production key, vault or mount
+was changed during this investigation.
+
+Creation now uses the existing cancellable ten-second gate wait before taking
+the broker request mutex. Readiness/status requests remain available while a
+reader finishes, then creation rechecks the key and consumer readiness and uses
+the existing reservation/mount path. Active long-running readers can still time
+out with busy; the change does not force unmounts or bypass protection checks.
+
+Two new HTTP-handler regressions reproduced the original immediate 409 and pass
+after the fix: temporary-reader contention with concurrent readiness requests,
+and cancellation without creating a reservation. Related broker/protection race
+tests and service vet pass in a development-image test container limited to two
+CPUs, 4 GiB memory/no swap, 256 processes and a disk-backed 2 GiB scratch filesystem.
+Its container, filesystem, cache and control script were removed. The fixture
+uses synthetic keys and stops at source validation before creating mounts.
+Actual encrypted CIFS folder creation was not exercised in this task.
+
+Deployment of the updated broker binary remains pending an explicit deployment
+request. The API/app protocol is unchanged and this fix needs no Apple build.
