@@ -1,0 +1,7 @@
+{
+ "action":"inspect",
+ "source_vault":"b4188719242de0d6ef445a55702c1333",
+ "destination_vault":"639f8ece321e9342de4c57ba78ddea28",
+ "archive":"pics archive.tar.gz",
+ "destination_folder":"."
+}

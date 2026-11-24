@@ -1,0 +1,22 @@
+{
+ "name":"FileBeans temporary extraction",
+ "slug":"filebeans_extract",
+ "description":"One-time local protected archive extraction",
+ "version":"3.24-2026.11.0",
+ "arch":["aarch64"],
+ "image":"ghcr.io/home-assistant/base",
+ "init":false,
+ "startup":"application",
+ "boot":"manual_only",
+ "apparmor":false,
+ "privileged":["SYS_ADMIN"],
+ "devices":["/dev/fuse"],
+ "map":["local_apps:ro","share:rw"],
+ "environment":{
+   "S6_STAGE2_HOOK":"/bin/sh /local_apps/filebeans_extract/boot.sh",
+   "S6_BEHAVIOUR_IF_STAGE2_FAILS":"2"
+ },
+ "options":{},
+ "schema":{},
+ "ulimits":{"core":0,"nofile":256}
+}
