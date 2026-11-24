@@ -329,4 +329,29 @@ real synthetic CIFS device reconciliation, changed-marker rejection, late-mount
 propagation and protected local/CIFS lifecycle checks. The synthetic SMB server
 cannot hardlink: only its resumable-upload completion subtest skips after checking
 that exact capability; the local encrypted resumable-upload test passes.
-Deployment verification is pending.
+The requested deployment is finished and verified. Source `52a6671` is installed
+with API image `filebeans-api:source-isolation-20261124`, manifest
+`sha256:49ea35e501f64b0861fcf6431f43012d15817f0fafdf2980951502651e1a580b`.
+The installed broker SHA-256 is
+`1b0455eb74fdd509ad2a34e87e875c15677de75a478be41878707b1d0aa97357`.
+Authenticated public HTTPS capabilities returned 200; anonymous access returned
+401. During a controlled removal of only the FileBeans Samba alias, Samba
+returned 503 while VPS listings and API capabilities returned 200. The deployed
+timer independently reattached Samba in 3.3 seconds without restarting the API
+or broker; API restart count remained zero. The new parent has its own shared
+mount peer group, so attachment does not duplicate mounts on the host root.
+All twelve unrelated containers retained their identities and start times,
+including mail. No full-host reboot was performed.
+
+Drive's endpoint returned 403 / `Reconnect Google Drive` both before and during
+the controlled outage. Its Google authorization needs a separate owner reconnect;
+this is not a Samba dependency, and no OAuth credentials were changed by the
+recovery configuration.
+
+Temporary VPS `/opt/services/filebeans/.source-isolation-20261124` (including its
+operation-only rollback copies) is absent. The superseded API image was removed
+after confirming no container or effective Compose configuration references it.
+VM `.build/source-isolation`, its bounded `.ext4` filesystem, test bundle symlink,
+binaries, image export, caches and task helpers were removed; `.build` is empty.
+Only current runtime configuration, executables, recovery units and the live API
+image remain. No Apple app build or release was needed.
