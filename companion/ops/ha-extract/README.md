@@ -46,11 +46,13 @@ the user file. No real extraction has run.
    ```sh
    /local_apps/filebeans_extract/worker client /local_apps/filebeans_extract/status.json
    ```
-2. Coordinate with the FileBeans operator before accessing real vaults. Lock
-   protection through the existing VPS `POST /v1/protection/lock` API and verify
-   source and destination are locked/unmounted there. Do not unlock them on the
-   VPS while this helper is inspecting or extracting. Do not retrieve the live
-   broker's key; use the user's recovery code.
+2. The user explicitly chose to keep protected VPS folders available. Do not
+   apply the global protection lock or change the VPS protection state. The user
+   will not access or write the Samba source/destination during the job; viewing
+   unrelated protected VPS folders is allowed. The replacement automatic
+   coordinator never calls the VPS and submits extraction only after inspection
+   passes. Source mounts remain read-only and destination publication refuses
+   overwrite.
 3. In the HA Terminal (not chat), run:
    ```sh
    bash /local_apps/filebeans_extract/key-entry.sh /local_apps/filebeans_extract/inspect.json
@@ -62,7 +64,7 @@ the user file. No real extraction has run.
    bytes. No media travels through the VPS or VM. Review the result before
    proceeding; a rejected archive must not be partially imported or silently
    renamed to bypass the filename policy.
-4. After a successful inspection and confirmed lock coordination, run:
+4. After a successful inspection and confirmed Samba access coordination, run:
    ```sh
    bash /local_apps/filebeans_extract/key-entry.sh /local_apps/filebeans_extract/extract.json
    ```
@@ -76,7 +78,7 @@ the user file. No real extraction has run.
    ```
    The job continues if the terminal connection disconnects; do not resubmit an
    active job. `running` is not proof of liveness after an app/Pi restart.
-5. Check the final summary and clean unmounts, then stop the helper. Unlock via
+5. Check the final summary and clean unmounts, then stop the helper. Open via
    the normal FileBeans client and verify counts and representative nested
    files. Confirm that the original archive remains and staging is absent.
 6. Uninstall only this app, remove its exact local-app directory and private
