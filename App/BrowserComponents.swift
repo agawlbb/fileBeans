@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct BrowserFileCollection<Item: Identifiable, Header: View, Row: View>: View {
     let items: [Item]
@@ -85,6 +86,8 @@ struct BrowserViewOptions: View {
     }
 }
 struct BrowserSelectionControls: View {
+    let canDownload: Bool
+    let download: () -> Void
     let canCopy: Bool
     let canMove: Bool
     let canDelete: Bool
@@ -95,6 +98,7 @@ struct BrowserSelectionControls: View {
     var selectAll: (() -> Void)? = nil
     var body: some View {
         HStack {
+            Button("Download", systemImage: "arrow.down.doc", action: download).disabled(!canDownload)
             Button("Copy", systemImage: "doc.on.doc", action: copy).disabled(!canCopy)
             Button("Move", systemImage: "folder", action: move).disabled(!canMove)
             Button("Delete", systemImage: "trash", role: .destructive, action: delete).disabled(!canDelete)
@@ -108,5 +112,93 @@ struct SourceTrashBar: View {
             HStack { Label("Trash", systemImage: "trash"); Spacer(); Image(systemName: "chevron.right").font(.caption) }
                 .padding().frame(maxWidth: .infinity).contentShape(Rectangle())
         }.buttonStyle(.plain).background(.regularMaterial)
+    }
+}
+
+struct DownloadFile {
+    let name: String
+    let load: () async throws -> URL
+}
+
+@MainActor
+final class BrowserDownloads: ObservableObject {
+    @Published var busy = false
+    @Published var urls: [URL] = []
+    private var directory: URL?
+
+    deinit {
+        if let directory { try? FileManager.default.removeItem(at: directory) }
+    }
+
+    func clear() {
+        urls = []
+        if let directory { try? FileManager.default.removeItem(at: directory) }
+        directory = nil
+    }
+
+    func prepare(_ files: [DownloadFile]) async throws {
+        guard !busy, urls.isEmpty, !files.isEmpty else { return }
+        busy = true
+        defer { busy = false }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        directory = root
+        do {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            var prepared: [URL] = []
+            for (index, file) in files.enumerated() {
+                try Task.checkCancellation()
+                let source = try await file.load()
+                defer { try? FileManager.default.removeItem(at: source) }
+                // Separate directories preserve duplicate names from different sources.
+                let folder = root.appendingPathComponent(String(index))
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                let name = (file.name as NSString).lastPathComponent
+                guard !name.isEmpty, name != ".", name != ".." else { throw CocoaError(.fileWriteInvalidFileName) }
+                let target = folder.appendingPathComponent(name)
+                try FileManager.default.moveItem(at: source, to: target)
+                prepared.append(target)
+            }
+            urls = prepared
+        } catch { clear(); throw error }
+    }
+}
+
+private struct DownloadDestinationPicker: UIViewControllerRepresentable {
+    let urls: [URL]
+    let finish: () -> Void
+    func makeCoordinator() -> Coordinator { Coordinator(finish: finish) }
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forExporting: urls, asCopy: true)
+        picker.delegate = context.coordinator
+        return picker
+    }
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let finish: () -> Void
+        init(finish: @escaping () -> Void) { self.finish = finish }
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { finish() }
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) { finish() }
+    }
+}
+
+private struct BrowserDownloadPresentation: ViewModifier {
+    @ObservedObject var downloads: BrowserDownloads
+    func body(content: Content) -> some View {
+        content
+            .sheet(isPresented: Binding(get: { !downloads.urls.isEmpty }, set: { if !$0 { downloads.clear() } }),
+                   onDismiss: { downloads.clear() }) {
+                DownloadDestinationPicker(urls: downloads.urls) { downloads.clear() }
+            }
+            .overlay {
+                if downloads.busy {
+                    ProgressView("Downloading…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                }
+            }
+    }
+}
+
+extension View {
+    func browserDownloads(_ downloads: BrowserDownloads) -> some View {
+        modifier(BrowserDownloadPresentation(downloads: downloads))
     }
 }

@@ -542,3 +542,17 @@ Regression cases cover initial history, expiry, dismissal, recovery and error
 isolation. Local Swift syntax/project validation passed; execution of these
 XCTest cases remains pending on macOS. Delivery requires an app build, with no
 companion deployment needed for this display correction.
+
+## Download selected files — November 24, 2026
+
+Local and Drive file menus and selection toolbars now offer Download. Only
+non-pending downloadable files qualify; folders and native Google documents
+disable the selection action. Downloads prepare sequentially, preserve names in
+isolated directories, and open the Files export picker. Staging is removed after
+export, cancellation, preparation failure, or release of the download owner.
+
+The three changed Swift files passed tree-sitter syntax parsing and diff checks
+in development. Apple compilation and device acceptance remain pending an
+explicitly requested app build. Verify single and multiple files on both sources,
+duplicate filenames, Files picker cancellation, download failure, denied download
+permissions, and compact iPhone/iPad toolbar layout. No server deployment needed.

@@ -13,6 +13,7 @@ struct BrowserView: View {
     @State private var search = ""
     @AppStorage("gridView") private var grid = false
     @AppStorage("sortOrder") private var sortOrder = "name"
+    @StateObject private var downloads = BrowserDownloads()
     @State private var selecting = false
     @State private var selected = Set<String>()
     @State private var renameItem: StoredItem?
@@ -78,6 +79,7 @@ struct BrowserView: View {
     private var chosen: [StoredItem] { model.items.filter { selected.contains($0.id) } }
     var body: some View {
         browserWithActions
+            .browserDownloads(downloads)
             .onReceive(model.$items) { _ in updateListing() }
             .onReceive(activity.$entries) { _ in updateListing() }
             .onReceive(activity.$jobs) { _ in updateListing() }
@@ -296,7 +298,8 @@ struct BrowserView: View {
     @ToolbarContentBuilder private var browserToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .bottomBar) {
             if selecting {
-                BrowserSelectionControls(
+                BrowserSelectionControls(canDownload: !downloads.busy && !chosen.isEmpty && chosen.allSatisfy(canDownload),
+                        download: { download(chosen) },
                         canCopy: !model.busy && !chosen.isEmpty && !chosen.contains { $0.isSource || !$0.permissions.download || protected($0) || pending($0) },
                         canMove: !chosen.isEmpty && !chosen.contains { $0.isSource || !$0.permissions.modify || pending($0) },
                         canDelete: !chosen.isEmpty && !chosen.contains { $0.isSource || !$0.permissions.delete || pending($0) },
@@ -345,6 +348,9 @@ struct BrowserView: View {
         }
         .disabled(pending(item))
         .contextMenu {
+            if canDownload(item) {
+                Button("Download", systemImage: "arrow.down.doc") { download([item]) }.disabled(downloads.busy)
+            }
             if !item.file.isDirectory,
                item.permissions.download, item.permissions.modify, !protected(item) {
                 Button("Edit Text", systemImage: "square.and.pencil") { editingText = item }
@@ -398,6 +404,17 @@ struct BrowserView: View {
     }
     private func reloadPreservingError() async { let error = model.error; await reload(); if let error { model.error = error } }
     private func reload() async { await model.load(connection: connection, parent: parent) }
+    private func canDownload(_ item: StoredItem) -> Bool { !item.isSource && !item.file.isDirectory && item.permissions.download && !pending(item) && item.protection?.unlocked != false }
+    private func download(_ items: [StoredItem]) {
+        guard let client = model.repository?.client, items.allSatisfy(canDownload) else { return }
+        Task {
+            do {
+                try await downloads.prepare(items.map { item in
+                    DownloadFile(name: item.file.name) { try await client.download(source: item.source, path: item.file.path) }
+                })
+            } catch { model.error = error.localizedDescription }
+        }
+    }
     private func open(_ item: StoredItem) {
         guard let client = model.repository?.client else { return }
         let files = visible.filter {

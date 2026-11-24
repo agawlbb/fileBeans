@@ -73,6 +73,7 @@ struct DriveBrowser: View {
     @AppStorage("gridView") private var grid = false
     @AppStorage("sortOrder") private var sortOrder = "name"
     @State private var search = ""
+    @StateObject private var downloads = BrowserDownloads()
     @State private var selecting = false
     @State private var selected = Set<String>()
     @State private var renaming: DriveFile?
@@ -119,6 +120,7 @@ struct DriveBrowser: View {
     }
     var body: some View {
         browserWithActions
+            .browserDownloads(downloads)
             .onReceive(model.$files) { _ in updateListing() }
         .onReceive(activity.$entries) { _ in updateListing() }
         .onReceive(activity.$jobs) { _ in updateListing() }
@@ -215,7 +217,8 @@ struct DriveBrowser: View {
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .bottomBar) {
             if selecting {
-                BrowserSelectionControls(canCopy: !chosen.isEmpty && !chosen.contains(where: pending) && chosen.allSatisfy(\.canCopy),
+                BrowserSelectionControls(canDownload: !downloads.busy && !chosen.isEmpty && chosen.allSatisfy(canDownload),
+                        download: { download(chosen) }, canCopy: !chosen.isEmpty && !chosen.contains(where: pending) && chosen.allSatisfy(\.canCopy),
                                          canMove: model.writable && !chosen.isEmpty && !chosen.contains(where: pending) && chosen.allSatisfy(\.canMove),
                                          canDelete: model.writable && !chosen.isEmpty && !chosen.contains(where: pending) && chosen.allSatisfy(\.canTrash),
                                          copy: { copying = true; choosingDestination = true },
@@ -349,6 +352,9 @@ struct DriveBrowser: View {
             }
         }
         .contextMenu {
+            if canDownload(item) {
+                Button("Download", systemImage: "arrow.down.doc") { download([item]) }.disabled(downloads.busy)
+            }
             if model.normalizationEnabled && (item.folder || item.downloadable) {
                 Button("Normalize to VPS pics", systemImage: "film.stack") { normalizing = item }
             }
@@ -369,6 +375,17 @@ struct DriveBrowser: View {
         Task {
             guard let client = model.client else { return }
             if await model.perform({ try await client.mutate(request) }) { await reload(refreshLoaded: true) }
+        }
+    }
+    private func canDownload(_ item: DriveFile) -> Bool { item.downloadable && !pending(item) }
+    private func download(_ items: [DriveFile]) {
+        guard let client = model.client, items.allSatisfy(canDownload) else { return }
+        Task {
+            do {
+                try await downloads.prepare(items.map { item in
+                    DownloadFile(name: item.name) { try await client.transport.download("drive/files/" + item.id + "/content") }
+                })
+            } catch { model.error = error.localizedDescription }
         }
     }
     private func open(_ item: DriveFile) {
