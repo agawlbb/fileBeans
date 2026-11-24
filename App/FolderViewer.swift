@@ -184,12 +184,13 @@ struct FolderViewer: View {
             TabView(selection: $selected) {
                 ForEach(session.files) { file in
                     FolderViewerPage(file: file, active: selected == file.id, cache: cache, fullScreen: fullScreen)
+                        .ignoresSafeArea(.container, edges: fullScreen ? .all : [])
                         .tag(file.id)
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
-            .ignoresSafeArea(.container, edges: fullScreen ? .all : [])
         }
+        .ignoresSafeArea(.container, edges: fullScreen ? .all : [])
         .background(fullScreen ? Color.black : Color(uiColor: .systemBackground))
         .statusBarHidden(fullScreen)
         .persistentSystemOverlays(fullScreen ? .hidden : .automatic)
@@ -285,6 +286,8 @@ final class FolderImageScrollView: UIScrollView, UIScrollViewDelegate {
     init() {
         super.init(frame: .zero)
         delegate = self
+        // SwiftUI owns the pager safe area; do not inset its image a second time.
+        contentInsetAdjustmentBehavior = .never
         minimumZoomScale = 1
         maximumZoomScale = 5
         showsHorizontalScrollIndicator = false
