@@ -189,6 +189,9 @@ func TestSambaChildMountReachesExistingConsumer(t *testing.T) {
 	if err := unix.Mount(parent, parent, "", unix.MS_BIND, ""); err != nil {
 		t.Fatal(err)
 	}
+	if err := unix.Mount("", parent, "", unix.MS_PRIVATE, ""); err != nil {
+		t.Fatal(err)
+	}
 	if err := unix.Mount("", parent, "", unix.MS_SHARED|unix.MS_REC, ""); err != nil {
 		t.Fatal(err)
 	}

@@ -45,6 +45,9 @@ def setup():
         if any(parent.iterdir()):
             raise RuntimeError('Unexpected files in Samba bind parent')
         bind('/samba', '/samba')
+        # A subdirectory bind inherits the host root's peer group. Split it
+        # before sharing, so child mounts propagate only to FileBeans peers.
+        subprocess.run(['mount', '--make-private', '/samba'], check=True)
     if mounts()['/samba'][0] == 'cifs':
         raise RuntimeError('Legacy Samba alias requires migration')
     subprocess.run(['mount', '--make-rshared', '/samba'], check=True)
