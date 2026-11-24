@@ -34,8 +34,10 @@ The user confirmed **Pic archive → pics** on Samba:
 - The VPS metadata listing showed the destination empty on 2026-11-24.
 - Both vaults reside in `/share/fileBeans/.filebeans-vaults` on local ext4.
 
-No real recovery key has been supplied, no real vault has been mounted by this
-helper, and no real extraction has run during setup.
+Initial setup used synthetic keys only. The user subsequently supplied an
+existing Pi-local recovery-code file; the helper is performing a read-only
+inspection. The code is canonicalized in memory without changing or copying
+the user file. No real extraction has run.
 
 ## Run procedure (pending secure key entry)
 
@@ -144,3 +146,10 @@ intended 2 GiB scratch mount. The 653 MiB preparation tree was on underlying
 ext4 and was removed along with the unused mount/backing file. Future preparation
 must verify the bounded mount with `findmnt` **inside development** before any
 downloads or build work; a host-only check is insufficient.
+
+A user-supplied key file can be consumed directly on Pi without terminal entry:
+`bash /local_apps/filebeans_extract/key-file.sh JOB.json KEY_FILE`.
+Only the filename is in argv; contents stay in local process pipes. The original
+credential file is preserved. Both entry paths normalize recovery-code letter
+case before the worker validates the checksum. Do not run a second request while
+an inspection/extraction is active; the worker serves requests serially.

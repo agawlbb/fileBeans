@@ -8,5 +8,7 @@ code=
 trap 'unset code' EXIT
 IFS= read -r -s -p 'FileBeans recovery code (hidden): ' code </dev/tty
 printf '\n' >/dev/tty
-printf '%s\n' "$code" | /local_apps/filebeans_extract/worker client "$job"
+printf '%s\n' "$code" |
+ awk -f /local_apps/filebeans_extract/normalize-key.awk |
+ /local_apps/filebeans_extract/worker client "$job"
 unset code
