@@ -78,9 +78,10 @@ def refresh():
 
 
 if __name__ == '__main__':
-    if '--refresh' not in sys.argv:
+    if '--refresh' in sys.argv:
+        try:
+            refresh()
+        except (OSError, RuntimeError, subprocess.CalledProcessError):
+            print('Samba unavailable; retry scheduled', file=sys.stderr)
+    else:
         setup()
-    try:
-        refresh()
-    except (OSError, RuntimeError, subprocess.CalledProcessError):
-        print('Samba unavailable; retry scheduled', file=sys.stderr)
