@@ -1,5 +1,37 @@
 # Signing and TestFlight
 
+## Downloads and public hosting controls — TestFlight 35 (November 24, 2026)
+
+Released **0.1.0 (35)** from source
+`ce6b8ad56416623b97f9ff84790499d23e32a7a2`, pinned by
+`testflight/0.1.0-35`. Includes single/multiple file downloads, hosting controls
+with expiry/indefinite duration and Settings management, protected-storage
+hosting exclusion, and the pending control-free full-screen viewer change.
+
+- [Apple validation 45454189648](https://github.com/agawlbb/fileBeans/actions/runs/45454189648)
+  passed **132 unit tests and 3 UI tests**, zero failures, and the unsigned
+  iPhone/iPad Release archive on Xcode 27.2. This includes both hosting transport
+  regressions and the updated full-screen gesture checks.
+- [Signed publication 45456586281](https://github.com/agawlbb/fileBeans/actions/runs/45456586281)
+  passed signing preflight, archive/export, TestFlight upload with no errors,
+  and temporary signing credential cleanup. The first release job remained
+  unassigned in the larger runner pool and was canceled before execution;
+  publication used the standard Xcode 27 pool and the same validated source.
+- Apple build `c485c020-ae99-4510-890e-d88753e2361b` reports **VALID /
+  IN_BETA_TESTING**, with automatic internal notifications enabled. Existing
+  internal group access to all builds was preserved. No tester/group changes
+  or external review were submitted; permanent signing credentials were preserved.
+
+The requested internal TestFlight app release is finished and verified. No local
+Apple artifacts or scratch files were created. Runner credentials were cleaned;
+validation artifacts use the existing seven-day retention. Physical-device
+acceptance remains under [TESTING.md](TESTING.md).
+
+**Hosting API deployment remains pending an explicit request.** The app hides
+Host File until the server advertises `publicHostingV1`; hosting downloads and
+management require the updated API. This app release did not deploy or restart
+any server. No additional app build is needed for the included features.
+
 ## Linked archives — server and TestFlight 34 (November 24, 2026)
 
 Released **0.1.0 (34)** from app source

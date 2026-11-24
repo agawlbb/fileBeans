@@ -578,3 +578,15 @@ copy/share links, Settings listing, changing expiry, and Stop Hosting. Check
 compact toolbar and date-picker layout. After an explicitly requested API deploy,
 verify the public proxy's filename-ending URL anonymously downloads the expected
 bytes and expired/revoked links fail. No deployment or app build was requested.
+
+### TestFlight 35 Apple verification
+
+Source `ce6b8ad` passed all 132 unit tests (including both new hosting transport
+regressions) and 3 UI tests, plus the unsigned iPhone/iPad Release archive in
+[validation 45454189648](https://github.com/agawlbb/fileBeans/actions/runs/45454189648).
+[Publication 45456586281](https://github.com/agawlbb/fileBeans/actions/runs/45456586281)
+released internal TestFlight 0.1.0 (35); Apple reports VALID / IN_BETA_TESTING.
+This resolves the Apple execution/build prerequisites above for downloads,
+full-screen controls and hosting. Physical-device acceptance remains manual.
+The hosting API deployment and anonymous live hosting checks remain pending;
+no server deployment was part of the app release.
