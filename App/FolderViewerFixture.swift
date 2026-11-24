@@ -8,9 +8,13 @@ struct FolderViewerFixture: View {
         Button("Open Viewer") {
             let files = [("first.png", UIColor.blue), ("second.png", UIColor.red), ("third.png", UIColor.green)].map { name, color in
                 FolderViewerFile(id: name, name: name) {
-                    let data = UIGraphicsImageRenderer(size: CGSize(width: 480, height: 640)).pngData { context in
+                    // The expansion regression needs a height-limited image;
+                    // a width-limited photo can retain its visible size in both modes.
+                    let size = ProcessInfo.processInfo.arguments.contains("--folder-viewer-tall-photo-test")
+                        ? CGSize(width: 480, height: 1440) : CGSize(width: 480, height: 640)
+                    let data = UIGraphicsImageRenderer(size: size).pngData { context in
                         color.setFill()
-                        context.fill(CGRect(x: 0, y: 0, width: 480, height: 640))
+                        context.fill(CGRect(origin: .zero, size: size))
                     }
                     let url = try await FolderViewerSession.prepare(name: name) {
                         let source = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

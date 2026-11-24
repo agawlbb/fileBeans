@@ -4,7 +4,7 @@ final class FolderViewerGestureTests: XCTestCase {
     func testFullScreenTogglePreservesPagingAndSelection() {
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["--folder-viewer-gesture-test"]
+        app.launchArguments = ["--folder-viewer-gesture-test", "--folder-viewer-tall-photo-test"]
         app.launch()
         app.buttons["Open Viewer"].tap()
         assertPhoto("first.png", in: app)
@@ -16,7 +16,7 @@ final class FolderViewerGestureTests: XCTestCase {
             app.images["first.png"].frame.height > normalHeight
         }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [expanded], timeout: 5), .completed,
-                       "Full screen must expand the media beyond the normal safe area")
+                       "Full screen must expand the media beyond the normal safe area (normal: \(normalHeight), full: \(app.images["first.png"].frame.height))")
         app.swipeLeft()
         assertPhoto("second.png", in: app)
         XCTAssertTrue(app.buttons["Exit Full Screen"].exists)
