@@ -67,6 +67,20 @@ final class FilesystemClient: NSObject, URLSessionTaskDelegate {
         try check(response)
         return data
     }
+    func data(_ request: URLRequest, limit: Int) async throws -> Data {
+        try Task.checkCancellation()
+        let (bytes, response) = try await session.bytes(for: request)
+        defer { bytes.task.cancel() }
+        try check(response)
+        guard response.expectedContentLength <= Int64(limit) else { throw CocoaError(.fileReadTooLarge) }
+        var result = Data()
+        for try await byte in bytes {
+            guard result.count < limit else { throw CocoaError(.fileReadTooLarge) }
+            result.append(byte)
+        }
+        try Task.checkCancellation()
+        return result
+    }
     func scopes() async throws -> [Scope] {
         let d = try await data(request("sources"))
         do {

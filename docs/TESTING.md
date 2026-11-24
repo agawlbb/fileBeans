@@ -46,9 +46,9 @@ remote-photo eligibility and preservation of the downloaded image during display
 
 ## Text files
 
-- In a writable VPS or Samba folder, choose **Add → New Text File**, enter a name and text, and save. Confirm `.txt` is appended when omitted, empty files save, and duplicate names fail without replacing existing files.
-- Use **Edit Text** on a writable UTF-8 `.txt` file. Save multiline and Unicode edits, reopen, and verify contents. Cancel with changes and verify Discard leaves the file unchanged. Check failed saves retain the draft and read-only files have no edit action.
-- Change the same file from another client after opening the editor; saving must report a conflict and preserve the newer remote file. Verify locked protected folders reject saves. Invalid UTF-8 must fail to open without replacing contents.
+- In a writable VPS or Samba folder, choose **Add → New Text File**, enter a name and text, and save. Confirm explicit extensions (`notes.md`, `config.yaml`) and dotfiles (`.env`) are preserved, `.txt` is appended to a bare name, empty files save, and duplicates fail without replacing existing files.
+- Use **Edit Text** on Markdown, JSON, source/config files, files with unfamiliar extensions and extensionless files. UTF-8 and BOM-marked UTF-16/UTF-32 are supported; verify encoding/BOM and line endings survive saving. Cancel with changes and verify Discard leaves the file unchanged. Check failed saves retain the draft and read-only files have no edit action.
+- Change the same file from another client after opening the editor; saving must report a conflict and preserve the newer remote file. Verify locked protected folders reject saves. Binary/invalid text and files larger than 2 MiB must fail without replacing contents; verify the download limit also applies when Content-Length is absent. EditableTextTests and FilesystemClientTests cover content validation, encoding preservation, filenames and bounded transfers.
 - Text creation/editing currently covers filesystem sources; Drive retains its existing preview/upload controls. Apple compilation and device acceptance are still required.
 
 ## Media normalization

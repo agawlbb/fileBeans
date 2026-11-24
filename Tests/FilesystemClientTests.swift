@@ -1,7 +1,36 @@
 import XCTest
 @testable import myFiles
 
+private final class TextContentProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let headers = request.url?.lastPathComponent == "known-length" ? ["Content-Length": "8"] : [:]
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data("markdown".utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
 final class FilesystemClientTests: XCTestCase {
+    func testTextLoadingEnforcesLimitsWithAndWithoutContentLength() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TextContentProtocol.self]
+        let client = FilesystemClient(connection: Connection(name: "Test", url: URL(string: "https://files.example.com")!),
+                                      token: "fixture-token", configuration: configuration)
+        defer { client.close() }
+        for path in ["known-length", "unknown-length"] {
+            let request = URLRequest(url: URL(string: "https://files.example.com/" + path)!)
+            let content = try await client.data(request, limit: 8)
+            XCTAssertEqual(content, Data("markdown".utf8))
+            do {
+                _ = try await client.data(request, limit: 7)
+                XCTFail("Oversized text response must be rejected")
+            } catch { XCTAssertEqual((error as NSError).code, CocoaError.fileReadTooLarge.rawValue) }
+        }
+    }
     func testBasePathAndSpecialCharactersStayInQuery() throws {
         let url = try FilesystemClient.validateURL("https://files.example.com/companion/")
         let client = FilesystemClient(connection: Connection(name: "Test", url: url), token: "fixture-token")

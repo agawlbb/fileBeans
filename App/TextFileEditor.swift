@@ -9,6 +9,7 @@ struct TextFileEditor: View {
     @State private var name = ""
     @State private var text = ""
     @State private var original = ""
+    @State private var format: EditableText?
     @State private var revision: String?
     @State private var ready = false
     @State private var busy = false
@@ -21,7 +22,7 @@ struct TextFileEditor: View {
         NavigationStack {
             VStack {
                 if item == nil {
-                    TextField("Name.txt", text: $name)
+                    TextField("Name", text: $name)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                         .padding(.horizontal)
                 }
@@ -63,14 +64,15 @@ struct TextFileEditor: View {
             try repository.requireUnlocked(item)
             guard item.permissions.download, item.permissions.modify else { throw APIError.forbidden }
             let resource = try await repository.client.resource(source: item.source, path: item.file.path)
+            if let size = resource.size, size > Int64(EditableText.maximumBytes) { throw CocoaError(.fileReadTooLarge) }
             guard let version = resource.revision, !version.isEmpty else { throw APIError.conflict }
             var request = try repository.client.request("content", query: ["source": item.source, "path": item.file.path])
             request.setValue("\"" + version + "\"", forHTTPHeaderField: "If-Match")
-            let bytes = try await repository.client.data(request)
+            let bytes = try await repository.client.data(request, limit: EditableText.maximumBytes)
             let latest = try await repository.client.resource(source: item.source, path: item.file.path)
             guard latest.revision == version else { throw APIError.conflict }
-            guard let value = String(data: bytes, encoding: .utf8) else { throw CocoaError(.fileReadInapplicableStringEncoding) }
-            text = value; original = value; revision = version; ready = true
+            let decoded = try EditableText(data: bytes)
+            text = decoded.text; original = decoded.text; format = decoded; revision = version; ready = true
         } catch { self.error = error.localizedDescription }
     }
 
@@ -82,13 +84,13 @@ struct TextFileEditor: View {
             try repository.requireUnlocked(parent)
             if let item { try repository.requireUnlocked(item) }
             guard (item?.permissions.modify ?? parent.permissions.create) else { throw APIError.forbidden }
-            let entered = name.trimmingCharacters(in: .whitespacesAndNewlines)
-            let filename = item?.file.name ?? (entered.lowercased().hasSuffix(".txt") ? entered : entered + ".txt")
+            let filename = item?.file.name ?? EditableText.filename(name)
             let path = try FilePath.child(filename, in: parent.file.path)
             guard !CompanionClient.protected(path) else { throw APIError.forbidden }
             let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
             defer { try? FileManager.default.removeItem(at: temporary) }
-            try Data(text.utf8).write(to: temporary, options: .atomic)
+            let codec = try format ?? EditableText(data: Data())
+            try codec.data(for: text).write(to: temporary, options: .atomic)
             try await repository.client.upload(source: parent.source, path: path, file: temporary,
                                                replacing: item != nil, expectedRevision: revision)
             repository.notify(parent.id)

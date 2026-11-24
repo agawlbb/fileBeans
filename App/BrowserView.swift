@@ -341,7 +341,7 @@ struct BrowserView: View {
         }
         .disabled(pending(item))
         .contextMenu {
-            if !item.file.isDirectory, item.file.name.lowercased().hasSuffix(".txt"),
+            if !item.file.isDirectory,
                item.permissions.download, item.permissions.modify, !protected(item) {
                 Button("Edit Text", systemImage: "square.and.pencil") { editingText = item }
             }
