@@ -756,7 +756,7 @@ func (s *Service) datasetProcess(ctx context.Context, j *DatasetJob) error {
 	if current.State == "cancelled" {
 		return context.Canceled
 	}
-	if e = renameExclusive(root, stage, final); e != nil {
+	if e = renameExclusive(root, stage, final, true); e != nil {
 		return e
 	}
 	j.Result = &Item{Source: dest.Source, Path: "/" + strings.TrimPrefix(final, "./")}

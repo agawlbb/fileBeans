@@ -211,7 +211,17 @@ func (s *Service) filesystemUploadSession(w http.ResponseWriter, r *http.Request
 				return
 			}
 			defer b.Close()
-			if e = unix.Linkat(int(a.Fd()), "payload", int(b.Fd()), filepath.Base(p), 0); e != nil {
+			unlock, lockErr := lockFilenamePublication(root)
+			if lockErr != nil {
+				filesystemFail(w, lockErr)
+				return
+			}
+			e = filenameConflict(root, p, "", false)
+			if e == nil {
+				e = unix.Linkat(int(a.Fd()), "payload", int(b.Fd()), filepath.Base(p), 0)
+			}
+			unlock()
+			if e != nil {
 				filesystemFail(w, e)
 				return
 			}

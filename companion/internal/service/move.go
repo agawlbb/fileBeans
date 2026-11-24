@@ -257,6 +257,11 @@ func (s *Service) executeMove(ctx context.Context, j *Job) error {
 	if e := validateMoveRequest(j.Request); e != nil {
 		return e
 	}
+	for _, item := range j.Request.Items {
+		if err := s.guardArchiveRemoval(item.Source, item.Path); err != nil {
+			return err
+		}
+	}
 	if hasDrive(j.Request) {
 		return s.executeDriveMove(ctx, j)
 	}

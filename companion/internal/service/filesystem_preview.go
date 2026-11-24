@@ -41,6 +41,13 @@ func previewSupported(typ string) bool {
 	return strings.HasPrefix(typ, "image/") || strings.HasPrefix(typ, "video/") || strings.HasPrefix(typ, "text/") || typ == "application/pdf"
 }
 func (s *Service) filesystemThumbnail(w http.ResponseWriter, r *http.Request) {
+	if suppressed, err := s.archiveThumbnailSuppressed(r.URL.Query().Get("source"), r.URL.Query().Get("path")); err != nil || suppressed {
+		if err == nil {
+			err = ErrUnsupported
+		}
+		filesystemFail(w, err)
+		return
+	}
 	digestKey := sha256.Sum256([]byte(r.URL.Query().Get("source") + "\x00" + r.URL.Query().Get("path")))
 	cacheLock := previewLocks[int(digestKey[0])%len(previewLocks)]
 	select {

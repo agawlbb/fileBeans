@@ -334,3 +334,101 @@ and shared account Keychain entitlement, then configure `SHARE_PROFILE_BASE64` u
 the existing Apple setup scripts. The extension must not receive the vault Keychain
 group. No Apple registrations, signing changes, builds, uploads, or VPS deployment
 were performed as part of source implementation.
+
+## Linked archives (phase one)
+
+A folder's **Link Archive…** menu links it as the Library to an existing folder,
+including an existing protected folder, or a protected folder created in the
+archive picker. **Linked Archive…** shows both locations, opens either folder,
+and offers **Unlink**. Root folders receive a link badge alongside protection.
+One pair covers both complete trees, including existing and future subfolders;
+subfolders need no individual registration or matching structure. Endpoints may
+share a source, but must belong to this connection. Source roots, Trash, identical
+endpoints, overlapping endpoints and trees already covered by another link are
+not eligible. No copying, conversion, mirroring or linked file deletion occurs.
+The existing normalizer configuration is not enabled or reconfigured by linking.
+
+Deleting either endpoint or any ancestor requires unlinking first. Unlinking
+preserves both trees. Ordinary atomic renames/moves journal old/intended locations
+and recover by directory identity. Protected endpoints store a vault ID and a
+relative location, so broker root relocations preserve their link. Transfers of
+linked roots across sources or protection boundaries, and moves requiring a
+background job, require unlinking first in this phase. The protected-root app
+flow checks this before starting its existing copy-and-delete move. Copies never
+inherit a link. Linking is refused while a relevant source move job is active.
+
+External moves/deletions leave an unavailable link at the recorded location;
+there is no automatic reconciliation or deletion. Ordinary endpoints check
+filesystem identity to avoid silently adopting a replacement directory. Protected
+locations follow the vault's identity and recorded relative path. Locked link
+metadata is omitted from public link lists; protected locations remain encrypted
+using the existing operation-record mechanism. When link metadata is locked,
+destructive link checks fail closed, and thumbnail generation is conservatively
+unavailable until unlock. Source unavailability never deletes the link.
+
+Archive listings set `hasPreview: false` for every descendant and include
+`archiveLink`, `archiveRole` (`library` or `archive`), and `archiveRoot` (true only
+at an endpoint). The client skips archive thumbnail requests. The server also
+rejects archive thumbnail requests before opening media. This is a temporary,
+small generation guard; no thumbnail cache purge or display reconciliation is
+performed. Explicit file opening/playback remains available. Unlinking restores
+ordinary thumbnail eligibility on the next listing.
+
+All routes use the existing companion authentication and no-store policy:
+
+| Route | Behavior |
+| --- | --- |
+| `GET /v1/archive-links` | Resolved link IDs and Library/Archive endpoints with `source`, `path`, and `available`; protected links are hidden while locked |
+| `POST /v1/archive-links` | Body `{"library":{"source":"vps","path":"/Media"},"archive":{"source":"samba","path":"/Originals"}}`; validates both trees using filenames only and creates the link; an identical retry returns the existing pair |
+| `DELETE /v1/archive-links/{id}` | Removes the link only; requires access to its unlocked metadata |
+
+Capabilities advertise `archiveLinksV1` and `filenameStemsV1`. Links reuse the
+existing encrypted `fb_operations` storage with kind `archiveLink`; no SQL schema
+change or existing-data migration is needed. Server and app updates are required
+to expose setup; older clients still receive server deletion/thumbnail guards.
+
+### Filename uniqueness
+
+FileBeans mutations now reserve a file's name without its final extension within
+its parent folder, using Unicode NFC normalization and Unicode case folding.
+`Photo.MOV` conflicts with `photo.mp4`, and `café.jpg` with decomposed `café.png`.
+Extensionless names keep their whole name; a leading dot alone is not an extension
+(`.env` keeps `.env`, while `.env.txt` has stem `.env`). Only the final extension is
+removed (`trip.tar.gz` has stem `trip.tar`). Directories retain their ordinary
+full-name policy; this rule applies to files.
+
+Upload publication (including resumable uploads), copy, move, restore and generated
+outputs check the policy. The dataset renderer alone has a generation-time
+exception for its established `.jpg`/`.mp4` plus `.txt` caption pairs; the dataset
+format stays unchanged. This does not allow ordinary mutations to add matching
+stems in exported directories. Linking or copying an existing tree containing
+those pairs still requires resolving its filename ambiguity. Moving an existing
+directory preserves its existing contents and does not introduce sibling-name
+conflicts. Destination checks and publication are serialized, with
+an internal filename-free `.filebeans-stage/filename-policy.lock` sidecar also
+coordinating filesystem publishers across processes. Drive publication and
+mutations share a process lock and check paginated sibling names. Existing folder
+contents remain untouched and readable. An intentional edit still uses the
+existing revision/overwrite protection and cannot introduce a different sibling
+with the same stem. Folder copies and link setup reject existing nested conflicts;
+resolve them by renaming or moving files first. External filesystem or Drive
+writers cannot be forced to follow this application policy.
+
+Verification: targeted Go race tests cover database persistence, protected record
+privacy/locking, vault-relative relocation, nested membership, unavailable external
+moves, unlink preservation, deletion guards, Unicode conflicts and concurrent
+publication. Swift transport/metadata regressions are included for the next
+explicitly requested Apple test/build. Live CIFS and physical-device acceptance
+remain pending; no production changes are implied by source verification.
+
+Source verification for this phase: the full companion race suite passes with
+`TestRcloneCriticalErrorsAreReportedAndRedacted` and
+`TestDatabaseWorkflow/staged-hardlinks-are-replaced-independently` excluded; both
+failures were reproduced against unmodified tracked source using a temporary Go
+overlay. Go vet and Swift syntax parsing pass. The existing complete source
+validator still stops at its pre-existing project-target-set assertion. Isolated
+real-FUSE protected filesystem lifecycle tests pass on local and synthetic CIFS
+storage; the synthetic SMB resumable-upload subcase retains its existing skip
+because the fixture does not implement hardlinks. Test container and staging were
+removed. Apple compilation, Apple test execution, physical-device and production
+acceptance await separately requested build/deployment work.

@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 )
 
 func (s *Service) driveDo(ctx context.Context, method, path string, q url.Values, value any, connection string) (*http.Response, error) {
@@ -78,19 +79,21 @@ func (s *Service) driveGenerateID(ctx context.Context, connection string) (strin
 	}
 	return value.IDs[0], nil
 }
-func (s *Service) driveNameConflict(ctx context.Context, parent, name, exclude, connection string) error {
+
+var driveFilenamePublication sync.Mutex
+
+func (s *Service) driveNameConflict(ctx context.Context, parent, name, exclude, connection string, directory ...bool) error {
 	if !driveID(parent) || !validName(name) {
 		return ErrUnsafe
 	}
-	escape := func(v string) string { return strings.NewReplacer("\\", "\\\\", "'", "\\'").Replace(v) }
-	q := url.Values{"q": {"trashed=false and '" + parent + "' in parents and name='" + escape(name) + "'"}, "pageSize": {"100"}, "fields": {"nextPageToken,files(id)"}, "supportsAllDrives": {"true"}, "includeItemsFromAllDrives": {"true"}}
+	q := url.Values{"q": {"trashed=false and '" + parent + "' in parents"}, "pageSize": {"100"}, "fields": {"nextPageToken,files(id,name,mimeType)"}, "supportsAllDrives": {"true"}, "includeItemsFromAllDrives": {"true"}}
 	for {
 		var result DriveList
 		if e := s.driveJSON(ctx, "GET", "files", q, nil, connection, &result); e != nil {
 			return e
 		}
 		for _, f := range result.Files {
-			if f.ID != exclude {
+			if f.ID != exclude && (f.Name == name || ((len(directory) == 0 || !directory[0]) && f.Mime != "application/vnd.google-apps.folder" && filenameKey(f.Name) == filenameKey(name))) {
 				return ErrConflict
 			}
 		}
@@ -204,6 +207,8 @@ func (s *Service) driveMutationForConnection(ctx context.Context, request DriveM
 	return result, s.save(record.ID, "driveMutation", record.State, record)
 }
 func (s *Service) performDriveMutation(ctx context.Context, record *driveMutationRecord) (DriveItem, error) {
+	driveFilenamePublication.Lock()
+	defer driveFilenamePublication.Unlock()
 	req := record.Request
 	connection := record.Connection
 	if req.Action == "empty" {
@@ -280,7 +285,7 @@ func (s *Service) performDriveMutation(ctx context.Context, record *driveMutatio
 				return DriveItem{}, e
 			}
 		}
-		if e := s.driveNameConflict(ctx, req.Parent, req.Name, "", connection); e != nil {
+		if e := s.driveNameConflict(ctx, req.Parent, req.Name, "", connection, true); e != nil {
 			return DriveItem{}, e
 		}
 		var result DriveItem
@@ -335,7 +340,7 @@ func (s *Service) performDriveMutation(ctx context.Context, record *driveMutatio
 			return DriveItem{}, ErrUnsafe
 		}
 		for _, parent := range item.Parents {
-			if e = s.driveNameConflict(ctx, parent, req.Name, item.ID, connection); e != nil {
+			if e = s.driveNameConflict(ctx, parent, req.Name, item.ID, connection, item.Mime == "application/vnd.google-apps.folder"); e != nil {
 				return DriveItem{}, e
 			}
 		}
@@ -363,7 +368,7 @@ func (s *Service) performDriveMutation(ctx context.Context, record *driveMutatio
 				next = parent.Parents[0]
 			}
 		}
-		if e = s.driveNameConflict(ctx, req.Parent, item.Name, item.ID, connection); e != nil {
+		if e = s.driveNameConflict(ctx, req.Parent, item.Name, item.ID, connection, item.Mime == "application/vnd.google-apps.folder"); e != nil {
 			return DriveItem{}, e
 		}
 		query.Set("addParents", req.Parent)
@@ -380,7 +385,7 @@ func (s *Service) performDriveMutation(ctx context.Context, record *driveMutatio
 			return DriveItem{}, ErrDrivePermission
 		}
 		for _, parent := range item.Parents {
-			if e = s.driveNameConflict(ctx, parent, item.Name, item.ID, connection); e != nil {
+			if e = s.driveNameConflict(ctx, parent, item.Name, item.ID, connection, item.Mime == "application/vnd.google-apps.folder"); e != nil {
 				return DriveItem{}, e
 			}
 		}

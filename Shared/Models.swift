@@ -60,6 +60,9 @@ struct RemoteFile: Codable, Hashable {
     var modified: String?
     var hasPreview: Bool?
     var revision: String? = nil
+    var archiveLink: String? = nil
+    var archiveRole: String? = nil
+    var archiveRoot: Bool? = nil
     var isDirectory: Bool { type == "directory" }
     var isMedia: Bool { type.hasPrefix("video/") || type.hasPrefix("audio/") }
     var date: Date? {
@@ -78,8 +81,11 @@ struct Resource: Decodable {
     var hasPreview: Bool?
     var revision: String?
     var children: [RemoteFile]
+    var archiveLink: String?
+    var archiveRole: String?
+    var archiveRoot: Bool?
     private enum CodingKeys: String, CodingKey {
-        case name, path, type, size, modified, hasPreview, revision, children
+        case name, path, type, size, modified, hasPreview, revision, children, archiveLink, archiveRole, archiveRoot
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -90,6 +96,9 @@ struct Resource: Decodable {
         modified = try c.decodeIfPresent(String.self, forKey: .modified)
         hasPreview = try c.decodeIfPresent(Bool.self, forKey: .hasPreview)
         revision = try c.decodeIfPresent(String.self, forKey: .revision)
+        archiveLink = try c.decodeIfPresent(String.self, forKey: .archiveLink)
+        archiveRole = try c.decodeIfPresent(String.self, forKey: .archiveRole)
+        archiveRoot = try c.decodeIfPresent(Bool.self, forKey: .archiveRoot)
         children = try c.decodeIfPresent([RemoteFile].self, forKey: .children) ?? []
         for index in children.indices {
             let expected = try FilePath.child(children[index].name, in: path)
@@ -99,7 +108,7 @@ struct Resource: Decodable {
     }
     var file: RemoteFile {
         RemoteFile(name: name, path: path, type: type, size: size, modified: modified,
-                   hasPreview: hasPreview, revision: revision)
+                   hasPreview: hasPreview, revision: revision, archiveLink: archiveLink, archiveRole: archiveRole, archiveRoot: archiveRoot)
     }
 }
 

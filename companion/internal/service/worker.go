@@ -160,6 +160,9 @@ func (s *Service) discover(ctx context.Context, j *Job) error {
 			j.Manifest = append(j.Manifest, f)
 		}
 	}
+	if e = validateManifestFilenames(j.Manifest); e != nil {
+		return e
+	}
 	j.ItemsTotal = len(j.Manifest)
 	if j.Request.Destination.Source == "drive" {
 		j.ProgressUnit = "bytes"
@@ -274,6 +277,8 @@ func publicError(e error) string {
 		return engineFailure.Error()
 	}
 	switch {
+	case errors.Is(e, ErrArchiveLinked):
+		return "Unlink the archive before deleting or moving this folder across sources"
 	case errors.Is(e, errVault):
 		return "Protected-folder setup or mount failed; check server configuration"
 	case errors.Is(e, ErrVaultLocked):

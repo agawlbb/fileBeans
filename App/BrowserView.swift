@@ -17,6 +17,7 @@ struct BrowserView: View {
     @State private var selected = Set<String>()
     @State private var renameItem: StoredItem?
     @State private var proposedName = ""
+    @State private var archiveFolder: StoredItem?
     @State private var newFolder = false
     @State private var newTextFile = false
     @State private var editingText: StoredItem?
@@ -124,6 +125,9 @@ struct BrowserView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await reload() } }
+        }
+        .sheet(item: $archiveFolder) { item in
+            ArchiveLinkView(connection: connection, folder: item) { Task { await reload() } }
         }
         .sheet(isPresented: $newProtectedFolder) {
             if let parent {
@@ -345,6 +349,13 @@ struct BrowserView: View {
                item.permissions.download, item.permissions.modify, !protected(item) {
                 Button("Edit Text", systemImage: "square.and.pencil") { editingText = item }
             }
+            if item.file.isDirectory, !item.isSource, item.permissions.modify, model.canLinkArchive {
+                if item.file.archiveRoot == true {
+                    Button("Linked Archive…", systemImage: "link") { archiveFolder = item }
+                } else if item.file.archiveLink == nil {
+                    Button("Link Archive…", systemImage: "link.badge.plus") { archiveFolder = item }
+                }
+            }
             if let protection = item.protection, protection.isRoot {
                 Button(protection.unlocked ? "Lock" : "Unlock", systemImage: protection.symbol) {
                     changeLock(item, action: protection.unlocked ? "lock" : "unlock")
@@ -369,7 +380,7 @@ struct BrowserView: View {
     private func cell(_ item: StoredItem, large: Bool) -> some View {
         BrowserItemCell(name: item.file.name, size: item.file.size, folder: item.file.isDirectory,
                         large: large, selecting: selecting, selected: selected.contains(item.id),
-                        thumbnail: ThumbnailView(item: item, client: model.repository?.client), protection: item.protection, pending: pending(item))
+                        thumbnail: ThumbnailView(item: item, client: model.repository?.client), protection: item.protection, pending: pending(item), linked: item.file.archiveRoot == true)
     }
     private func changeLock(_ item: StoredItem, action: String) {
         guard let protection = item.protection else { return }

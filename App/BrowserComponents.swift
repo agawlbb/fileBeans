@@ -36,10 +36,14 @@ struct BrowserItemCell<Thumbnail: View>: View {
     let thumbnail: Thumbnail
     var protection: FolderProtection? = nil
     var pending: Bool = false
+    var linked: Bool = false
     var body: some View {
         let layout = large ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))
         layout {
             thumbnail.frame(width: large ? 120 : 44, height: large ? 100 : 44)
+                .overlay(alignment: .topTrailing) {
+                    if linked { Image(systemName: "link").font(.caption.bold()).padding(4).background(.background, in: Circle()) }
+                }
                 .overlay(alignment: .bottomTrailing) {
                     if folder, let protection {
                         Image(systemName: protection.symbol)
@@ -61,7 +65,7 @@ struct BrowserItemCell<Thumbnail: View>: View {
         .overlay(alignment: .topTrailing) { if pending { ProgressView().controlSize(.small) } }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? .isSelected : [])
-        .accessibilityValue(protection?.accessibility ?? "")
+        .accessibilityValue([protection?.accessibility, linked ? "Linked archive" : nil].compactMap { $0 }.joined(separator: ", "))
     }
 }
 struct BrowserViewOptions: View {

@@ -146,15 +146,18 @@ func (s *Service) executeDrive(ctx context.Context, j *Job) error {
 		if filepath.Dir(f.To) != "." || contains(j.Published, f.To) {
 			continue
 		}
-		if e = s.driveNameConflict(ctx, destination.ID, filepath.Base(f.To), f.TargetID, j.Connection); e != nil {
-			return e
-		}
+
 		j.Current = "publish:" + f.To
 		if e = s.checkpoint(j); e != nil {
 			return e
 		}
-		var published DriveItem
-		e = s.driveJSON(ctx, "PATCH", "files/"+f.TargetID, mergeQuery(metadataQuery(), url.Values{"addParents": {destination.ID}, "removeParents": {j.RemoteStage}}), map[string]any{"name": filepath.Base(f.To)}, j.Connection, &published)
+		driveFilenamePublication.Lock()
+		e = s.driveNameConflict(ctx, destination.ID, filepath.Base(f.To), f.TargetID, j.Connection, f.Directory)
+		if e == nil {
+			var published DriveItem
+			e = s.driveJSON(ctx, "PATCH", "files/"+f.TargetID, mergeQuery(metadataQuery(), url.Values{"addParents": {destination.ID}, "removeParents": {j.RemoteStage}}), map[string]any{"name": filepath.Base(f.To)}, j.Connection, &published)
+		}
+		driveFilenamePublication.Unlock()
 		if e != nil {
 			return e
 		}

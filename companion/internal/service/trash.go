@@ -19,6 +19,11 @@ func trashDirectory(t Trash) string {
 func trashPath(t Trash) string { return filepath.Join(trashDirectory(t), t.Name) }
 func (s *Service) trash(item Item, key string) (Trash, error) {
 	var t Trash
+	archiveMu.Lock()
+	defer archiveMu.Unlock()
+	if e := s.guardArchiveRemoval(item.Source, item.Path); e != nil {
+		return t, e
+	}
 	if s.vaults != nil && s.vaults.remote != nil {
 		for _, v := range s.vaults.status() {
 			if v.Source == item.Source && v.Trashed == 0 && filepath.Clean(v.Path) == filepath.Clean("/"+strings.TrimPrefix(item.Path, "/")) {

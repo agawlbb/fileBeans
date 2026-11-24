@@ -23,7 +23,7 @@ func fail(w http.ResponseWriter, e error) {
 	switch {
 	case errors.Is(e, ErrUnsafe):
 		status = 400
-	case errors.Is(e, ErrConflict):
+	case errors.Is(e, ErrConflict), errors.Is(e, ErrArchiveLinked):
 		status = 409
 	case errors.Is(e, sql.ErrNoRows), errors.Is(e, os.ErrNotExist):
 		status = 404
@@ -76,7 +76,7 @@ func (s *Service) Handler() http.Handler {
 		g, e := s.google()
 		features := []string{"protectedFolderMoves", "crossDriveMoves", "driveWrite", "driveDestinations", "driveUploads", "driveThumbnails", "driveMedia", "normalization"}
 		if s.config.Filesystem.Enabled {
-			features = append(features, "filesystemV1", "resumableUploadsV1", "datasetMediaV1", "datasetOriginalsV1")
+			features = append(features, "archiveLinksV1", "filenameStemsV1", "filesystemV1", "resumableUploadsV1", "datasetMediaV1", "datasetOriginalsV1")
 		}
 		if s.vaults != nil && s.vaults.remote != nil && s.vaults.remote.ready() {
 			features = append(features, "protectedFoldersCreate")
@@ -503,6 +503,7 @@ func (s *Service) Handler() http.Handler {
 		}
 		reply(w, 200, map[string]bool{"disconnected": true})
 	})
+	s.archiveRoutes(mux)
 	s.filesystemRoutes(mux)
 	s.datasetRoutes(mux)
 	s.driveRoutes(mux)

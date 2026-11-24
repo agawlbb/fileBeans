@@ -28,15 +28,18 @@ type FilesystemConfig struct {
 }
 
 type filesystemEntry struct {
-	Vault      string            `json:"vault,omitempty"`
-	Name       string            `json:"name"`
-	Path       string            `json:"path"`
-	Type       string            `json:"type"`
-	Size       int64             `json:"size"`
-	Modified   string            `json:"modified"`
-	Revision   string            `json:"revision"`
-	HasPreview bool              `json:"hasPreview"`
-	Children   []filesystemEntry `json:"children,omitempty"`
+	ArchiveLink string            `json:"archiveLink,omitempty"`
+	ArchiveRole string            `json:"archiveRole,omitempty"`
+	ArchiveRoot bool              `json:"archiveRoot,omitempty"`
+	Vault       string            `json:"vault,omitempty"`
+	Name        string            `json:"name"`
+	Path        string            `json:"path"`
+	Type        string            `json:"type"`
+	Size        int64             `json:"size"`
+	Modified    string            `json:"modified"`
+	Revision    string            `json:"revision"`
+	HasPreview  bool              `json:"hasPreview"`
+	Children    []filesystemEntry `json:"children,omitempty"`
 }
 
 func filesystemHidden(p string) bool {
@@ -166,7 +169,23 @@ func (s *Service) filesystemResource(w http.ResponseWriter, r *http.Request) {
 		filesystemFail(w, ErrUnsafe)
 		return
 	}
+	links, e := s.resolvedArchiveLinks()
+	unknownArchive := errors.Is(e, ErrVaultLocked)
+	if unknownArchive {
+		e = nil
+	}
+	if e != nil {
+		filesystemFail(w, e)
+		return
+	}
+	decorate := func(entry *filesystemEntry) {
+		entry.ArchiveLink, entry.ArchiveRole, entry.ArchiveRoot = archiveMembership(links, r.URL.Query().Get("source"), entry.Path)
+		if unknownArchive || entry.ArchiveRole == "archive" {
+			entry.HasPreview = false
+		}
+	}
 	entry := filesystemInfo(p, st)
+	decorate(&entry)
 	if guarded, ok := root.(*guardedRoot); ok && guarded.lease != nil {
 		v, _, err := guarded.lease.Boundary(filepath.Join(root.Name(), p))
 		if err != nil {
@@ -213,6 +232,7 @@ func (s *Service) filesystemResource(w http.ResponseWriter, r *http.Request) {
 			}
 			if info.IsDir() || info.Mode().IsRegular() {
 				childInfo := filesystemInfo(cp, info)
+				decorate(&childInfo)
 				entry.Children = append(entry.Children, childInfo)
 			}
 		}
@@ -378,7 +398,16 @@ func (s *Service) filesystemUpload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer b.Close()
-		e = unix.Renameat(int(a.Fd()), filepath.Base(temp), int(b.Fd()), filepath.Base(p))
+		unlock, lockErr := lockFilenamePublication(root)
+		if lockErr != nil {
+			filesystemFail(w, lockErr)
+			return
+		}
+		e = filenameReplacement(root, p)
+		if e == nil {
+			e = unix.Renameat(int(a.Fd()), filepath.Base(temp), int(b.Fd()), filepath.Base(p))
+		}
+		unlock()
 	} else {
 		e = renameExclusive(root, temp, p)
 	}
@@ -423,12 +452,22 @@ func (s *Service) filesystemMove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer root.Close()
+	archiveMu.Lock()
+	defer archiveMu.Unlock()
 	s.fsMu.Lock()
 	defer s.fsMu.Unlock()
+	if e = s.prepareArchiveRename(input.Source, from, to); e != nil {
+		filesystemFail(w, e)
+		return
+	}
 	if e = safe(root, to); e == nil {
 		e = renameExclusive(root, from, to)
 	}
 	if e != nil {
+		filesystemFail(w, e)
+		return
+	}
+	if e = s.finishArchiveRename(); e != nil {
 		filesystemFail(w, e)
 		return
 	}

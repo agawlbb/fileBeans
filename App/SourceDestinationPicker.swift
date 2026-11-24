@@ -11,14 +11,16 @@ enum BrowserDestination: Identifiable {
 }
 enum DestinationMode {
     case copy
+    case archive
     case upload
     case localMove(String?)
     case driveMove
-    var title: String { if case .upload = self { return "Upload To" }; return copying ? "Copy To" : "Move To" }
-    var action: String { if case .upload = self { return "Upload" }; return copying ? "Copy Here" : "Move Here" }
+    var isArchive: Bool { if case .archive = self { return true }; return false }
+    var title: String { if isArchive { return "Archive Folder" }; if case .upload = self { return "Upload To" }; return copying ? "Copy To" : "Move To" }
+    var action: String { if isArchive { return "Link Archive" }; if case .upload = self { return "Upload" }; return copying ? "Copy Here" : "Move Here" }
     var copying: Bool { if case .copy = self { return true }; return false }
     var allowsLocal: Bool { true }
-    var allowsDrive: Bool { if case .localMove(let source) = self { return source == nil }; return true }
+    var allowsDrive: Bool { if isArchive { return false }; if case .localMove(let source) = self { return source == nil }; return true }
 }
 struct SourceDestinationPicker: View {
     let connection: Connection
@@ -26,9 +28,11 @@ struct SourceDestinationPicker: View {
     let excludedLocal: [StoredItem]
     let excludedDrive: Set<String>
     var folder: BrowserDestination? = nil
+    var protectedFolderSheet: ((StoredItem) -> AnyView)? = nil
     let choose: (BrowserDestination) -> Void
     @State private var folders: [BrowserDestination] = []
     @State private var resolvedDrive: DriveFile?
+    @State private var newProtectedFolder = false
     @State private var loading = true
     @State private var error: String?
     @State private var next = ""
@@ -39,7 +43,7 @@ struct SourceDestinationPicker: View {
     private var canChoose: Bool {
         guard let target else { return false }
         switch target {
-        case .local(let item): return item.permissions.create
+        case .local(let item): return item.permissions.create && (!mode.isArchive || (!item.isSource && item.file.archiveLink == nil))
         case .drive(let item): return item.capabilities?.canAddChildren == true && !excludedDrive.contains(item.id)
         }
     }
@@ -49,7 +53,7 @@ struct SourceDestinationPicker: View {
             ForEach(folders) { child in
                 if child.isFolder { NavigationLink {
                     SourceDestinationPicker(connection: connection, mode: mode, excludedLocal: excludedLocal,
-                                            excludedDrive: excludedDrive, folder: child, choose: choose)
+                                            excludedDrive: excludedDrive, folder: child, protectedFolderSheet: protectedFolderSheet, choose: choose)
                 } label: { Label(child.name, systemImage: "folder") }
                 } else { Label(child.name, systemImage: "doc").foregroundStyle(.secondary) }
             }
@@ -61,6 +65,14 @@ struct SourceDestinationPicker: View {
                 Button(mode.action) { choose(target) }
                     .buttonStyle(.borderedProminent).padding().disabled(!canChoose || loading || error != nil)
             }
+        }
+        .toolbar {
+            if mode.isArchive, protectedFolderSheet != nil, case .local(let parent) = folder, parent.permissions.create, parent.protection == nil {
+                Button("Add Protected Folder", systemImage: "folder.badge.plus") { newProtectedFolder = true }
+            }
+        }
+        .sheet(isPresented: $newProtectedFolder, onDismiss: { Task { await load() } }) {
+            if case .local(let parent) = folder, let protectedFolderSheet { protectedFolderSheet(parent) }
         }
         .overlay { if loading { ProgressView() } }
         .task { await load() }

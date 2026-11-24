@@ -15,6 +15,25 @@ private final class TextContentProtocol: URLProtocol {
 }
 
 final class FilesystemClientTests: XCTestCase {
+    func testArchiveThumbnailDoesNotMakeRequest() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TextContentProtocol.self]
+        let client = FilesystemClient(connection: Connection(name: "Test", url: URL(string: "https://files.example.com")!), token: "fixture", configuration: configuration)
+        defer { client.close() }
+        let file = RemoteFile(name: "photo.jpg", path: "/archive/sub/photo.jpg", type: "image/jpeg", hasPreview: true, archiveRole: "archive")
+        do {
+            _ = try await client.thumbnail(source: "samba", file: file)
+            XCTFail("Archive thumbnails must be rejected before requesting a URL")
+        } catch { XCTAssertEqual(error.localizedDescription, APIError.forbidden.localizedDescription) }
+    }
+    func testArchiveMetadataSurvivesResourceDecode() throws {
+        let data = Data(#"{"name":"archive","path":"/archive","type":"directory","archiveLink":"link","archiveRole":"archive","archiveRoot":true,"children":[{"name":"sub","path":"/archive/sub","type":"directory","archiveLink":"link","archiveRole":"archive"}]}"#.utf8)
+        let resource = try JSONDecoder().decode(Resource.self, from: data)
+        XCTAssertEqual(resource.file.archiveRoot, true)
+        XCTAssertEqual(resource.file.archiveLink, "link")
+        XCTAssertEqual(resource.children[0].archiveRole, "archive")
+    }
+
     func testTextLoadingEnforcesLimitsWithAndWithoutContentLength() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [TextContentProtocol.self]

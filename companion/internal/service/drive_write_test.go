@@ -651,3 +651,30 @@ func testDriveWriteWorkflow(t *testing.T, s *Service) {
 		}
 	})
 }
+
+func TestDriveFilenameStemsAcrossPages(t *testing.T) {
+	s := &Service{config: Config{State: t.TempDir()}}
+	fixtureGrant(t, s, true)
+	previous := googleHTTP
+	defer func() { googleHTTP = previous }()
+	calls := 0
+	googleHTTP = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if strings.Contains(r.URL.Query().Get("q"), "name=") {
+			t.Fatal("stem check must examine siblings")
+		}
+		if r.URL.Query().Get("pageToken") == "" {
+			return jsonResponse(200, DriveList{Next: "next", Files: []DriveItem{{ID: "unrelated", Name: "other.jpg"}}}), nil
+		}
+		return jsonResponse(200, DriveList{Files: []DriveItem{{ID: "original", Name: "Photo.MOV", Mime: "video/quicktime"}}}), nil
+	})}
+	if err := s.driveNameConflict(context.Background(), "root", "photo.mp4", "", "fixture-account"); !errors.Is(err, ErrConflict) || calls != 2 {
+		t.Fatal(err, calls)
+	}
+	if err := s.driveNameConflict(context.Background(), "root", "photo.mp4", "original", "fixture-account"); err != nil {
+		t.Fatal("self exclusion", err)
+	}
+	if err := s.driveNameConflict(context.Background(), "root", "photo.mp4", "", "fixture-account", true); err != nil {
+		t.Fatal("directory uses full name", err)
+	}
+}

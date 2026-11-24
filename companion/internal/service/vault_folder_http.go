@@ -56,6 +56,12 @@ func (s *Service) vaultFolderRoutes(mux *http.ServeMux) {
 			return
 		}
 		defer s.vaultGate.Unlock()
+		archiveMu.Lock()
+		defer archiveMu.Unlock()
+		if err := s.validateArchiveVaultRelocation(r.PathValue("id"), input.Path); err != nil {
+			fail(w, err)
+			return
+		}
 		if err := s.vaults.remote.folderAction(r.PathValue("id"), "relocate", input.Path); err != nil {
 			fail(w, err)
 			return

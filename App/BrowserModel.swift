@@ -6,6 +6,7 @@ final class BrowserModel: ObservableObject {
     @Published var busy = false
     @Published var error: String?
     @Published var canCreateProtectedFolder = false
+    @Published var canLinkArchive = false
     @Published var sourceScope = "/"
     @Published var parentProtection: FolderProtection?
     private(set) var repository: Repository?
@@ -17,6 +18,7 @@ final class BrowserModel: ObservableObject {
             guard let repository else { return }
             if let companion = repository.companion {
                 canCreateProtectedFolder = false
+                canLinkArchive = (try? await companion.capabilities().features?.contains("archiveLinksV1")) == true
                 let protection = try? JSONDecoder().decode(ProtectionStatus.self, from: await companion.request("protection"))
                 if protection?.state == "unlocked" {
                     canCreateProtectedFolder = (try? await companion.capabilities().features?.contains("protectedFoldersCreate")) == true
@@ -166,6 +168,16 @@ final class BrowserModel: ObservableObject {
             repository.protectedItem(parent).protection == nil {
             try await repository.move(item,to:parent,name:item.file.name)
             return nil
+        }
+        if !copying, (try await companion.capabilities().features?.contains("archiveLinksV1")) == true {
+            let location = try companion.sourceLocation(CopyLocation(source: item.source, path: item.file.path))
+            let links = try await companion.archiveLinks()
+            if links.contains(where: { link in
+                [link.library, link.archive].contains { $0.source == location.source && FilePath.contains($0.path, in: location.path) }
+            }) {
+                throw NSError(domain: "fileBeans.LinkedArchive", code: 409,
+                              userInfo: [NSLocalizedDescriptionKey: "Unlink the archive before moving this folder across sources."])
+            }
         }
         let job: CopyJob?
         switch destination {

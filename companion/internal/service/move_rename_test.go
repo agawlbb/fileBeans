@@ -11,12 +11,12 @@ import (
 
 type failMoveSyncRoot struct {
 	rootFS
-	opens int
 }
 
 func (r *failMoveSyncRoot) Open(path string) (*os.File, error) {
-	r.opens++
-	if r.opens == 2 {
+	// Fail the post-publication directory sync, independent of metadata reads.
+	_, published := r.rootFS.Lstat("destination/file")
+	if path == "destination" && published == nil {
 		return nil, syscall.EOPNOTSUPP
 	}
 	return r.rootFS.Open(path)

@@ -105,7 +105,8 @@ final class FilesystemClient: NSObject, URLSessionTaskDelegate {
         _ = try await data(r)
     }
     func thumbnail(source: String, file: RemoteFile) async throws -> Data {
-        try await data(request("thumbnail", query: ["source": source, "path": file.path]))
+        guard file.archiveRole != "archive" else { throw APIError.forbidden }
+        return try await data(request("thumbnail", query: ["source": source, "path": file.path]))
     }
     func streamRequest(source: String, path: String) async throws -> URLRequest {
         try request("content", query: ["source": source, "path": path])

@@ -136,7 +136,7 @@ func syncDir(r rootFS, path string) error {
 	defer f.Close()
 	return f.Sync()
 }
-func renameExclusive(r rootFS, from, to string) error {
+func renameExclusive(r rootFS, from, to string, datasetCaptions ...bool) error {
 	if guarded, ok := r.(*guardedRoot); ok {
 		active, done, e := guarded.operation()
 		if e != nil {
@@ -155,5 +155,5 @@ func renameExclusive(r rootFS, from, to string) error {
 	if e := safe(r, to); e != nil {
 		return e
 	}
-	return renameNoReplace(r, from, to)
+	return renameNoReplace(r, from, to, datasetCaptions...)
 }
