@@ -1,6 +1,28 @@
 # Signing and TestFlight
 
-## Linked archives — server deployment (November 24, 2026)
+## Linked archives — server and TestFlight 34 (November 24, 2026)
+
+Released **0.1.0 (34)** from app source
+`d5bcbe9bae9920683ff3625b4600045c62a90b86`, pinned by
+`testflight/0.1.0-34`.
+
+- [Apple validation 45408821595](https://github.com/agawlbb/fileBeans/actions/runs/45408821595)
+  passed **130 unit tests and 3 UI tests**, zero failures, and the unsigned
+  iPhone/iPad Release archive on the Xcode 27.2 runner.
+- Validation exposed a full-screen expansion defect before publication. Safe-area
+  handling now belongs to the stable viewer container and pages, and the image
+  scroll view does not add duplicate UIKit insets. Expansion, paging, selection
+  retention and zoom/swipe regressions pass without recreating the player/cache.
+  The debug fixture uses a height-limited photo for the expansion assertion and
+  waits for layout. The initial stalled simulator run was cancelled; the final
+  successful run used a fresh larger runner.
+- [Signed publication 45410262813](https://github.com/agawlbb/fileBeans/actions/runs/45410262813)
+  passed signing preflight, archive/export, TestFlight upload with no errors, and
+  temporary runner credential cleanup. Apple build
+  `7a099adc-bf25-490e-b4bc-f81485d6e546` is **VALID / IN_BETA_TESTING**,
+  with automatic internal notifications enabled. The existing internal group
+  retains access to all builds; no tester/group changes or external review were
+  submitted. Permanent signing credentials were preserved.
 
 Deployed server source `66e17a84b4a5f2e12378ddcf5ced994fe90ddfec` as
 `filebeans-api:66e17a8-archives`. The API advertises `archiveLinksV1` and
@@ -32,8 +54,11 @@ The dataset renderer retains its approved generated media/caption exception.
   artifacts are retained. Shared build tooling/caches and permanent credentials
   were preserved.
 
-The server deployment is finished and verified. Apple validation and internal
-TestFlight publication are in progress under the same requested release.
+The requested server deployment and internal TestFlight release are finished and
+verified. Physical-device acceptance remains under [TESTING.md](TESTING.md).
+No local Apple artifacts were downloaded; validation artifacts follow the existing
+seven-day workflow retention. No deployment or app build remains pending for
+this release.
 
 
 ## Media screen wake protection — TestFlight 33 (November 22, 2026)
