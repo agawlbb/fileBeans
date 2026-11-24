@@ -74,7 +74,7 @@ func (s *Service) Handler() http.Handler {
 			roots = append(roots, map[string]string{"source": root.Name, "trash": "/Trash"})
 		}
 		g, e := s.google()
-		features := []string{"protectedFolderMoves", "crossDriveMoves", "driveWrite", "driveDestinations", "driveUploads", "driveThumbnails", "driveMedia", "normalization"}
+		features := []string{"publicHostingV1", "protectedFolderMoves", "crossDriveMoves", "driveWrite", "driveDestinations", "driveUploads", "driveThumbnails", "driveMedia", "normalization"}
 		if s.config.Filesystem.Enabled {
 			features = append(features, "archiveLinksV1", "filenameStemsV1", "filesystemV1", "resumableUploadsV1", "datasetMediaV1", "datasetOriginalsV1")
 		}
@@ -503,6 +503,9 @@ func (s *Service) Handler() http.Handler {
 		}
 		reply(w, 200, map[string]bool{"disconnected": true})
 	})
+	s.hostingRoutes(mux)
+	public := http.NewServeMux()
+	public.HandleFunc("GET /h/{id}/{filename}", s.publicHosting)
 	s.archiveRoutes(mux)
 	s.filesystemRoutes(mux)
 	s.datasetRoutes(mux)
@@ -520,6 +523,12 @@ func (s *Service) Handler() http.Handler {
 			}
 			w.Header().Set("Content-Type", "text/plain")
 			w.Write([]byte("Google Drive connected. Return to fileBeans."))
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/h/") {
+			s.vaultGate.RLock()
+			defer s.vaultGate.RUnlock()
+			public.ServeHTTP(w, r)
 			return
 		}
 		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")

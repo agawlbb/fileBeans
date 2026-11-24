@@ -84,6 +84,45 @@ final class CompanionTransportTests: XCTestCase {
     }
 
 
+    func testHostingUsesCanonicalSourcePathAndFilenameEndingLink() async throws {
+        CompanionStub.inspect = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/companion/v1/hosting")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer synthetic-companion-token")
+            let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+            let item = body["item"] as! [String: Any]
+            XCTAssertEqual(item["source"] as? String, "samba")
+            XCTAssertEqual(item["path"] as? String, "/Documents/旅行 + report.pdf")
+            XCTAssertEqual(body["expires"] as? Int, 0)
+            return (201, Data(#"{"id":"report","name":"旅行 + report.pdf","created":1800000000,"expires":0,"state":"active","urlPath":"/h/report/%E6%97%85%E8%A1%8C%20+%20report.pdf"}"#.utf8))
+        }
+        let service = try client(scope: "/Documents"); defer { service.close() }
+        let hosted = try await service.hostFile(CopyLocation(source: "samba", path: "/旅行 + report.pdf"), expires: 0)
+        let url = try XCTUnwrap(hosted.url(connection: service.connection))
+        XCTAssertEqual(url.host, "files.example")
+        XCTAssertEqual(url.path, "/companion/h/report/旅行 + report.pdf")
+        XCTAssertEqual(url.lastPathComponent, "旅行 + report.pdf")
+        XCTAssertNil(URLComponents(url: url, resolvingAgainstBaseURL: false)?.query)
+        XCTAssertFalse(url.absoluteString.contains("synthetic-companion-token"))
+    }
+
+    func testHostingManagementKeepsLinkStableWhenChangingDuration() async throws {
+        var methods: [String] = []
+        CompanionStub.inspect = { request in
+            methods.append(request.httpMethod!)
+            XCTAssertEqual(request.url?.path, "/companion/v1/hosting/report")
+            if request.httpMethod == "DELETE" { return (204, Data()) }
+            let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+            XCTAssertEqual(body["expires"] as? Int64, 1900000000)
+            return (200, Data(#"{"id":"report","name":"report.pdf","created":1800000000,"expires":1900000000,"state":"active","urlPath":"/h/report/report.pdf"}"#.utf8))
+        }
+        let service = try client(); defer { service.close() }
+        let hosted = try await service.updateHosting("report", expires: 1900000000)
+        XCTAssertEqual(hosted.url(connection: service.connection)?.absoluteString, "https://files.example/companion/h/report/report.pdf")
+        try await service.stopHosting("report")
+        XCTAssertEqual(methods, ["PATCH", "DELETE"])
+    }
+
     func testSambaTrashUsesSourceQueryAndDecodesRetainedItems() async throws {
         CompanionStub.inspect = { request in
             XCTAssertEqual(request.url?.path, "/companion/v1/trash")

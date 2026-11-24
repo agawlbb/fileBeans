@@ -6,6 +6,7 @@ final class BrowserModel: ObservableObject {
     @Published var busy = false
     @Published var error: String?
     @Published var canCreateProtectedFolder = false
+    @Published var canHost = false
     @Published var canLinkArchive = false
     @Published var sourceScope = "/"
     @Published var parentProtection: FolderProtection?
@@ -18,7 +19,9 @@ final class BrowserModel: ObservableObject {
             guard let repository else { return }
             if let companion = repository.companion {
                 canCreateProtectedFolder = false
-                canLinkArchive = (try? await companion.capabilities().features?.contains("archiveLinksV1")) == true
+                let capabilities = try? await companion.capabilities()
+                canLinkArchive = capabilities?.features?.contains("archiveLinksV1") == true
+                canHost = capabilities?.features?.contains("publicHostingV1") == true
                 let protection = try? JSONDecoder().decode(ProtectionStatus.self, from: await companion.request("protection"))
                 if protection?.state == "unlocked" {
                     canCreateProtectedFolder = (try? await companion.capabilities().features?.contains("protectedFoldersCreate")) == true

@@ -238,6 +238,9 @@ no-store. Callback state is one-use and expires after ten minutes.
 | POST `/v1/drive/uploads/{id}/cancel` | Cancel spool or its queued/running copy job |
 | GET `/v1/drive/drives?page=...` | Paginated shared-drive roots |
 | POST `/v1/drive/connect`, POST `/v1/drive/disconnect` | Separate server-side Google connection |
+| GET/POST `/v1/hosting` | Authenticated listing / creation of public file hosting |
+| PATCH/DELETE `/v1/hosting/{id}` | Change expiry / stop hosting |
+| GET/HEAD `/h/{id}/{filename}` | Public direct attachment download, including byte ranges |
 | GET `/oauth/callback` | Public OAuth callback, protected by state and PKCE |
 
 ## Verification
@@ -505,3 +508,49 @@ FUSE/CIFS, migration/recovery, scope/visibility and live batch/Trash checks pass
 See [the testing record](../docs/TESTING.md#six-file-management-changes--november-18-2026).
 TestFlight build 20 is available for the corresponding browser controls and
 operation feedback.
+
+## Public file hosting
+
+`publicHostingV1` advertises file hosting. In the app, select one ordinary file
+and choose **More → Host File**, or use its context menu. Choose **Time Limited**
+and an expiry date, or **Indefinite**. Settings → Public Hosting lists each
+connection's links, with copy/share, duration changes, and Stop Hosting.
+Protected storage is excluded, even when unlocked; the server rejects forged
+creation requests and rechecks the acquired protection snapshot on every read.
+Folders, internal storage, Trash, symlinks, native Google documents, and files
+without Drive download permission cannot be hosted.
+
+Create with `POST /v1/hosting` and
+`{"item":{"source":"samba","path":"/Reports/report.pdf"},"expires":0}`.
+`expires` is a future Unix timestamp in seconds (within ten years), or zero for
+indefinite hosting. The response includes `id`, `name`, `created`, `expires`,
+`state`, and an escaped `urlPath`. Prefix that path with the configured companion
+base URL. For example:
+`https://files.example.com/companion/h/report/report.pdf`.
+The readable identifier is derived from the filename, with `-2`, `-3`, etc. for
+collisions. These are public, guessable URLs, not secret access tokens. There
+is no public listing endpoint. The final path component is always the filename;
+Unicode, spaces and reserved characters are URL-escaped, without query tokens.
+
+`PATCH /v1/hosting/{id}` accepts `{"expires":0}` or a future expiry and keeps
+the URL unchanged. Expired links can be renewed while the original still
+matches. `DELETE` stops new requests immediately and is repeatable. Revoked
+identifiers remain reserved so saved links never get reassigned. Expired and
+revoked downloads return 404; downloads already in progress may finish.
+Authenticated listing includes expired links and excludes revoked ones.
+
+Hosting stores a persistent reference in the existing operations table, without
+copying file bytes or changing Drive's own sharing permissions. Direct responses
+use `Content-Disposition: attachment`, `no-store`, `nosniff`, and `noindex`.
+Original file identity/revision and Drive connection are checked: deletion,
+replacement, edits, rename/move, lost permission, and account changes make the
+link unavailable. Re-host the updated file to get a new link. An existing link
+also fails closed if its source becomes protected or the broker is unavailable;
+it cannot publish protected content. The broker lease lasts through a local
+stream. Protected metadata that becomes unavailable can still have its hosting
+revoked from Settings.
+
+Deployment must proxy the companion base path's `/h/` routes as well as `/v1/`;
+the existing all-path companion proxy can do this without a separate website or
+landing page. Management endpoints retain bearer authentication. This source
+change requires an API deployment and an app build; neither runs automatically.

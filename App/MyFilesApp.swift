@@ -65,6 +65,11 @@ struct ConnectionsSettingsView: View {
                 VaultsView(connection: connection, embedded: true)
             }
             VaultKeyControls()
+            Section("Public Hosting") {
+                ForEach(model.connections.filter { $0.companionURL != nil }) { connection in
+                    NavigationLink(connection.name) { HostingSettingsView(connection: connection) }
+                }
+            }
             Section("Google Drive") {
                 ForEach(model.connections.filter { $0.companionURL != nil }) { connection in
                     NavigationLink(connection.name) { DriveConnectionSettings(connection: connection) }

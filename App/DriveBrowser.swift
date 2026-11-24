@@ -10,6 +10,7 @@ final class DriveBrowserModel: ObservableObject {
     @Published var capabilitiesLoaded = false
     @Published var writable = false
     @Published var modern = false
+    @Published var hostingEnabled = false
     @Published var normalizationEnabled = false
     @Published var busy = false
     @Published var error: String?
@@ -27,6 +28,7 @@ final class DriveBrowserModel: ObservableObject {
             connected = capabilities.driveConnected
             writable = capabilities.driveWriteAccess == true
             normalizationEnabled = capabilities.normalizationEnabled == true
+            hostingEnabled = capabilities.features?.contains("publicHostingV1") == true
             modern = capabilities.features?.contains("driveWrite") == true
             guard connected else { files = []; next = ""; current = nil; return }
             let transferJobs = try? await client.transport.jobs()
@@ -74,6 +76,7 @@ struct DriveBrowser: View {
     @AppStorage("sortOrder") private var sortOrder = "name"
     @State private var search = ""
     @StateObject private var downloads = BrowserDownloads()
+    @State private var hosting: DriveFile?
     @State private var selecting = false
     @State private var selected = Set<String>()
     @State private var renaming: DriveFile?
@@ -121,6 +124,9 @@ struct DriveBrowser: View {
     var body: some View {
         browserWithActions
             .browserDownloads(downloads)
+            .sheet(item: $hosting) { item in
+                HostingEditor(connection: connection, item: CopyLocation(source: "drive", path: item.id, name: item.name), existing: nil)
+            }
             .onReceive(model.$files) { _ in updateListing() }
         .onReceive(activity.$entries) { _ in updateListing() }
         .onReceive(activity.$jobs) { _ in updateListing() }
@@ -217,7 +223,8 @@ struct DriveBrowser: View {
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .bottomBar) {
             if selecting {
-                BrowserSelectionControls(canDownload: !downloads.busy && !chosen.isEmpty && chosen.allSatisfy(canDownload),
+                BrowserSelectionControls(host: chosen.count == 1 && chosen.allSatisfy(canHost) ? { hosting = chosen.first } : nil,
+                        canDownload: !downloads.busy && !chosen.isEmpty && chosen.allSatisfy(canDownload),
                         download: { download(chosen) }, canCopy: !chosen.isEmpty && !chosen.contains(where: pending) && chosen.allSatisfy(\.canCopy),
                                          canMove: model.writable && !chosen.isEmpty && !chosen.contains(where: pending) && chosen.allSatisfy(\.canMove),
                                          canDelete: model.writable && !chosen.isEmpty && !chosen.contains(where: pending) && chosen.allSatisfy(\.canTrash),
@@ -352,6 +359,7 @@ struct DriveBrowser: View {
             }
         }
         .contextMenu {
+            if canHost(item) { Button("Host File", systemImage: "link") { hosting = item } }
             if canDownload(item) {
                 Button("Download", systemImage: "arrow.down.doc") { download([item]) }.disabled(downloads.busy)
             }
@@ -377,6 +385,7 @@ struct DriveBrowser: View {
             if await model.perform({ try await client.mutate(request) }) { await reload(refreshLoaded: true) }
         }
     }
+    private func canHost(_ item: DriveFile) -> Bool { model.hostingEnabled && item.downloadable && !pending(item) }
     private func canDownload(_ item: DriveFile) -> Bool { item.downloadable && !pending(item) }
     private func download(_ items: [DriveFile]) {
         guard let client = model.client, items.allSatisfy(canDownload) else { return }

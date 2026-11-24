@@ -14,6 +14,7 @@ struct BrowserView: View {
     @AppStorage("gridView") private var grid = false
     @AppStorage("sortOrder") private var sortOrder = "name"
     @StateObject private var downloads = BrowserDownloads()
+    @State private var hosting: StoredItem?
     @State private var selecting = false
     @State private var selected = Set<String>()
     @State private var renameItem: StoredItem?
@@ -80,6 +81,9 @@ struct BrowserView: View {
     var body: some View {
         browserWithActions
             .browserDownloads(downloads)
+            .sheet(item: $hosting) { item in
+                HostingEditor(connection: connection, item: CopyLocation(source: item.source, path: item.file.path, name: item.file.name), existing: nil)
+            }
             .onReceive(model.$items) { _ in updateListing() }
             .onReceive(activity.$entries) { _ in updateListing() }
             .onReceive(activity.$jobs) { _ in updateListing() }
@@ -298,7 +302,8 @@ struct BrowserView: View {
     @ToolbarContentBuilder private var browserToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .bottomBar) {
             if selecting {
-                BrowserSelectionControls(canDownload: !downloads.busy && !chosen.isEmpty && chosen.allSatisfy(canDownload),
+                BrowserSelectionControls(host: chosen.count == 1 && chosen.allSatisfy(canHost) ? { hosting = chosen.first } : nil,
+                        canDownload: !downloads.busy && !chosen.isEmpty && chosen.allSatisfy(canDownload),
                         download: { download(chosen) },
                         canCopy: !model.busy && !chosen.isEmpty && !chosen.contains { $0.isSource || !$0.permissions.download || protected($0) || pending($0) },
                         canMove: !chosen.isEmpty && !chosen.contains { $0.isSource || !$0.permissions.modify || pending($0) },
@@ -348,6 +353,7 @@ struct BrowserView: View {
         }
         .disabled(pending(item))
         .contextMenu {
+            if canHost(item) { Button("Host File", systemImage: "link") { hosting = item } }
             if canDownload(item) {
                 Button("Download", systemImage: "arrow.down.doc") { download([item]) }.disabled(downloads.busy)
             }
@@ -404,6 +410,7 @@ struct BrowserView: View {
     }
     private func reloadPreservingError() async { let error = model.error; await reload(); if let error { model.error = error } }
     private func reload() async { await model.load(connection: connection, parent: parent) }
+    private func canHost(_ item: StoredItem) -> Bool { model.canHost && canDownload(item) && item.protection == nil && model.parentProtection == nil && !protected(item) }
     private func canDownload(_ item: StoredItem) -> Bool { !item.isSource && !item.file.isDirectory && item.permissions.download && !pending(item) && item.protection?.unlocked != false }
     private func download(_ items: [StoredItem]) {
         guard let client = model.repository?.client, items.allSatisfy(canDownload) else { return }

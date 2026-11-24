@@ -556,3 +556,25 @@ in development. Apple compilation and device acceptance remain pending an
 explicitly requested app build. Verify single and multiple files on both sources,
 duplicate filenames, Files picker cancellation, download failure, denied download
 permissions, and compact iPhone/iPad toolbar layout. No server deployment needed.
+
+## Public file hosting — November 24, 2026
+
+Focused Go race tests and service vet passed in an isolated development container
+with synthetic storage and the VM test database. Coverage includes authenticated
+management, anonymous attachment downloads, HEAD/ranges, Unicode/reserved filename
+escaping, readable collision suffixes, restart persistence, expiry/renewal,
+repeatable revocation and reserved slugs, original replacement, forged protected
+requests, locked/unlocked/error broker snapshots, missing snapshots, internal
+paths, symlinks, directories, Drive capabilities/native-document rejection,
+content revision changes and Drive account changes. No production files changed.
+The disposable 3 GiB test filesystem/container and helper were removed.
+
+Swift syntax parsing and diff checks passed. Added Apple transport regressions
+cover canonical scoped paths, token-free filename-ending links, and duration /
+revocation requests; execution and app compilation remain pending on macOS.
+On iPhone/iPad, verify Host File for one ordinary local/Drive file (including
+selection mode), absence for protected files in every lock state, both durations,
+copy/share links, Settings listing, changing expiry, and Stop Hosting. Check
+compact toolbar and date-picker layout. After an explicitly requested API deploy,
+verify the public proxy's filename-ending URL anonymously downloads the expected
+bytes and expired/revoked links fail. No deployment or app build was requested.

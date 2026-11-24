@@ -86,6 +86,7 @@ struct BrowserViewOptions: View {
     }
 }
 struct BrowserSelectionControls: View {
+    var host: (() -> Void)? = nil
     let canDownload: Bool
     let download: () -> Void
     let canCopy: Bool
@@ -101,7 +102,10 @@ struct BrowserSelectionControls: View {
             Button("Download", systemImage: "arrow.down.doc", action: download).disabled(!canDownload)
             Button("Copy", systemImage: "doc.on.doc", action: copy).disabled(!canCopy)
             Button("Move", systemImage: "folder", action: move).disabled(!canMove)
-            Button("Delete", systemImage: "trash", role: .destructive, action: delete).disabled(!canDelete)
+            Menu {
+                if let host { Button("Host File", systemImage: "link", action: host) }
+                Button("Delete", systemImage: "trash", role: .destructive, action: delete).disabled(!canDelete)
+            } label: { Label("More", systemImage: "ellipsis.circle") }
         }.labelStyle(.titleAndIcon).frame(maxWidth: .infinity)
     }
 }
