@@ -146,7 +146,6 @@ struct FolderViewerSession: Identifiable {
     }
 }
 
-/// One presentation contains every file, so paging never exits full screen.
 /// Multiple windows may independently keep media visible.
 @MainActor
 private enum MediaScreenAwake {
@@ -158,6 +157,7 @@ private enum MediaScreenAwake {
     }
 }
 
+/// One presentation and player survive full-screen changes and folder paging.
 struct FolderViewer: View {
     let session: FolderViewerSession
     @State private var selected: String
@@ -166,6 +166,7 @@ struct FolderViewer: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var visible = false
     @State private var wakeID = UUID()
+    @State private var fullScreen = false
 
     private func updateScreenAwake() {
         let media = session.files.first(where: { $0.id == selected })?.canPrefetch == true
@@ -179,19 +180,37 @@ struct FolderViewer: View {
     }
 
     var body: some View {
-        TabView(selection: $selected) {
-            ForEach(session.files) { file in
-                FolderViewerPage(file: file, active: selected == file.id, cache: cache)
-                    .tag(file.id)
+        ZStack {
+            TabView(selection: $selected) {
+                ForEach(session.files) { file in
+                    FolderViewerPage(file: file, active: selected == file.id, cache: cache, fullScreen: fullScreen)
+                        .tag(file.id)
+                }
             }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .ignoresSafeArea(.container, edges: fullScreen ? .all : [])
         }
-        .tabViewStyle(.page(indexDisplayMode: .never))
+        .background(fullScreen ? Color.black : Color(uiColor: .systemBackground))
+        .statusBarHidden(fullScreen)
+        .persistentSystemOverlays(fullScreen ? .hidden : .automatic)
         .onAppear { visible = true; cache.select(selected); updateScreenAwake() }
         .onChange(of: selected) { _, id in cache.select(id); updateScreenAwake() }
         .onChange(of: scenePhase) { _, _ in updateScreenAwake() }
         .onDisappear { visible = false; updateScreenAwake(); cache.clear() }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in cache.trimToSelected() }
         .onReceive(NotificationCenter.default.publisher(for: .fileBeansProtectionChanged)) { _ in cache.clear(); dismiss() }
+        .overlay(alignment: .topLeading) {
+            if session.files.first(where: { $0.id == selected })?.canPrefetch == true {
+                Button {
+                    fullScreen.toggle()
+                } label: {
+                    Image(systemName: fullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel(fullScreen ? "Exit Full Screen" : "Full Screen")
+                .background(.regularMaterial, in: Capsule()).padding()
+            }
+        }
         .overlay(alignment: .topTrailing) {
             Button("Done") { dismiss() }
                 .padding().background(.regularMaterial, in: Capsule()).padding()
@@ -203,6 +222,7 @@ struct FolderViewerPage: View {
     let file: FolderViewerFile
     let active: Bool
     @ObservedObject var cache: FolderViewerCache
+    var fullScreen = false
 
     var body: some View {
         ZStack {
@@ -212,7 +232,7 @@ struct FolderViewerPage: View {
                     if active { FolderDocumentPreview(url: url) } else { ProgressView() }
                 case .image(_, let image): FolderImagePreview(image: image, name: file.name)
                 case .movie(let movie):
-                    if active { MovieView(movie: movie).id(movie.id) } else { ProgressView() }
+                    if active { MovieView(movie: movie, fullScreen: fullScreen).id(movie.id) } else { ProgressView() }
                 }
             } else if let error = cache.errors[file.id] {
                 ContentUnavailableView {

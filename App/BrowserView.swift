@@ -425,6 +425,7 @@ struct ImportedMedia: Transferable {
 struct Movie: Identifiable { let id = UUID(); let name: String; let stream: MediaStream }
 struct MovieView: View {
     let movie: Movie
+    var fullScreen = false
     @Environment(\.dismiss) private var dismiss
     @State private var player = AVPlayer()
     @State private var error = false
@@ -439,6 +440,7 @@ struct MovieView: View {
                     movie.stream.cancel()
                 }
                 .navigationTitle(movie.name).navigationBarTitleDisplayMode(.inline)
+                .toolbar(fullScreen ? .hidden : .visible, for: .navigationBar)
                 .task {
                     guard !started else { return }
                     started = true

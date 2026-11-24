@@ -1,5 +1,17 @@
 ## Folder viewer swipes
 
+- Full screen: open a photo from VPS, Samba and Drive, tap **Full Screen**, and
+  confirm the image uses the screen edges and system bars hide. Swipe to the
+  next and previous photo/video; full screen must remain selected. Exit full
+  screen and confirm the selected file is retained. For a video, toggle while
+  playing and paused: playback position, pause state and the existing stream
+  must survive. Check rotation, image zoom/pan and Done on iPhone and iPad.
+  Leave photos and paused/playing videos visible beyond the Auto-Lock interval
+  in both modes; the screen must stay awake. Close the viewer or background the
+  app and confirm normal dimming returns. The UI regression covers photo
+  expansion, paging, mode retention, selection and dismissal; Apple execution
+  and physical-device acceptance remain pending for this change.
+
 - Adjacent prefetch: open a middle image in a VPS, Samba or Drive folder and
   verify only the selected file and its immediate image/video neighbors load.
   Swipe both ways and confirm cached images open without another download.
