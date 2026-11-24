@@ -1,5 +1,41 @@
 # Signing and TestFlight
 
+## Linked archives — server deployment (November 24, 2026)
+
+Deployed server source `66e17a84b4a5f2e12378ddcf5ced994fe90ddfec` as
+`filebeans-api:66e17a8-archives`. The API advertises `archiveLinksV1` and
+`filenameStemsV1`. Links cover complete folder trees, archive thumbnail requests
+stop before media reads, and linked roots require unlinking before deletion.
+No copying, transcoding or processing worker was enabled by this deployment.
+The dataset renderer retains its approved generated media/caption exception.
+
+- Built on the VM in a temporary 3 GiB disk-backed filesystem, using the local
+  bounded image builder. The upstream dependency download returned HTTP 403;
+  reused deployed static rclone 1.76.0, verifying its SHA-256
+  `62e4d3e5432f2c685f1834b8bb342058ff0611c99d048aeb44bb8d8fd611527e`.
+- Export SHA-256:
+  `e21de6a133243b70e6b870567bb30c9f5a2d92d1e9cdc548b3d7b3288d3e6bca`.
+  Transfer length **243,758,080 bytes** and checksum matched before cutover.
+  Loaded manifest:
+  `sha256:cb4fbdbe90ab2f8865f8e8995d42319d9075b8477b074491efe47fa9b4a51b93`.
+- Recreated only the companion with `--no-build --no-deps --pull never`.
+  Broker PID, other container identities, private API configuration and unlocked
+  protection state were preserved. No normalizer container was running or started;
+  no database migration was required. API restart count is zero, without OOM.
+- Tiny task-owned folders inside unlocked protected VPS and Samba folders passed
+  live linking, future-subfolder inheritance, thumbnail rejection, case/extension
+  conflict rejection, unlink-first deletion, rename tracking and unlink content
+  preservation. Both probe folders and their Trash payloads were removed.
+  Public HTTPS capabilities returned 200 authenticated and 401 anonymously.
+- VM build context/export/cache/filesystem and smoke image, VPS transfer/rollback
+  staging and the superseded API image were removed after live checks. No task
+  artifacts are retained. Shared build tooling/caches and permanent credentials
+  were preserved.
+
+The server deployment is finished and verified. Apple validation and internal
+TestFlight publication are in progress under the same requested release.
+
+
 ## Media screen wake protection — TestFlight 33 (November 22, 2026)
 
 Released source `9bb028fc0c0abfbae14ad8935b9e046fe38073c7` as **0.1.0 (33)**,

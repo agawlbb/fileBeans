@@ -12,8 +12,11 @@ final class FolderViewerGestureTests: XCTestCase {
         app.buttons["Full Screen"].tap()
         XCTAssertTrue(app.buttons["Exit Full Screen"].waitForExistence(timeout: 5))
         assertPhoto("first.png", in: app)
-        XCTAssertGreaterThan(app.images["first.png"].frame.height, normalHeight,
-                             "Full screen must expand the media beyond the normal safe area")
+        let expanded = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            app.images["first.png"].frame.height > normalHeight
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [expanded], timeout: 5), .completed,
+                       "Full screen must expand the media beyond the normal safe area")
         app.swipeLeft()
         assertPhoto("second.png", in: app)
         XCTAssertTrue(app.buttons["Exit Full Screen"].exists)
