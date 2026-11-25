@@ -28,6 +28,7 @@ targets:
       - Shared
       - Transfers
       - path: Tests/Fixtures/playback-probe.mp4
+        createIntermediateGroups: true
         buildPhase: resources
     settings:
       base:

@@ -2,10 +2,18 @@
 
 ## Video playback — TestFlight 38 (November 25, 2026)
 
-Release source `40f5839` uses the native player controller so presentation
-transitions do not tear down playback, extends the full-screen black background
-through the safe area, and resumes buffered waiting playback without overriding
-an intentional pause.
+Device feedback found a regression: build 38 exposes two full-screen controls
+and can immediately become black and unresponsive on entering full screen.
+The simulator results below did not cover video presentation transitions.
+Correction source `50804b3` restores the single viewer control, removes the
+nested video navigation stack, and gives the cached movie ownership of its
+player. The new video UI regression checks control count, item identity and
+continued decoding through repeated transitions. This correction is not yet
+released to TestFlight.
+
+Release source `40f5839` attempted to preserve playback with a native player
+controller, extended the full-screen black background through the safe area,
+and added recovery for buffered waiting playback that preserves intentional pause.
 
 - [Apple validation](https://github.com/agawlbb/fileBeans/actions/runs/45707728126)
   passed 135 unit tests, 3 UI tests and the unsigned iPhone/iPad Release archive.
