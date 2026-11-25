@@ -155,3 +155,32 @@ Only the filename is in argv; contents stay in local process pipes. The original
 credential file is preserved. Both entry paths normalize recovery-code letter
 case before the worker validates the checksum. Do not run a second request while
 an inspection/extraction is active; the worker serves requests serially.
+
+## Layout correction and listing issue — 2026-11-25
+
+The tar contained an outer `pics archive` directory. After the user reported the
+unwanted wrapper, its 49 immediate entries were promoted directly into Samba
+`/pics` using same-filesystem, no-overwrite renames on Pi. The original wrapper
+was removed only after emptying it. Counts before/after remained 743 files and
+45,032,055,965 bytes; nested folders were preserved. No media crossed the network.
+The original 44,861,578,484-byte tar.gz remains in Pic archive. No global lock or
+VPS protection change was made.
+
+The short-lived repair script ran inside the existing constrained helper using
+the original Pi-local key pipe; it and all maintenance mountpoints were removed
+and the helper was stopped. The helper's normal selftest was restored. Its
+installed package remains pending the final FileBeans viewing check and removal.
+
+Read-only production diagnostics found direct directory enumeration took 1.174
+seconds, while the corrected folder's API listing took 48.41 seconds for 49
+entries. Listing repeats complete protected-boundary classification per child
+and per ancestor. A focused API fix pins the already-validated protected
+directory for child Lstat calls while retaining the request's protection lease;
+ordinary directory checks are unchanged, symlinks remain excluded, and canceled
+requests stop enumerating. Filesystem race tests passed, including directory
+replacement/symlink confinement. Deployment and live timing verification remain
+pending an explicit server deployment request; no client build is required.
+
+The live archive-link listing was empty during diagnosis. Phase two must resolve
+or establish the intended link before relying on archive thumbnail suppression;
+no link was created as part of this layout repair.

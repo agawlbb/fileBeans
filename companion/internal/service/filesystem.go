@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -185,6 +186,7 @@ func (s *Service) filesystemResource(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	entry := filesystemInfo(p, st)
+	protectedListing := false
 	decorate(&entry)
 	if guarded, ok := root.(*guardedRoot); ok && guarded.lease != nil {
 		v, _, err := guarded.lease.Boundary(filepath.Join(root.Name(), p))
@@ -194,6 +196,7 @@ func (s *Service) filesystemResource(w http.ResponseWriter, r *http.Request) {
 		}
 		if v != nil {
 			entry.Vault = v.ID
+			protectedListing = true
 		}
 	} else if s.vaults != nil {
 		if v := s.vaults.pathVault(r.URL.Query().Get("source"), p); v != nil {
@@ -211,6 +214,19 @@ func (s *Service) filesystemResource(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer f.Close()
+		var metadataRoot *os.Root
+		if protectedListing {
+			// The lease pins this unlocked mount for the entire request, and
+			// nested vaults are forbidden. Pin this already-authorized directory
+			// too: per-child metadata must not repeat global boundary checks or
+			// follow a renamed parent path. Lstat still rejects child symlinks.
+			metadataRoot, e = pinnedListingRoot(f)
+			if e != nil {
+				filesystemFail(w, e)
+				return
+			}
+			defer metadataRoot.Close()
+		}
 		children, e := f.ReadDir(-1)
 		if e != nil {
 			filesystemFail(w, e)
@@ -218,15 +234,23 @@ func (s *Service) filesystemResource(w http.ResponseWriter, r *http.Request) {
 		}
 		entry.Children = []filesystemEntry{}
 		for _, child := range children {
+			if r.Context().Err() != nil {
+				return
+			}
 			cp := filepath.Join(p, child.Name())
 			if filesystemHidden(cp) || child.Type()&os.ModeSymlink != 0 {
 				continue
 			}
 			// Locked placeholders are supplied by the existing protection API instead.
-			if e := safe(root, cp); e != nil {
-				continue
+			var info os.FileInfo
+			if metadataRoot != nil {
+				info, e = metadataRoot.Lstat(child.Name())
+			} else {
+				if e = safe(root, cp); e != nil {
+					continue
+				}
+				info, e = root.Stat(cp)
 			}
-			info, e := root.Stat(cp)
 			if e != nil {
 				continue
 			}
@@ -240,6 +264,13 @@ func (s *Service) filesystemResource(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("ETag", `"`+entry.Revision+`"`)
 	reply(w, 200, entry)
 }
+
+// /proc/self/fd resolves the held directory rather than its original pathname.
+// The duplicate root remains confined even if the directory is renamed.
+func pinnedListingRoot(directory *os.File) (*os.Root, error) {
+	return os.OpenRoot(fmt.Sprintf("/proc/self/fd/%d", directory.Fd()))
+}
+
 func (s *Service) filesystemContent(w http.ResponseWriter, r *http.Request) {
 	root, p, e := s.filesystemRoot(r)
 	if e != nil {

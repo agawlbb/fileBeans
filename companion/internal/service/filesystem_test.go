@@ -403,3 +403,50 @@ func TestFilesystemRendererProtectedProcess(t *testing.T) {
 		t.Fatal("renderer weakened process privacy", dumpable, e)
 	}
 }
+
+func TestPinnedListingRootSurvivesParentReplacement(t *testing.T) {
+	base := t.TempDir()
+	folder := filepath.Join(base, "folder")
+	outside := filepath.Join(base, "outside")
+	if e := os.Mkdir(folder, 0700); e != nil {
+		t.Fatal(e)
+	}
+	if e := os.Mkdir(outside, 0700); e != nil {
+		t.Fatal(e)
+	}
+	os.WriteFile(filepath.Join(folder, "entry.txt"), []byte("yes"), 0600)
+	os.WriteFile(filepath.Join(outside, "entry.txt"), []byte("outside-secret"), 0600)
+	dir, e := os.Open(folder)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer dir.Close()
+	root, e := pinnedListingRoot(dir)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer root.Close()
+	if e = os.Rename(folder, folder+"-moved"); e != nil {
+		t.Fatal(e)
+	}
+	if e = os.Symlink(outside, folder); e != nil {
+		t.Fatal(e)
+	}
+	info, e := root.Lstat("entry.txt")
+	if e != nil || info.Size() != 3 {
+		t.Fatalf("parent replacement redirected metadata: %v %v", info, e)
+	}
+	if _, e = root.Open("../outside/entry.txt"); e == nil {
+		t.Fatal("pinned root escaped")
+	}
+	if e = os.Symlink(filepath.Join(outside, "entry.txt"), filepath.Join(folder+"-moved", "link")); e != nil {
+		t.Fatal(e)
+	}
+	info, e = root.Lstat("link")
+	if e != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("symlink metadata followed", e)
+	}
+	if _, e = root.Open("link"); e == nil {
+		t.Fatal("symlink escaped pinned directory")
+	}
+}
