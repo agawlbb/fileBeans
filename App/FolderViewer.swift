@@ -191,7 +191,10 @@ struct FolderViewer: View {
             .tabViewStyle(.page(indexDisplayMode: .never))
         }
         .ignoresSafeArea(.container, edges: fullScreen ? .all : [])
-        .background(fullScreen ? Color.black : Color(uiColor: .systemBackground))
+        .background {
+            if fullScreen { Color.black.ignoresSafeArea() }
+            else { Color(uiColor: .systemBackground) }
+        }
         .statusBarHidden(fullScreen)
         .persistentSystemOverlays(fullScreen ? .hidden : .automatic)
         .contentShape(Rectangle())

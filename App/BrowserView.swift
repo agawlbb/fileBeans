@@ -468,12 +468,9 @@ struct MovieView: View {
     @State private var started = false
     var body: some View {
         NavigationStack {
-            VideoPlayer(player: player)
-                .onDisappear {
-                    player.pause()
-                    player.replaceCurrentItem(with: nil)
-                    movie.stream.cancel()
-                }
+            NativeVideoPlayer(player: player, stream: movie.stream)
+                .background(Color.black.ignoresSafeArea())
+                .ignoresSafeArea(.container, edges: fullScreen ? .all : [])
                 .navigationTitle(movie.name).navigationBarTitleDisplayMode(.inline)
                 .toolbar(fullScreen ? .hidden : .visible, for: .navigationBar)
                 .task {
@@ -517,8 +514,28 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
     @MainActor final class Coordinator {
         let player: AVPlayer
         let stream: MediaStream
-        init(player: AVPlayer, stream: MediaStream) { self.player = player; self.stream = stream }
-        func close() { player.pause(); player.replaceCurrentItem(with: nil); stream.cancel() }
+        private var recovery: Task<Void, Never>?
+        init(player: AVPlayer, stream: MediaStream) {
+            self.player = player; self.stream = stream
+            recovery = Task { @MainActor [weak self] in
+                while !Task.isCancelled {
+                    do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                    self?.resumeBufferedPlayback()
+                }
+            }
+        }
+        // Waiting retains AVPlayer's play intent. A user pause changes this to
+        // .paused, so recovery never overrides the native pause control.
+        func resumeBufferedPlayback() {
+            guard player.timeControlStatus == .waitingToPlayAtSpecifiedRate,
+                  let item = player.currentItem, item.status == .readyToPlay,
+                  item.isPlaybackLikelyToKeepUp, !item.isPlaybackBufferEmpty else { return }
+            player.playImmediately(atRate: player.rate > 0 ? player.rate : 1)
+        }
+        func close() {
+            recovery?.cancel(); recovery = nil
+            player.pause(); player.replaceCurrentItem(with: nil); stream.cancel()
+        }
     }
     func makeCoordinator() -> Coordinator { Coordinator(player: player, stream: stream) }
     static func dismantleUIViewController(_ controller: AVPlayerViewController, coordinator: Coordinator) {
@@ -527,6 +544,7 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
     }
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
+        controller.view.backgroundColor = .black
         controller.player = player
         controller.showsPlaybackControls = true
         controller.entersFullScreenWhenPlaybackBegins = false

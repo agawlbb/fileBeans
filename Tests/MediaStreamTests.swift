@@ -138,6 +138,38 @@ final class MediaStreamTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(100))
         }
         XCTAssertGreaterThanOrEqual(player.currentTime().seconds, 6, "Playback must advance after seeking and resuming")
+
+        // Scrubbing repeatedly used to precede the persistent black-screen
+        // failure. Seek while playing, without a pause/play workaround.
+        let originalItem = player.currentItem
+        for target in [2.0, 5.0, 1.0, 4.0, 2.0] {
+            let seek = expectation(description: "Repeated seek to \(target)")
+            player.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { finished in
+                XCTAssertTrue(finished)
+                seek.fulfill()
+            }
+            await fulfillment(of: [seek], timeout: 10)
+            let deadline = Date().addingTimeInterval(10)
+            var decoded = false
+            while Date() < deadline {
+                let time = player.currentTime()
+                if time.seconds >= target + 0.5,
+                   output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) != nil {
+                    decoded = true
+                    break
+                }
+                try await Task.sleep(for: .milliseconds(100))
+            }
+            XCTAssertTrue(decoded, "Video must decode and advance after repeated seeks without manual resume")
+            XCTAssertTrue(player.currentItem === originalItem)
+        }
+
+        let coordinator = NativeVideoPlayer.Coordinator(player: player, stream: stream)
+        player.pause()
+        coordinator.resumeBufferedPlayback()
+        XCTAssertEqual(player.rate, 0, "Buffer recovery must preserve an intentional pause")
+        coordinator.close()
+        XCTAssertNil(player.currentItem, "Removing the player must release its item")
     }
 
     @MainActor

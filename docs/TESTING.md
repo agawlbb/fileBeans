@@ -1,5 +1,15 @@
 ## Folder viewer swipes
 
+- Video playback regression: repeatedly seek forward/backward while playing,
+  enter/exit full screen after each seek, and repeat while paused. Confirm moving
+  frames, an advancing clock and preserved position, with no white strip at the
+  bottom in portrait/landscape on iPhone and iPad. Throttle the connection until
+  playback buffers, restore it, and confirm playback resumes without touching
+  pause/play. Pause during buffering and confirm it stays paused after recovery.
+  Dismiss or page away while buffering and confirm streaming stops. Repeat from
+  VPS, Samba and Drive. The repeated-seek automated test and these device checks
+  require Apple execution; source inspection alone does not establish acceptance.
+
 - Full screen: open a photo from VPS, Samba and Drive, tap **Full Screen**, and
   confirm the image uses the screen edges and system bars hide. Swipe to the
   next and previous photo/video; full screen must remain selected with no
