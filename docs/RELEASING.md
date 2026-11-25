@@ -47,7 +47,11 @@ replacement remain blocked. External drift never authorizes deleting originals.
 App release is in progress. [Apple validation 45671244822](https://github.com/agawlbb/fileBeans/actions/runs/45671244822)
 passed all **135 unit tests** on its first attempt; one UI test encountered an
 Xcode app-launch timeout before interaction while the other two passed. The
-failed validation job was retried on a fresh runner without source changes.
+fresh runner also passed all 135 unit tests and the other two UI tests, but
+Xcode reported no process ID while launching the first UI test. Validation now
+permits one built-in Xcode retry per failed test, with the same assertions and
+retained result bundle. This follows [Apple’s test repetition support](https://developer.apple.com/documentation/Xcode-Release-Notes/xcode-13-release-notes).
+A new complete validation run is required before publication.
 The app adds the requested launch/foreground pending-backup alert through
 `archiveSyncV1`; no protected paths are exposed in the status response.
 

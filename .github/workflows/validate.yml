@@ -38,7 +38,7 @@ jobs:
       - name: Simulator tests
         timeout-minutes: 30
         run: |
-          xcodebuild test -project myFiles.xcodeproj -scheme myFiles -destination "platform=iOS Simulator,id=$DEVICE_ID" -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO -resultBundlePath TestResults.xcresult
+          xcodebuild test -project myFiles.xcodeproj -scheme myFiles -destination "platform=iOS Simulator,id=$DEVICE_ID" -parallel-testing-enabled NO -retry-tests-on-failure -test-iterations 2 CODE_SIGNING_ALLOWED=NO -resultBundlePath TestResults.xcresult
       - name: Build Release archive for iPhone and iPad
         run: |
           xcodebuild archive -project myFiles.xcodeproj -scheme myFiles -configuration Release -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/myFiles-unsigned.xcarchive" CODE_SIGNING_ALLOWED=NO
