@@ -335,7 +335,7 @@ the existing Apple setup scripts. The extension must not receive the vault Keych
 group. No Apple registrations, signing changes, builds, uploads, or VPS deployment
 were performed as part of source implementation.
 
-## Linked archives (phase one)
+## Linked archives (phase two)
 
 A folder's **Link Archive…** menu links it as the Library to an existing folder,
 including an existing protected folder, or a protected folder created in the
@@ -348,14 +348,17 @@ endpoints, overlapping endpoints and trees already covered by another link are
 not eligible. No copying, conversion, mirroring or linked file deletion occurs.
 The existing normalizer configuration is not enabled or reconfigured by linking.
 
-Deleting either endpoint or any ancestor requires unlinking first. Unlinking
-preserves both trees. Ordinary atomic renames/moves journal old/intended locations
-and recover by directory identity. Protected endpoints store a vault ID and a
-relative location, so broker root relocations preserve their link. Transfers of
-linked roots across sources or protection boundaries, and moves requiring a
-background job, require unlinking first in this phase. The protected-root app
-flow checks this before starting its existing copy-and-delete move. Copies never
-inherit a link. Linking is refused while a relevant source move job is active.
+The archive endpoint and all descendants are read-only in FileBeans. Creating,
+uploading, editing, renaming, moving, deleting, restoring or purging there returns
+HTTP 403 with `Make changes in VPS /pics.` (using the actual Library location).
+Mutating an ancestor or submitting/retrying a job that would write into the
+archive is also blocked. This policy follows protected vault IDs and covers
+filesystem aliases. It does not change operating-system permissions.
+Deleting the Library endpoint or an ancestor requires unlinking first; supported
+Library renames update its location. Cross-source/protection-boundary linked-root
+moves still require unlinking. Unlinking preserves both trees and restores archive
+writes. Copies never inherit a link. Relevant active source/destination jobs
+prevent linking. Library edits are not yet propagated to the archive.
 
 External moves/deletions leave an unavailable link at the recorded location;
 there is no automatic reconciliation or deletion. Ordinary endpoints check
@@ -366,13 +369,21 @@ using the existing operation-record mechanism. When link metadata is locked,
 destructive link checks fail closed, and thumbnail generation is conservatively
 unavailable until unlock. Source unavailability never deletes the link.
 
-Archive listings set `hasPreview: false` for every descendant and include
-`archiveLink`, `archiveRole` (`library` or `archive`), and `archiveRoot` (true only
-at an endpoint). The client skips archive thumbnail requests. The server also
-rejects archive thumbnail requests before opening media. This is a temporary,
-small generation guard; no thumbnail cache purge or display reconciliation is
-performed. Explicit file opening/playback remains available. Unlinking restores
-ordinary thumbnail eligibility on the next listing.
+Listings include `archiveLink`, `archiveRole` (`library` or `archive`),
+`archiveRoot` and `archiveLibrary` (the matched Library source/path). Archive media
+retains normal preview eligibility. Archive thumbnail requests serve only existing
+cache JPEGs; missing caches return 404 before media is opened or rendering starts.
+The client also sends `cachedOnly=true` for archive requests. This GET has no media
+body. Generation outside linked archives remains normal. Explicit opening and
+playback remain available. Unlinking restores ordinary thumbnail generation.
+
+`companion/ops/archive_thumbnails.py` compares complete relative paths and exact-case
+filename stems, ignoring the last extension, media sizes and hashes. It refuses
+mismatches or ambiguous stems before writing. It imports only current cached VPS
+JPEGs, rekeys them for each archive original's metadata, atomically publishes and
+verifies cache bytes, and never opens original media. Missing thumbnails remain
+missing. Internal cache/staging paths are excluded. The one-time operation is not
+an automatic synchronization worker.
 
 All routes use the existing companion authentication and no-store policy:
 
@@ -382,7 +393,8 @@ All routes use the existing companion authentication and no-store policy:
 | `POST /v1/archive-links` | Body `{"library":{"source":"vps","path":"/Media"},"archive":{"source":"samba","path":"/Originals"}}`; validates both trees using filenames only and creates the link; an identical retry returns the existing pair |
 | `DELETE /v1/archive-links/{id}` | Removes the link only; requires access to its unlocked metadata |
 
-Capabilities advertise `archiveLinksV1` and `filenameStemsV1`. Links reuse the
+Capabilities advertise `archiveLinksV1`, `filenameStemsV1`,
+`archiveReadOnlyV1` and `archiveCachedThumbnailsV1`. Links reuse the
 existing encrypted `fb_operations` storage with kind `archiveLink`; no SQL schema
 change or existing-data migration is needed. Server and app updates are required
 to expose setup; older clients still receive server deletion/thumbnail guards.
@@ -432,3 +444,11 @@ storage; the synthetic SMB resumable-upload subcase retains its existing skip
 because the fixture does not implement hardlinks. Test container and staging were
 removed. Apple compilation, Apple test execution, physical-device and production
 acceptance await separately requested build/deployment work.
+
+### Stage-two validation and activation
+
+On 2026-11-25 the Go race suite (including VM-only MariaDB integration) and
+`go vet ./...` passed. Seven thumbnail-import tests passed; Swift syntax parsed
+across 64 files. Apple SDK unit tests still require the existing macOS workflow.
+These source changes are not a deployment or an app release; the running phase-one
+server/app continue their earlier behavior until separately requested activation.

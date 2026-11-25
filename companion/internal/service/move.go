@@ -254,6 +254,9 @@ func (s *Service) saveMove(j *Job) error {
 }
 
 func (s *Service) executeMove(ctx context.Context, j *Job) error {
+	if e := s.guardArchiveJob(j.Request); e != nil {
+		return e
+	}
 	if e := validateMoveRequest(j.Request); e != nil {
 		return e
 	}

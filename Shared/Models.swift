@@ -63,6 +63,7 @@ struct RemoteFile: Codable, Hashable {
     var archiveLink: String? = nil
     var archiveRole: String? = nil
     var archiveRoot: Bool? = nil
+    var archiveLibrary: ArchiveEndpoint? = nil
     var isDirectory: Bool { type == "directory" }
     var isMedia: Bool { type.hasPrefix("video/") || type.hasPrefix("audio/") }
     var date: Date? {
@@ -84,8 +85,9 @@ struct Resource: Decodable {
     var archiveLink: String?
     var archiveRole: String?
     var archiveRoot: Bool?
+    var archiveLibrary: ArchiveEndpoint?
     private enum CodingKeys: String, CodingKey {
-        case name, path, type, size, modified, hasPreview, revision, children, archiveLink, archiveRole, archiveRoot
+        case name, path, type, size, modified, hasPreview, revision, children, archiveLink, archiveRole, archiveRoot, archiveLibrary
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -99,6 +101,7 @@ struct Resource: Decodable {
         archiveLink = try c.decodeIfPresent(String.self, forKey: .archiveLink)
         archiveRole = try c.decodeIfPresent(String.self, forKey: .archiveRole)
         archiveRoot = try c.decodeIfPresent(Bool.self, forKey: .archiveRoot)
+        archiveLibrary = try c.decodeIfPresent(ArchiveEndpoint.self, forKey: .archiveLibrary)
         children = try c.decodeIfPresent([RemoteFile].self, forKey: .children) ?? []
         for index in children.indices {
             let expected = try FilePath.child(children[index].name, in: path)
@@ -108,7 +111,7 @@ struct Resource: Decodable {
     }
     var file: RemoteFile {
         RemoteFile(name: name, path: path, type: type, size: size, modified: modified,
-                   hasPreview: hasPreview, revision: revision, archiveLink: archiveLink, archiveRole: archiveRole, archiveRoot: archiveRoot)
+                   hasPreview: hasPreview, revision: revision, archiveLink: archiveLink, archiveRole: archiveRole, archiveRoot: archiveRoot, archiveLibrary: archiveLibrary)
     }
 }
 

@@ -11,6 +11,9 @@ import (
 // Drive moves use the existing copy engines and the move journal. Publication
 // completes before any original can be removed; retries resume cleanup only.
 func (s *Service) executeDriveMove(ctx context.Context, j *Job) error {
+	if e := s.guardArchiveJob(j.Request); e != nil {
+		return e
+	}
 	if err := s.requireDriveWrite(j.Connection); err != nil {
 		return err
 	}

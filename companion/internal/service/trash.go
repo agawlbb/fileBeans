@@ -78,11 +78,19 @@ func (s *Service) trash(item Item, key string) (Trash, error) {
 	return t, e
 }
 func (s *Service) restore(id string) error {
+	archiveMu.Lock()
+	defer archiveMu.Unlock()
 	if strings.HasPrefix(id, "vault-") && s.vaults != nil && s.vaults.remote != nil {
+		if e := s.guardArchiveVaultWrite(strings.TrimPrefix(id, "vault-")); e != nil {
+			return e
+		}
 		return s.vaults.remote.folderAction(strings.TrimPrefix(id, "vault-"), "restore", "")
 	}
 	var t Trash
 	if e := s.read(id, "trash", &t); e != nil {
+		return e
+	}
+	if e := s.guardArchiveTrash(t); e != nil {
 		return e
 	}
 	if t.State != "retained" {
@@ -129,6 +137,11 @@ func (s *Service) restore(id string) error {
 	return a.bin.RemoveAll(trashDirectory(t))
 }
 func (s *Service) purge(t *Trash) error {
+	archiveMu.Lock()
+	defer archiveMu.Unlock()
+	if e := s.guardArchiveTrash(*t); e != nil {
+		return e
+	}
 	if strings.HasPrefix(t.ID, "vault-") && s.vaults != nil && s.vaults.remote != nil {
 		return s.vaults.remote.folderAction(strings.TrimPrefix(t.ID, "vault-"), "purge", "")
 	}

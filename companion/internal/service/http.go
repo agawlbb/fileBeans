@@ -21,6 +21,8 @@ func reply(w http.ResponseWriter, status int, v any) {
 func fail(w http.ResponseWriter, e error) {
 	status := http.StatusServiceUnavailable
 	switch {
+	case errors.Is(e, ErrArchiveReadOnly):
+		status = 403
 	case errors.Is(e, ErrUnsafe):
 		status = 400
 	case errors.Is(e, ErrConflict), errors.Is(e, ErrArchiveLinked):
@@ -76,7 +78,7 @@ func (s *Service) Handler() http.Handler {
 		g, e := s.google()
 		features := []string{"publicHostingV1", "protectedFolderMoves", "crossDriveMoves", "driveWrite", "driveDestinations", "driveUploads", "driveThumbnails", "driveMedia", "normalization"}
 		if s.config.Filesystem.Enabled {
-			features = append(features, "archiveLinksV1", "filenameStemsV1", "filesystemV1", "resumableUploadsV1", "datasetMediaV1", "datasetOriginalsV1")
+			features = append(features, "archiveLinksV1", "archiveReadOnlyV1", "archiveCachedThumbnailsV1", "filenameStemsV1", "filesystemV1", "resumableUploadsV1", "datasetMediaV1", "datasetOriginalsV1")
 		}
 		if s.vaults != nil && s.vaults.remote != nil && s.vaults.remote.ready() {
 			features = append(features, "protectedFoldersCreate")
@@ -86,6 +88,10 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/jobs", func(w http.ResponseWriter, r *http.Request) {
 		var req CopyRequest
 		if e := body(r, &req); e != nil {
+			fail(w, e)
+			return
+		}
+		if e := s.guardArchiveJob(req); e != nil {
 			fail(w, e)
 			return
 		}

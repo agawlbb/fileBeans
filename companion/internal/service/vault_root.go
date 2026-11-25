@@ -31,6 +31,7 @@ type guardedRoot struct {
 	lease        *protection.Lease
 	transient    *protection.Guard
 	ordinaryOnly bool
+	archiveWrite archiveWriteCheck
 }
 
 // The normalizer never consumes protected files. It refreshes the boundary
@@ -44,7 +45,7 @@ func (r *guardedRoot) operation() (*guardedRoot, func(), error) {
 	if e != nil {
 		return nil, nil, protectionError(e)
 	}
-	return &guardedRoot{Root: r.Root, lease: lease, ordinaryOnly: true}, func() { _ = lease.Close() }, nil
+	return &guardedRoot{Root: r.Root, lease: lease, ordinaryOnly: true, archiveWrite: r.archiveWrite}, func() { _ = lease.Close() }, nil
 }
 
 func waitProtection(guard *protection.Guard) (*protection.Lease, error) {
@@ -94,7 +95,21 @@ func (r *guardedRoot) check(name string) error {
 	}
 	return protectionError(r.lease.Check(p, false))
 }
+func (r *guardedRoot) checkArchiveWrite(p string, recursive bool) error {
+	if r.archiveWrite != nil {
+		return r.archiveWrite(p, recursive)
+	}
+	return nil
+}
 func (r *guardedRoot) mutation(from, to string) error {
+	if e := r.checkArchiveWrite(from, true); e != nil {
+		return e
+	}
+	if to != "" {
+		if e := r.checkArchiveWrite(to, true); e != nil {
+			return e
+		}
+	}
 	if r.ordinaryOnly {
 		if e := r.check(from); e != nil {
 			return e
@@ -241,6 +256,9 @@ func (r *guardedRoot) MkdirAll(name string, mode os.FileMode) error {
 		return active.MkdirAll(name, mode)
 	}
 
+	if e := r.checkArchiveWrite(name, false); e != nil {
+		return e
+	}
 	if e := r.check(name); e != nil {
 		return e
 	}

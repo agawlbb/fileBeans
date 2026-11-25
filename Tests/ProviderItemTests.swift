@@ -42,3 +42,28 @@ final class ProviderItemTests: XCTestCase {
         XCTAssertNotEqual(before.metadataVersion, after.metadataVersion)
     }
 }
+
+extension ProviderItemTests {
+    func testArchiveCapabilitiesAndUnlinkMetadata() {
+        var stored = StoredItem(id: "archive", parent: "source", source: "Samba",
+            file: RemoteFile(name: "pics", path: "/pics", type: "directory", archiveRole: "archive",
+                             archiveLibrary: ArchiveEndpoint(source: "VPS", path: "/pics", available: true)),
+            permissions: Permissions(view: true, download: true, modify: true, create: true, delete: true))
+        let item = ProviderItem(stored)
+        XCTAssertTrue(item.capabilities.contains(.allowsReading))
+        XCTAssertTrue(item.capabilities.contains(.allowsContentEnumerating))
+        let mutations: [NSFileProviderItemCapabilities] = [.allowsAddingSubItems, .allowsWriting, .allowsDeleting, .allowsRenaming, .allowsReparenting]
+        for capability in mutations {
+            XCTAssertFalse(item.capabilities.contains(capability))
+        }
+        XCTAssertThrowsError(try stored.file.requireArchiveWritable()) { error in
+            XCTAssertEqual(error.localizedDescription, "Make changes in VPS /pics.")
+        }
+        let before = item.itemVersion
+        stored.file.archiveRole = nil; stored.file.archiveLibrary = nil
+        XCTAssertNoThrow(try stored.file.requireArchiveWritable())
+        XCTAssertTrue(ProviderItem(stored).capabilities.contains(.allowsAddingSubItems))
+        XCTAssertNotEqual(before.metadataVersion, ProviderItem(stored).itemVersion.metadataVersion)
+        XCTAssertEqual(before.contentVersion, ProviderItem(stored).itemVersion.contentVersion)
+    }
+}

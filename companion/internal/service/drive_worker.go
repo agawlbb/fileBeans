@@ -18,6 +18,9 @@ import (
 )
 
 func (s *Service) executeDrive(ctx context.Context, j *Job) error {
+	if e := s.guardArchiveJob(j.Request); e != nil {
+		return e
+	}
 	if e := s.checkpoint(j); e != nil {
 		return e
 	}

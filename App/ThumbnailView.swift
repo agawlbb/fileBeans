@@ -20,7 +20,7 @@ struct ThumbnailView: View {
         .onDisappear { image = nil }
         .task(id: key) {
             image = nil
-            guard item.protection?.unlocked != false, !item.file.isDirectory, item.file.hasPreview == true, item.file.archiveRole != "archive", let client else { return }
+            guard item.protection?.unlocked != false, !item.file.isDirectory, item.file.hasPreview == true, let client else { return }
             do {
                 let thumbnail = try await ThumbnailCache.shared.image(for: key) {
                     try await client.thumbnail(source: item.source, file: item.file)

@@ -50,8 +50,13 @@ final class FilesystemClient: NSObject, URLSessionTaskDelegate {
         r.setValue("Bearer " + (try token ?? TokenStore.read(connection.filesystemTokenID)), forHTTPHeaderField: "Authorization")
         return r
     }
-    func check(_ response: URLResponse) throws {
+    func check(_ response: URLResponse, body: Data? = nil) throws {
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+        if code == 403, let body,
+           let message = try? JSONDecoder().decode(FilesystemServiceError.self, from: body) {
+            throw NSError(domain: "fileBeans.Filesystem", code: 403,
+                          userInfo: [NSLocalizedDescriptionKey: message.error])
+        }
         switch code {
         case 200, 201, 204, 206: return
         case 401: throw APIError.authentication
@@ -61,10 +66,11 @@ final class FilesystemClient: NSObject, URLSessionTaskDelegate {
         default: throw APIError.status(code)
         }
     }
+    private struct FilesystemServiceError: Decodable { let error: String }
     func data(_ request: URLRequest) async throws -> Data {
         try Task.checkCancellation()
         let (data, response) = try await session.data(for: request)
-        try check(response)
+        try check(response, body: data)
         return data
     }
     func data(_ request: URLRequest, limit: Int) async throws -> Data {
@@ -105,8 +111,9 @@ final class FilesystemClient: NSObject, URLSessionTaskDelegate {
         _ = try await data(r)
     }
     func thumbnail(source: String, file: RemoteFile) async throws -> Data {
-        guard file.archiveRole != "archive" else { throw APIError.forbidden }
-        return try await data(request("thumbnail", query: ["source": source, "path": file.path]))
+        var query = ["source": source, "path": file.path]
+        if file.archiveRole == "archive" { query["cachedOnly"] = "true" }
+        return try await data(request("thumbnail", query: query))
     }
     func streamRequest(source: String, path: String) async throws -> URLRequest {
         try request("content", query: ["source": source, "path": path])
@@ -147,8 +154,8 @@ final class FilesystemClient: NSObject, URLSessionTaskDelegate {
         }
         r.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
         let delegate = UploadDelegate(progress)
-        let (_, response) = try await session.upload(for: r, fromFile: file, delegate: delegate)
-        try check(response)
+        let (data, response) = try await session.upload(for: r, fromFile: file, delegate: delegate)
+        try check(response, body: data)
     }
 }
 

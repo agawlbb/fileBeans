@@ -7,6 +7,12 @@ import (
 )
 
 func renameNoReplace(r rootFS, from, to string, datasetCaptions ...bool) error {
+	if e := checkArchiveRoot(r, from, true); e != nil {
+		return e
+	}
+	if e := checkArchiveRoot(r, to, true); e != nil {
+		return e
+	}
 	unlock, err := lockFilenamePublication(r)
 	if err != nil {
 		return err

@@ -137,6 +137,9 @@ func (s *Service) normalizationRoot() (rootFS, NormalizationConfig, error) {
 	return root, c, e
 }
 func (s *Service) enqueueNormalization(req NormalizationRequest, batch, connection string, meta *DriveItem) (NormalizationJob, error) {
+	if e := s.guardArchiveWrite(req.Source, req.Path, false); e != nil {
+		return NormalizationJob{}, e
+	}
 	if normalizationInternalPath(req.Path) || normalizationInternalPath(req.RelativePath) || (meta != nil && normalizationInternalPath(meta.Name)) {
 		return NormalizationJob{}, ErrUnsafe
 	}

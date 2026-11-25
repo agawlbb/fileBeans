@@ -38,6 +38,12 @@ type trashAccess struct {
 }
 
 func renameRoots(from rootFS, old string, to rootFS, next string) error {
+	if e := checkArchiveRoot(from, old, true); e != nil {
+		return e
+	}
+	if e := checkArchiveRoot(to, next, true); e != nil {
+		return e
+	}
 	unlock, err := lockFilenamePublication(to)
 	if err != nil {
 		return err

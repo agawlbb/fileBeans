@@ -77,6 +77,7 @@ final class ProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFi
                     try await repo.client.createFolder(source: parent.source, path: path)
                 } else {
                     guard let url else { throw CocoaError(.fileReadNoSuchFile) }
+                    try repo.requireArchiveWritable(parent)
                     try await repo.client.upload(source: parent.source, path: path, file: url)
                 }
                 let children = try await repo.children(parent)
@@ -95,10 +96,12 @@ final class ProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFi
                 let repo = try self.repository()
                 _ = try await repo.roots()
                 var stored = try repo.item(item.itemIdentifier.rawValue)
+                try repo.requireArchiveWritable(stored)
                 guard !stored.isSource, stored.permissions.modify else { throw APIError.forbidden }
                 try repo.requireUnlocked(stored)
                 guard version.metadataVersion == ProviderItem(stored).itemVersion.metadataVersion else { throw APIError.conflict }
                 let remote = try await repo.client.resource(source: stored.source, path: stored.file.path)
+                try remote.file.requireArchiveWritable()
                 guard version.contentVersion == remote.file.version else { throw APIError.conflict }
                 let unsupported = changedFields.subtracting([.contents, .filename, .parentItemIdentifier, .contentModificationDate])
                 guard unsupported.isEmpty else { throw CocoaError(.featureUnsupported) }

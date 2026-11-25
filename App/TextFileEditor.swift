@@ -82,6 +82,8 @@ struct TextFileEditor: View {
         do {
             try await repository.refreshProtection()
             try repository.requireUnlocked(parent)
+            try repository.requireArchiveWritable(parent)
+            if let item { try repository.requireArchiveWritable(item) }
             if let item { try repository.requireUnlocked(item) }
             guard (item?.permissions.modify ?? parent.permissions.create) else { throw APIError.forbidden }
             let filename = item?.file.name ?? EditableText.filename(name)

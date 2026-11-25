@@ -73,6 +73,14 @@ final class Repository {
         try requireProviderAccess(parent)
         try requireUnlocked(parent)
         let resource = try await client.resource(source: parent.source, path: parent.file.path)
+        try store.transaction { state in
+            let key = connection.id.uuidString
+            if var current = state.items[key]?[parent.id], current.file != resource.file {
+                current.file = resource.file
+                state.items[key]?[parent.id] = current
+                state.revisions[key, default: 0] += 1
+            }
+        }
         let vaults = try store.vaults(connection.id)
         let scope = try store.sourceScope(connection.id, source: parent.source)
         let files = resource.children.filter { file in
@@ -136,7 +144,12 @@ final class Repository {
         manager?.signalEnumerator(for: parent == "root" ? .rootContainer : NSFileProviderItemIdentifier(parent)) { _ in }
         manager?.signalEnumerator(for: .workingSet) { _ in }
     }
+    func requireArchiveWritable(_ item: StoredItem) throws {
+        let current = (try? store.items(connection.id))?[item.id] ?? item
+        try current.file.requireArchiveWritable()
+    }
     func move(_ item: StoredItem, to parent: StoredItem, name: String) async throws {
+        try requireArchiveWritable(item); try requireArchiveWritable(parent)
         try requireProviderAccess(item)
         try requireProviderAccess(parent)
         var target = parent
@@ -183,6 +196,7 @@ final class Repository {
         try await copy([item], to: parent)
     }
     func copy(_ items: [StoredItem], to parent: StoredItem) async throws {
+        try requireArchiveWritable(parent)
         guard !items.isEmpty, parent.file.isDirectory, parent.permissions.create else { throw APIError.forbidden }
         for item in items {
             guard !item.isSource, item.permissions.download else { throw APIError.forbidden }
@@ -199,6 +213,7 @@ final class Repository {
         throw APIError.incompatible
     }
     func delete(_ item: StoredItem) async throws {
+        try requireArchiveWritable(item)
         guard !item.isSource, item.permissions.delete else { throw APIError.forbidden }
         if let companion {
             guard !CompanionClient.protected(item.file.path) else { throw APIError.forbidden }
@@ -210,6 +225,7 @@ final class Repository {
         notify(item.parent)
     }
     func createFolder(name: String, parent: StoredItem) async throws {
+        try requireArchiveWritable(parent)
         guard parent.permissions.create else { throw APIError.forbidden }
         let path = try FilePath.child(name, in: parent.file.path)
         if companion != nil && CompanionClient.protected(path) { throw APIError.forbidden }

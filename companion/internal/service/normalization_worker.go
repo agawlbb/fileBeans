@@ -518,6 +518,16 @@ func (s *Service) normPublish(ctx context.Context, root rootFS, j *Normalization
 	return s.normSave(j)
 }
 func (s *Service) executeNormalization(ctx context.Context, j *NormalizationJob, publicationGuard func() error) error {
+	if e := s.guardArchiveWrite(j.Request.Source, j.Request.Path, false); e != nil {
+		return e
+	}
+	if e := s.guardArchiveWrite(j.LibrarySource, j.LibraryPath, false); e != nil {
+		return e
+	}
+	if e := s.guardArchiveWrite(j.LibrarySource, j.OutputPath, false); e != nil {
+		return e
+	}
+
 	if normalizationInternalJob(*j) {
 		return ErrUnsafe
 	}

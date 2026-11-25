@@ -39,6 +39,9 @@ type rcloneEvent struct {
 }
 
 func (s *Service) executeRclone(ctx context.Context, j *Job) error {
+	if e := s.guardArchiveJob(j.Request); e != nil {
+		return e
+	}
 	if err := s.checkpoint(j); err != nil {
 		return err
 	}

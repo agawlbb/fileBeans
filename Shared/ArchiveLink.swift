@@ -24,3 +24,19 @@ extension CompanionClient {
         _ = try await request("archive-links/\(id)", method: "DELETE")
     }
 }
+
+extension RemoteFile {
+    var archiveWriteMessage: String? {
+        guard archiveRole == "archive" else { return nil }
+        if let library = archiveLibrary {
+            return "Make changes in \(library.source) \(library.path)."
+        }
+        return "Make changes in the matched folder."
+    }
+    func requireArchiveWritable() throws {
+        if let message = archiveWriteMessage {
+            throw NSError(domain: "fileBeans.ArchiveReadOnly", code: 403,
+                          userInfo: [NSLocalizedDescriptionKey: message])
+        }
+    }
+}

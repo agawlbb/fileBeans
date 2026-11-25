@@ -71,6 +71,10 @@ func (s *Service) filesystemUploadSession(w http.ResponseWriter, r *http.Request
 	// One service owns each configured root; serialize offsets and publication.
 	s.fsMu.Lock()
 	defer s.fsMu.Unlock()
+	if e = checkArchiveRoot(root, p, false); e != nil {
+		filesystemFail(w, e)
+		return
+	}
 	manifest, payload := filepath.Join(dir, "session.json"), filepath.Join(dir, "payload")
 	var session filesystemUploadSession
 	data, readErr := root.ReadFile(manifest)

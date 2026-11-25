@@ -88,7 +88,11 @@ func (s *Service) root(name string) (rootFS, error) {
 	if e != nil {
 		return nil, e
 	}
-	return s.guarded(root)
+	guarded, e := s.guarded(root)
+	if e != nil {
+		return nil, e
+	}
+	return s.archiveGuarded(guarded, name), nil
 }
 
 // os.Root confines operations even if an intermediate directory is changed concurrently.

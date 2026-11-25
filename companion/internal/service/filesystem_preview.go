@@ -41,13 +41,16 @@ func previewSupported(typ string) bool {
 	return strings.HasPrefix(typ, "image/") || strings.HasPrefix(typ, "video/") || strings.HasPrefix(typ, "text/") || typ == "application/pdf"
 }
 func (s *Service) filesystemThumbnail(w http.ResponseWriter, r *http.Request) {
-	if suppressed, err := s.archiveThumbnailSuppressed(r.URL.Query().Get("source"), r.URL.Query().Get("path")); err != nil || suppressed {
-		if err == nil {
-			err = ErrUnsupported
-		}
+	cachedOnly, err := s.archiveThumbnailSuppressed(r.URL.Query().Get("source"), r.URL.Query().Get("path"))
+	if err != nil {
 		filesystemFail(w, err)
 		return
 	}
+	if cachedOnly || r.URL.Query().Get("cachedOnly") == "true" {
+		s.filesystemCachedThumbnail(w, r)
+		return
+	}
+
 	digestKey := sha256.Sum256([]byte(r.URL.Query().Get("source") + "\x00" + r.URL.Query().Get("path")))
 	cacheLock := previewLocks[int(digestKey[0])%len(previewLocks)]
 	select {
@@ -104,8 +107,7 @@ func (s *Service) filesystemThumbnail(w http.ResponseWriter, r *http.Request) {
 		filesystemFail(w, e)
 		return
 	}
-	digest := sha256.Sum256([]byte(filepath.Base(p) + "\x00" + entry.Revision + "\x00jpeg-320-v1"))
-	cache := filepath.Join(cacheDir, hex.EncodeToString(digest[:])+".jpg")
+	cache := filepath.Join(cacheDir, previewCacheName(p, entry.Revision))
 	if e = safe(cacheRoot, cache); e != nil {
 		filesystemFail(w, e)
 		return
@@ -334,4 +336,50 @@ func cleanupPreviewCache(root rootFS, dir string) {
 // Every folder keeps previews inside its own hidden cache, including protected mounts.
 func (s *Service) thumbnailCache(root rootFS, source, p string) (rootFS, string, error) {
 	return root, filepath.Join(filepath.Dir(p), thumbnailDirectory), nil
+}
+
+// Cache-only reads may stat media for its revision but never open media, create
+// directories, acquire renderer slots, clean caches, or invoke a renderer.
+func (s *Service) filesystemCachedThumbnail(w http.ResponseWriter, r *http.Request) {
+	root, p, e := s.filesystemRoot(r)
+	if e != nil {
+		filesystemFail(w, e)
+		return
+	}
+	defer root.Close()
+	st, e := root.Stat(p)
+	if e != nil {
+		filesystemFail(w, e)
+		return
+	}
+	if !st.Mode().IsRegular() || !previewSupported(filesystemInfo(p, st).Type) {
+		filesystemFail(w, ErrUnsupported)
+		return
+	}
+	_, dir, e := s.thumbnailCache(root, r.URL.Query().Get("source"), p)
+	if e != nil {
+		filesystemFail(w, e)
+		return
+	}
+	cached, e := filesystemOpenFile(root, filepath.Join(dir, previewCacheName(p, filesystemRevision(st))))
+	if e != nil {
+		filesystemFail(w, e)
+		return
+	}
+	defer cached.Close()
+	info, e := cached.Stat()
+	if e != nil {
+		filesystemFail(w, e)
+		return
+	}
+	if info.Size() > 2<<20 || os.SameFile(st, info) {
+		filesystemFail(w, ErrUnsupported)
+		return
+	}
+	w.Header().Set("Content-Type", "image/jpeg")
+	_, _ = io.Copy(w, io.LimitReader(cached, 2<<20))
+}
+func previewCacheName(p, revision string) string {
+	digest := sha256.Sum256([]byte(filepath.Base(p) + "\x00" + revision + "\x00jpeg-320-v1"))
+	return hex.EncodeToString(digest[:]) + ".jpg"
 }

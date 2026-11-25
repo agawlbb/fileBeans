@@ -34,6 +34,9 @@ func (s *Service) discover(ctx context.Context, j *Job) error {
 			j.Total = 0
 		}
 	}()
+	if e := s.guardArchiveJob(j.Request); e != nil {
+		return e
+	}
 	j.Manifest = nil
 	j.Total = 0
 	j.Done = 0
@@ -263,6 +266,9 @@ func (s *Service) runJob(ctx context.Context, j *Job) {
 	}
 }
 func (s *Service) execute(ctx context.Context, j *Job) error {
+	if e := s.guardArchiveJob(j.Request); e != nil {
+		return e
+	}
 	if j.Request.Operation == "move" {
 		return s.executeMove(ctx, j)
 	}
@@ -272,6 +278,10 @@ func (s *Service) execute(ctx context.Context, j *Job) error {
 	return s.executeRclone(ctx, j)
 }
 func publicError(e error) string {
+	var archiveError *archiveReadOnlyError
+	if errors.As(e, &archiveError) {
+		return archiveError.Error()
+	}
 	var engineFailure *copyEngineError
 	if errors.As(e, &engineFailure) {
 		return engineFailure.Error()

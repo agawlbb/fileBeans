@@ -15,22 +15,30 @@ private final class TextContentProtocol: URLProtocol {
 }
 
 final class FilesystemClientTests: XCTestCase {
-    func testArchiveThumbnailDoesNotMakeRequest() async throws {
+    func testArchiveThumbnailRequestsOnlyExistingCache() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [TextContentProtocol.self]
+        configuration.protocolClasses = [ArchiveThumbnailProtocol.self]
         let client = FilesystemClient(connection: Connection(name: "Test", url: URL(string: "https://files.example.com")!), token: "fixture", configuration: configuration)
         defer { client.close() }
         let file = RemoteFile(name: "photo.jpg", path: "/archive/sub/photo.jpg", type: "image/jpeg", hasPreview: true, archiveRole: "archive")
-        do {
-            _ = try await client.thumbnail(source: "samba", file: file)
-            XCTFail("Archive thumbnails must be rejected before requesting a URL")
-        } catch { XCTAssertEqual(error.localizedDescription, APIError.forbidden.localizedDescription) }
+        let data = try await client.thumbnail(source: "samba", file: file)
+        XCTAssertEqual(data, Data("cached-thumbnail".utf8))
+    }
+    func testArchiveWriteErrorPreservesMatchedFolderMessage() throws {
+        let client = FilesystemClient(connection: Connection(name: "Test", url: URL(string: "https://files.example.com")!), token: "fixture")
+        defer { client.close() }
+        let response = HTTPURLResponse(url: URL(string: "https://files.example.com")!, statusCode: 403, httpVersion: nil, headerFields: nil)!
+        let body = Data(#"{"error":"Make changes in VPS /pics."}"#.utf8)
+        XCTAssertThrowsError(try client.check(response, body: body)) { error in
+            XCTAssertEqual(error.localizedDescription, "Make changes in VPS /pics.")
+        }
     }
     func testArchiveMetadataSurvivesResourceDecode() throws {
-        let data = Data(#"{"name":"archive","path":"/archive","type":"directory","archiveLink":"link","archiveRole":"archive","archiveRoot":true,"children":[{"name":"sub","path":"/archive/sub","type":"directory","archiveLink":"link","archiveRole":"archive"}]}"#.utf8)
+        let data = Data(#"{"name":"archive","path":"/archive","type":"directory","archiveLink":"link","archiveRole":"archive","archiveRoot":true,"archiveLibrary":{"source":"VPS","path":"/pics","available":true},"children":[{"name":"sub","path":"/archive/sub","type":"directory","archiveLink":"link","archiveRole":"archive"}]}"#.utf8)
         let resource = try JSONDecoder().decode(Resource.self, from: data)
         XCTAssertEqual(resource.file.archiveRoot, true)
         XCTAssertEqual(resource.file.archiveLink, "link")
+        XCTAssertEqual(resource.file.archiveLibrary?.path, "/pics")
         XCTAssertEqual(resource.children[0].archiveRole, "archive")
     }
 
@@ -117,4 +125,22 @@ final class FilesystemClientTests: XCTestCase {
         XCTAssertEqual(resource.file.path, "/photos")
         XCTAssertEqual(resource.children[0].path, try FilePath.child("2026", in: resource.file.path))
     }
+}
+
+private final class ArchiveThumbnailProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
+        guard request.httpMethod == "GET", request.httpBody == nil, request.httpBodyStream == nil,
+              request.url?.lastPathComponent == "thumbnail",
+              components?.queryItems?.contains(where: { $0.name == "cachedOnly" && $0.value == "true" }) == true else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL)); return
+        }
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Type":"image/jpeg"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data("cached-thumbnail".utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
 }

@@ -201,3 +201,17 @@ archive, and extracted media were preserved. No temporary helper is retained.
 Deployment/source/toolchain staging and task-specific build cache were cleaned;
 the current API image is live production state. Physical app refresh/viewing is
 left to the user; no new app build is necessary for this server fix.
+
+## Stage-two reconciliation (2026-11-25)
+
+The one unmatched original `V/Fake/file_00000000518061f79df4817cde62e7d1.png`
+was moved at the user's request to the Samba FileBeans root as
+`file_00000000518061f79df4817cde62e7d1.png` (1,092,864 bytes). A temporary
+Pi-local helper verified SHA-256 before removing the protected source. No original
+media crossed the network. Its app `local_filebeans_stage2`, deployment directory
+`/local_apps/filebeans_stage2` and exact publication staging directory were removed
+and absence verified. The user's key file and original tar.gz remain untouched.
+
+Stage-two source adds read-only archives and cache-only archive previews. This
+requires a separately requested server deployment and app build/release. Automatic
+copying, transcoding and propagation of Library changes remain deferred.

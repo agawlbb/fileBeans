@@ -265,7 +265,10 @@ func archiveMembership(links []ArchiveLink, source, p string) (string, string, b
 	return "", "", false
 }
 func (s *Service) guardArchiveRemoval(source, p string) error {
-	links, err := s.resolvedArchiveLinks()
+	if e := s.guardArchiveWrite(source, p, true); e != nil {
+		return e
+	}
+	links, err := s.archivePolicyLinks()
 	if err != nil {
 		return err
 	}
@@ -285,6 +288,12 @@ func (s *Service) guardArchiveRemoval(source, p string) error {
 // Write both old and intended locations before rename. Resolution checks folder
 // identity after interruption; a new unrelated directory cannot inherit the link.
 func (s *Service) prepareArchiveRename(source, from, to string) error {
+	if e := s.guardArchiveWrite(source, from, true); e != nil {
+		return e
+	}
+	if e := s.guardArchiveWrite(source, to, true); e != nil {
+		return e
+	}
 	links, err := s.resolvedArchiveLinks()
 	if err != nil {
 		return err
@@ -336,7 +345,7 @@ func (s *Service) prepareArchiveRename(source, from, to string) error {
 
 // Suppression is checked before opening media, including for older clients.
 func (s *Service) archiveThumbnailSuppressed(source, p string) (bool, error) {
-	links, err := s.resolvedArchiveLinks()
+	links, err := s.archivePolicyLinks()
 	if err != nil {
 		return true, err
 	}
@@ -362,6 +371,9 @@ func (s *Service) validateArchiveVaultRelocation(id, path string) error {
 		return err
 	}
 	for i := range links {
+		if links[i].Archive.Vault == id {
+			return &archiveReadOnlyError{Library: links[i].Library}
+		}
 		for _, e := range []*ArchiveEndpoint{&links[i].Library, &links[i].Archive} {
 			if e.Vault == id {
 				e.Path = filepath.Join(path, e.Relative)
@@ -384,6 +396,11 @@ func (s *Service) archiveEndpointsIdle(endpoints ...ArchiveEndpoint) error {
 		switch job.State {
 		case "completed", "cancelled", "failed":
 			continue
+		}
+		for _, endpoint := range endpoints {
+			if endpointOverlap(endpoint, ArchiveEndpoint{Source: job.Request.Destination.Source, Path: job.Request.Destination.Path}) {
+				return ErrVaultBusy
+			}
 		}
 		if job.Request.Operation != "move" {
 			continue

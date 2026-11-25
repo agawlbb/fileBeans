@@ -148,7 +148,7 @@ func (s *Service) maintenance(ctx context.Context) {
 		s.reconcileTrash()
 		if s.vaults != nil && s.vaults.remote != nil {
 			for _, v := range s.vaults.status() {
-				if v.Trashed > 0 && v.Trashed+10*24*3600 <= time.Now().Unix() {
+				if v.Trashed > 0 && v.Trashed+10*24*3600 <= time.Now().Unix() && s.guardArchiveVaultWrite(v.ID) == nil {
 					_ = s.vaults.remote.folderAction(v.ID, "purge", "")
 				}
 			}

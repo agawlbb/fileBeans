@@ -450,3 +450,38 @@ func TestPinnedListingRootSurvivesParentReplacement(t *testing.T) {
 		t.Fatal("symlink escaped pinned directory")
 	}
 }
+
+func TestFilesystemCachedOnlyNeverOpensMedia(t *testing.T) {
+	s, base := filesystemFixture(t)
+	media := filepath.Join(base, "original.mp4")
+	if e := os.WriteFile(media, []byte("unreadable-original"), 0000); e != nil {
+		t.Fatal(e)
+	}
+	t.Cleanup(func() { os.Chmod(media, 0600) })
+	info, e := os.Stat(media)
+	if e != nil {
+		t.Fatal(e)
+	}
+	dir := filepath.Join(base, thumbnailDirectory)
+	os.Mkdir(dir, 0700)
+	cached := filepath.Join(dir, previewCacheName("original.mp4", filesystemRevision(info)))
+	payload := []byte("existing-thumbnail")
+	os.WriteFile(cached, payload, 0600)
+	request := func() *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", "/v1/fs/thumbnail?source=samba&path=%2Foriginal.mp4&cachedOnly=true", nil)
+		r.Header.Set("Authorization", "Bearer "+s.config.Token)
+		w := httptest.NewRecorder()
+		s.Handler().ServeHTTP(w, r)
+		return w
+	}
+	if out := request(); out.Code != 200 || !bytes.Equal(out.Body.Bytes(), payload) {
+		t.Fatal(out.Code, out.Body.String())
+	}
+	os.Remove(cached)
+	if out := request(); out.Code != 404 {
+		t.Fatal("cache miss must not try media or generation", out.Code, out.Body.String())
+	}
+	if entries, e := os.ReadDir(dir); e != nil || len(entries) != 0 {
+		t.Fatal("cache-only request wrote files", entries, e)
+	}
+}

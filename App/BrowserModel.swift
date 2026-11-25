@@ -76,6 +76,10 @@ final class BrowserModel: ObservableObject {
     func transfer(_ values: [StoredItem], to destination: BrowserDestination, copying: Bool) async {
         guard let repository else { return }
         guard !values.isEmpty else { error = APIError.missing.localizedDescription; return }
+        do {
+            if !copying { for item in values { try repository.requireArchiveWritable(item) } }
+            if case .local(let parent) = destination { try repository.requireArchiveWritable(parent) }
+        } catch { self.error = error.localizedDescription; return }
         let connection = repository.connection
         if values.contains(where: { $0.protection?.isRoot == true }) {
             for item in values {
@@ -221,6 +225,7 @@ final class BrowserModel: ObservableObject {
         do {
             guard let repository, parent.permissions.create else { throw APIError.forbidden }
             try repository.requireUnlocked(parent)
+            try repository.requireArchiveWritable(parent)
             try await UploadQueue.shared.enqueue(urls, connection: repository.connection, source: parent.source, parent: parent.file.path, scoped: scoped)
         } catch { self.error = error.localizedDescription }
     }

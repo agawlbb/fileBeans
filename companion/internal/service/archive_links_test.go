@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
@@ -60,33 +61,96 @@ func testArchiveDatabase(t *testing.T, s *Service) {
 	}
 	listing = fsRequest(t, restarted, "GET", "resources", "/archive-test/archive/sub/future", nil, nil)
 	var entry filesystemEntry
-	if err := json.Unmarshal(listing.Body.Bytes(), &entry); err != nil || len(entry.Children) != 1 || entry.Children[0].HasPreview || entry.Children[0].ArchiveRole != "archive" {
+	if err := json.Unmarshal(listing.Body.Bytes(), &entry); err != nil || len(entry.Children) != 1 || !entry.Children[0].HasPreview || entry.Children[0].ArchiveRole != "archive" {
 		t.Fatal("future subtree preview eligibility", listing.Body.String(), err)
 	}
 	opened := fsRequest(t, restarted, "GET", "content", "/archive-test/archive/sub/future/photo.jpg", nil, nil)
 	if opened.Code != 200 || opened.Body.String() != "original" {
 		t.Fatal("explicit viewing blocked", opened.Code, opened.Body.String())
 	}
+	// Existing copied caches are readable even when originals cannot be opened.
+	imagePath := filepath.Join(s.config.Roots[1].Path, "archive-test/archive/sub/future/photo.jpg")
+	imageInfo, err := os.Stat(imagePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cacheDir := filepath.Join(filepath.Dir(imagePath), thumbnailDirectory)
+	os.Mkdir(cacheDir, 0700)
+	cacheFile := filepath.Join(cacheDir, previewCacheName(imagePath, filesystemRevision(imageInfo)))
+	os.WriteFile(cacheFile, []byte("copied-thumbnail"), 0600)
+	os.Chmod(imagePath, 0000)
+	response := fsRequest(t, restarted, "GET", "thumbnail", "/archive-test/archive/sub/future/photo.jpg", nil, nil)
+	if response.Code != 200 || response.Body.String() != "copied-thumbnail" {
+		t.Fatal("cached archive thumbnail failed", response.Code, response.Body.String())
+	}
+	os.Chmod(imagePath, 0600)
+	os.Remove(cacheFile)
+	if response = fsRequest(t, restarted, "GET", "thumbnail", "/archive-test/archive/sub/future/photo.jpg", nil, nil); response.Code != 404 {
+		t.Fatal("archive cache miss attempted generation", response.Code)
+	}
+	// Jobs submitted before linking must be rejected again at execution time.
+	request := CopyRequest{Destination: Item{Source: "samba", Path: "archive-test/archive"}, Items: []Item{{Source: "vps", Path: "archive-test/library"}}}
+	if e := s.execute(context.Background(), &Job{Request: request}); !errors.Is(e, ErrArchiveReadOnly) {
+		t.Fatal("queued copy bypassed read-only", e)
+	}
+	request.Operation = "move"
+	request.Destination = Item{Source: "drive", Path: "folder"}
+	request.Items = []Item{{Source: "samba", Path: "archive-test/archive/sub/future/photo.jpg"}}
+	if e := s.executeMove(context.Background(), &Job{Request: request}); !errors.Is(e, ErrArchiveReadOnly) {
+		t.Fatal("queued move bypassed read-only", e)
+	}
+	outsideText := filepath.Join(s.config.Roots[1].Path, "archive-test/other/notes.txt")
+	os.WriteFile(outsideText, []byte("ordinary preview"), 0600)
+	if response := fsRequest(t, restarted, "GET", "thumbnail", "/archive-test/other/notes.txt", nil, nil); response.Code != 200 {
+		t.Fatal("ordinary thumbnail generation was suppressed", response.Code, response.Body.String())
+	}
 	// Even a nonexistent file must be rejected before opening media or running tools.
 	thumb := fsRequest(t, restarted, "GET", "thumbnail", "/archive-test/archive/sub/deep/not-opened.mp4", nil, nil)
-	if thumb.Code != 415 {
+	if thumb.Code != 404 {
 		t.Fatal("thumbnail reached storage", thumb.Code, thumb.Body.String())
 	}
-	if _, err := s.trash(Item{Source: "samba", Path: "archive-test/archive"}, ID()); !errors.Is(err, ErrArchiveLinked) {
+	if _, err := s.trash(Item{Source: "samba", Path: "archive-test/archive"}, ID()); !errors.Is(err, ErrArchiveReadOnly) {
 		t.Fatal("delete root", err)
 	}
-	if _, err := s.trash(Item{Source: "samba", Path: "archive-test"}, ID()); !errors.Is(err, ErrArchiveLinked) {
+	if _, err := s.trash(Item{Source: "samba", Path: "archive-test"}, ID()); !errors.Is(err, ErrArchiveReadOnly) {
 		t.Fatal("delete ancestor", err)
 	}
+	for _, tc := range []struct{ method, route, path string }{
+		{"POST", "folders", "/archive-test/archive/sub/new"},
+		{"POST", "content", "/archive-test/archive/new.jpg"},
+		{"PUT", "content", "/archive-test/archive/sub/future/photo.jpg"},
+		{"POST", "uploads/11111111-1111-1111-1111-111111111111", "/archive-test/archive/upload.jpg"},
+		{"POST", "uploads/11111111-1111-1111-1111-111111111111/complete", "/archive-test/archive/upload.jpg"},
+	} {
+		response := fsRequest(t, s, tc.method, tc.route, tc.path, strings.NewReader("not-read"), nil)
+		if response.Code != 403 || !strings.Contains(response.Body.String(), "Make changes in vps /archive-test/library.") {
+			t.Fatal(tc, response.Code, response.Body.String())
+		}
+	}
+	if entry.Children[0].ArchiveLibrary == nil || entry.Children[0].ArchiveLibrary.Source != "vps" {
+		t.Fatal("matched folder missing", entry)
+	}
 	move := `{"source":"samba","from":"/archive-test/archive","to":"/archive-test/renamed"}`
-	if w = fsRequest(t, s, "POST", "move", "/", strings.NewReader(move), nil); w.Code != 204 {
+	if w = fsRequest(t, s, "POST", "move", "/", strings.NewReader(move), nil); w.Code != 403 {
 		t.Fatal("rename", w.Code, w.Body.String())
 	}
 	links, err := s.resolvedArchiveLinks()
-	if err != nil || len(links) != 1 || links[0].Archive.Path != "/archive-test/renamed" {
+	if err != nil || len(links) != 1 || links[0].Archive.Path != "/archive-test/archive" {
 		t.Fatal(links, err)
 	}
-	if err = os.Rename(filepath.Join(s.config.Roots[1].Path, "archive-test/renamed"), filepath.Join(s.config.Roots[1].Path, "archive-test/external")); err != nil {
+	libraryMove := `{"source":"vps","from":"/archive-test/library","to":"/archive-test/library-renamed"}`
+	if response := fsRequest(t, s, "POST", "move", "/", strings.NewReader(libraryMove), nil); response.Code != 204 {
+		t.Fatal("library rename was blocked", response.Code, response.Body.String())
+	}
+	currentLinks, e := s.resolvedArchiveLinks()
+	if e != nil || currentLinks[0].Library.Path != "/archive-test/library-renamed" {
+		t.Fatal("library link did not follow rename", currentLinks, e)
+	}
+	restoreLibrary := `{"source":"vps","from":"/archive-test/library-renamed","to":"/archive-test/library"}`
+	if response := fsRequest(t, s, "POST", "move", "/", strings.NewReader(restoreLibrary), nil); response.Code != 204 {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	if err = os.Rename(filepath.Join(s.config.Roots[1].Path, "archive-test/archive"), filepath.Join(s.config.Roots[1].Path, "archive-test/external")); err != nil {
 		t.Fatal(err)
 	}
 	links, err = s.resolvedArchiveLinks()
@@ -95,6 +159,9 @@ func testArchiveDatabase(t *testing.T, s *Service) {
 	}
 	if w = archiveRequest(s, "DELETE", "/v1/archive-links/"+link.ID, ""); w.Code != 204 {
 		t.Fatal(w.Code, w.Body.String())
+	}
+	if w = fsRequest(t, s, "POST", "folders", "/archive-test/external/after-unlink", nil, nil); w.Code != 201 {
+		t.Fatal("unlink did not restore writes", w.Code, w.Body.String())
 	}
 	if _, err = os.Stat(filepath.Join(s.config.Roots[1].Path, "archive-test/external")); err != nil {
 		t.Fatal("unlink changed data", err)

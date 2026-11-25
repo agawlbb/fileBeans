@@ -29,18 +29,19 @@ type FilesystemConfig struct {
 }
 
 type filesystemEntry struct {
-	ArchiveLink string            `json:"archiveLink,omitempty"`
-	ArchiveRole string            `json:"archiveRole,omitempty"`
-	ArchiveRoot bool              `json:"archiveRoot,omitempty"`
-	Vault       string            `json:"vault,omitempty"`
-	Name        string            `json:"name"`
-	Path        string            `json:"path"`
-	Type        string            `json:"type"`
-	Size        int64             `json:"size"`
-	Modified    string            `json:"modified"`
-	Revision    string            `json:"revision"`
-	HasPreview  bool              `json:"hasPreview"`
-	Children    []filesystemEntry `json:"children,omitempty"`
+	ArchiveLink    string            `json:"archiveLink,omitempty"`
+	ArchiveRole    string            `json:"archiveRole,omitempty"`
+	ArchiveRoot    bool              `json:"archiveRoot,omitempty"`
+	ArchiveLibrary *ArchiveEndpoint  `json:"archiveLibrary,omitempty"`
+	Vault          string            `json:"vault,omitempty"`
+	Name           string            `json:"name"`
+	Path           string            `json:"path"`
+	Type           string            `json:"type"`
+	Size           int64             `json:"size"`
+	Modified       string            `json:"modified"`
+	Revision       string            `json:"revision"`
+	HasPreview     bool              `json:"hasPreview"`
+	Children       []filesystemEntry `json:"children,omitempty"`
 }
 
 func filesystemHidden(p string) bool {
@@ -103,6 +104,11 @@ func (s *Service) filesystemRoot(r *http.Request) (rootFS, string, error) {
 	p, e := filesystemPath(r.URL.Query().Get("path"))
 	if e != nil {
 		return nil, "", e
+	}
+	if r.Method != "GET" && r.Method != "HEAD" {
+		if e := s.guardArchiveWrite(source, p, false); e != nil {
+			return nil, "", e
+		}
 	}
 	root, e := s.root(source)
 	if e != nil {
@@ -181,7 +187,15 @@ func (s *Service) filesystemResource(w http.ResponseWriter, r *http.Request) {
 	}
 	decorate := func(entry *filesystemEntry) {
 		entry.ArchiveLink, entry.ArchiveRole, entry.ArchiveRoot = archiveMembership(links, r.URL.Query().Get("source"), entry.Path)
-		if unknownArchive || entry.ArchiveRole == "archive" {
+		if entry.ArchiveRole == "archive" {
+			for _, link := range links {
+				if link.ID == entry.ArchiveLink {
+					entry.ArchiveLibrary = &ArchiveEndpoint{Source: link.Library.Source, Path: link.Library.Path, Available: link.Library.Available}
+					break
+				}
+			}
+		}
+		if unknownArchive {
 			entry.HasPreview = false
 		}
 	}
@@ -314,6 +328,10 @@ func (s *Service) filesystemFolder(w http.ResponseWriter, r *http.Request) {
 	}
 	s.fsMu.Lock()
 	defer s.fsMu.Unlock()
+	if e = checkArchiveRoot(root, p, false); e != nil {
+		filesystemFail(w, e)
+		return
+	}
 	if g, ok := root.(*guardedRoot); ok {
 		if e = g.mutation(p, ""); e != nil {
 			filesystemFail(w, e)
@@ -403,6 +421,10 @@ func (s *Service) filesystemUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	s.fsMu.Lock()
 	defer s.fsMu.Unlock()
+	if e = checkArchiveRoot(root, p, false); e != nil {
+		filesystemFail(w, e)
+		return
+	}
 	if e = safe(root, p); e != nil {
 		filesystemFail(w, e)
 		return
