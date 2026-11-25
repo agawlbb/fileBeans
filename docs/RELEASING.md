@@ -9,7 +9,15 @@ Correction source `50804b3` restores the single viewer control, removes the
 nested video navigation stack, and gives the cached movie ownership of its
 player. The new video UI regression checks control count, item identity and
 continued decoding through repeated transitions. This correction is not yet
-released to TestFlight.
+released to TestFlight. [Simulator-only validation
+45713689672](https://github.com/agawlbb/fileBeans/actions/runs/45713689672)
+passed for `4d91955`: 136 unit tests and four UI scenarios, including the new
+video control-count/item-identity/decoding test on its first attempt. The existing
+photo expansion test required its configured retry. The preceding run
+45712414768 stopped before compilation because the shared fixture had a duplicate
+generated project group; `4d91955` corrects the grouping. Both runs' disposable
+result artifacts were removed after recording these results. No device archive,
+TestFlight upload or server deployment was performed for this correction.
 
 Release source `40f5839` attempted to preserve playback with a native player
 controller, extended the full-screen black background through the safe area,

@@ -7,6 +7,13 @@
   paging away and cache disposal stop it. The video has no nested navigation
   stack or native full-screen presentation. Run simulator validation with
   `tests_only=true` to exercise the correction without producing a device archive.
+  Correction `4d91955` passed [simulator validation
+  45713689672](https://github.com/agawlbb/fileBeans/actions/runs/45713689672):
+  136 unit tests and four UI scenarios. The new streamed-video transition test
+  and cache-lifecycle test passed on their first attempts. The existing photo
+  expansion test timed out initially, then passed on its configured retry.
+  No corrected device build has been released; iPhone/iPad device acceptance
+  remains pending.
 
 - Video playback regression: repeatedly seek forward/backward while playing,
   enter/exit full screen after each seek, and repeat while paused. Confirm moving
