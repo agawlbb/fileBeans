@@ -1,59 +1,82 @@
 # Signing and TestFlight
 
 
-## Stage-three linked archive processing — November 25, 2026
+## Stage-three linked archives — server and TestFlight 37 (November 25, 2026)
 
-Server source `a0e02e4ed4dfbcf9abf94348c24acd4babac4026` is deployed as
-`filebeans-api:a0e02e4-archives`. Completed uploads and new arrivals wait five
-minutes after the last move, rename or modification, then use the established
-photo/video profiles. Validated encoded media replaces the VPS copy; exact
-originals remain in protected hidden VPS staging until checksum-verified archive
-and thumbnail publication. Offline retry intervals are 1, 5, 15 and 30 minutes.
-FileBeans file/folder moves, Trash and restore propagate through a durable journal,
-including nested and empty folders. Archive reads serve existing thumbnails;
-archive writes remain blocked. Moving out of a Library and in-place media
+Deployed server source `4ce7561336e447da65abc458b8021024ad5c0911` as
+`filebeans-api:4ce7561-archives`. New media waits five minutes after its last
+completed upload, move, rename or observed modification. The established
+photo/video profiles produce validated temporary output before replacing the VPS
+copy. Exact originals remain in protected hidden VPS staging until checksum-verified
+archive and thumbnail publication; offline retries occur after 1, 5, 15 and then
+30 minutes. The app alerts on launch/foreground when archive work is pending.
+
+FileBeans moves and renames within the Library, including nested/empty folders,
+propagate to the archive while retaining originals' extensions. Trash and restore
+propagate through a durable operation journal, preserving Samba's ten-day retention.
+Archive folders remain read-only and thumbnails are served from caches without
+opening originals for generation. Moving out of a Library and in-place media
 replacement remain blocked. External drift never authorizes deleting originals.
 
-- Full Go race suite and vet passed using the isolated VM database and pinned
-  production rclone. Real FFmpeg photo/video tests cover offline encoding, retry,
-  restart recovery, exact original preservation, conflict retention, paired moves,
-  Trash/restore, path reuse, nested folders, encrypted routing and external drift.
-  The isolated FUSE suite passed local/Samba lifecycle and protection checks;
+- Full VM Go race tests and vet passed, including real photo/video encoding,
+  offline publication, retained originals/retries, restart/crash recovery,
+  conflicts, nested moves, Trash/restore, path reuse, encrypted routing and drift.
+  The final correction adds a passing extension-only rename regression: changing
+  `photo.jpg` to `photo.jpeg` leaves the archive original at `photo.png`.
+  The isolated local/Samba FUSE suite passed for the unchanged protection layer;
   its synthetic SMB transport skips the unsupported hardlink-upload subtest.
-- VM-only image export: 243,868,672 bytes, SHA-256
-  `7a436983ed56a5029e34626192db817dbaf431565341af11942cf0ab92180513`;
-  manifest `sha256:c1eceb69c6e9ac12766c15e9b05b9c6f80fd83156b892a1707e161be2b4e04c9`;
-  config `sha256:1b3a8d123d0996823cfeaa45772f25cdbaf810b0e6b77d0df60be664d14f4f21`.
-  Transferred checksum and loaded identity were verified before cutover.
-- Only the API restarted. Broker PID **21956**, unlocked folders, other service
-  identities, private configuration and 1 GiB/one-CPU API limits were preserved.
-  No normalizer or broker restart, global lock or schema migration occurred.
-  Authenticated public HTTPS 200, anonymous 401 and archive write rejection
-  naming `VPS /pics` passed. API restarts zero, no OOM.
-- A 179-byte synthetic PNG stayed unchanged during the real delay, then became
-  a VPS JPEG. The archived PNG SHA-256 exactly matched the upload, and both
-  cached thumbnails were identical. File rename, nested-folder move, individual
-  Trash, archive ten-day retention and paired restore all passed, including
-  restored caches. Samba operations complete asynchronously. Both synthetic
-  trees were removed under a protection lease after restoration. A final metadata-only
-  inventory reconfirmed 742 files on each source, matched with zero ambiguous stems;
-  the queue returned to zero pending originals/changes/problems.
-- VM exports, context, toolchain, caches, test tools and the bounded scratch
-  filesystem/backing file were removed; the shared builder cache was restored.
-  VPS transfer/overlay staging, disposable verification containers and the
-  superseded API image were removed. Protection remained unlocked, broker PID
-  21956 and API restart/OOM checks remained unchanged. No task artifact is retained.
+- Final VM-only export: 243,868,672 bytes, SHA-256
+  `30f0eec59a429521c9056daab1c1b88d055b88c465e18e0b7a55c33e2e5f292e`;
+  manifest `sha256:9a47f6684cd3c6f0c8c0d0f2e28a711dfce42e8bbe36e98087c9ee84e8b4ef7d`;
+  config `sha256:7b66cb319bb03167dae8c94b05d56bd0cf32700c522d25323c947f477f01c089`.
+  Transfer checksums and loaded identities were verified before each cutover.
+- Only the API was recreated. Broker PID **21956**, unlocked folders, other
+  service identities, private configuration and 1 GiB/one-CPU limits were
+  preserved. No normalizer/broker restart, global lock or schema migration
+  occurred. The first correction cutover automatically rolled back after startup
+  restarts; a fresh cutover passed with **zero restarts and no OOM**. Final public
+  authentication returned 200/401 as expected; archive writes returned 403 naming
+  `VPS /pics`; pending originals/changes/problems were all zero.
+- The initial rollout `a0e02e4` passed the complete live synthetic round trip:
+  a 179-byte PNG remained unchanged during the real five-minute delay, became a
+  VPS JPEG, and its archived original matched the upload checksum. Both cached
+  thumbnails were identical. File/folder moves, Trash, ten-day archive retention,
+  paired restore and restored caches passed. After removing the fixture, a
+  names-only audit reconfirmed **742 files on each source**, matched without
+  ambiguous stems. Original media and the original tar.gz were preserved.
+- The final correction additionally passed a focused protected live check:
+  extension-only rename preserved the archive original's path, inode, size,
+  timestamp and checksum, with identical cached thumbnails and a clear queue.
+  Both final synthetic folders were removed under a protection lease.
+- VM `.build/phase3` and `.build/phase3-fix`, their bounded filesystem backing
+  files, exports, contexts, compiler/toolchain caches, fixture controls and
+  temporary builder state were removed; the shared builder cache was restored.
+  VPS `.phase3-a0e02e4`, `.phase3-4ce7561`, next-overlay staging, disposable
+  verification containers/log attachment and superseded API images were removed.
+  No VM/VPS task artifact remains; the current image is production state.
 
-App release is in progress. [Apple validation 45671244822](https://github.com/agawlbb/fileBeans/actions/runs/45671244822)
-passed all **135 unit tests** on its first attempt; one UI test encountered an
-Xcode app-launch timeout before interaction while the other two passed. The
-fresh runner also passed all 135 unit tests and the other two UI tests, but
-Xcode reported no process ID while launching the first UI test. Validation now
-permits one built-in Xcode retry per failed test, with the same assertions and
-retained result bundle. This follows [Apple’s test repetition support](https://developer.apple.com/documentation/Xcode-Release-Notes/xcode-13-release-notes).
-A new complete validation run is required before publication.
-The app adds the requested launch/foreground pending-backup alert through
-`archiveSyncV1`; no protected paths are exposed in the status response.
+Released **0.1.0 (37)** from `f3624f167812b9a1c7898ad9c3a3c9b0db189c2e`,
+pinned by `testflight/0.1.0-37`. The subsequent server correction changes no Apple
+application, test, project or workflow inputs.
+
+- [Validation 45678677939](https://github.com/agawlbb/fileBeans/actions/runs/45678677939)
+  passed **135 unit and 3 UI tests**, zero failures, and the unsigned iPhone/iPad
+  Release archive. Earlier validation 45671244822 passed all unit tests on both
+  attempts but encountered Xcode launch failures before the first UI interaction;
+  the other two UI tests passed. Validation now permits one bounded built-in
+  retry per failed test, using [Apple's test repetition support](https://developer.apple.com/documentation/Xcode-Release-Notes/xcode-13-release-notes),
+  with the same assertions and result bundle.
+- [Signed publication 45682031271](https://github.com/agawlbb/fileBeans/actions/runs/45682031271)
+  passed preflight, archive/export, upload with no errors and temporary runner
+  credential cleanup. Apple build `c76f02e1-214b-4abc-a5d0-9e372b57c4bd` is
+  **VALID / IN_BETA_TESTING**, automatic notification enabled. Existing audience
+  and permanent signing credentials were preserved; no external review was
+  submitted. No Apple artifacts were downloaded to the VM or VPS; GitHub's
+  validation artifacts retain the existing seven-day policy.
+
+The requested implementation, server deployment and internal app release are
+finished and verified. No further deployment or app build is needed.
+Physical-device acceptance remains separate.
 
 
 ## Stage-two linked archives — server and TestFlight 36 (November 25, 2026)
