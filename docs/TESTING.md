@@ -1,5 +1,13 @@
 ## Folder viewer swipes
 
+- TestFlight 38 regression correction: the video UI fixture streams the animated
+  playback probe through bounded range responses. Its UI test checks that only
+  one full-screen control exists and that the same attached item keeps decoding
+  through three enter/exit cycles. Playback now belongs to the cached movie;
+  paging away and cache disposal stop it. The video has no nested navigation
+  stack or native full-screen presentation. Run simulator validation with
+  `tests_only=true` to exercise the correction without producing a device archive.
+
 - Video playback regression: repeatedly seek forward/backward while playing,
   enter/exit full screen after each seek, and repeat while paused. Confirm moving
   frames, an advancing clock and preserved position, with no white strip at the

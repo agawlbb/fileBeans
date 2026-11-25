@@ -23,7 +23,12 @@ targets:
   myFiles:
     type: application
     platform: iOS
-    sources: [App, Shared, Transfers]
+    sources:
+      - App
+      - Shared
+      - Transfers
+      - path: Tests/Fixtures/playback-probe.mp4
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(BUNDLE_ID_PREFIX)

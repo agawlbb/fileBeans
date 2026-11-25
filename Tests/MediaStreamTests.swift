@@ -29,6 +29,32 @@ final class MediaStreamTests: XCTestCase {
     override func tearDown() { MediaProtocol.respond = nil; MediaProtocol.delay = 0 }
 
     @MainActor
+    func testPagingAwayStopsACachedMovieWithoutEvictingIt() async throws {
+        let fixture = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "playback-probe", withExtension: "mp4"))
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MediaProtocol.self]
+        let client = FilesystemClient(connection: Connection(name: "Fixture", url: URL(string: "https://files.example")!),
+                                      token: "synthetic-token", configuration: config)
+        defer { client.close() }
+        let request = try client.request("content", query: ["path": "/probe.mp4", "source": "disk"])
+        let player = AVPlayer(playerItem: AVPlayerItem(url: fixture))
+        let movie = Movie(name: "probe.mp4", stream: MediaStream(client: client, request: request, name: "probe.mp4"), player: player)
+        let file = FolderViewerFile(id: "video", name: "probe.mp4", media: true) { .movie(movie) }
+        let next = FolderViewerFile(id: "notes", name: "notes.txt") { throw URLError(.fileDoesNotExist) }
+        let cache = FolderViewerCache(files: [file, next])
+        defer { cache.clear() }
+        cache.select(file.id)
+        for _ in 0..<100 where cache.contents[file.id] == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertNotNil(cache.contents[file.id])
+        XCTAssertNotNil(player.currentItem)
+        cache.select(next.id)
+        XCTAssertNotNil(cache.contents[file.id], "The previous video remains cached as a neighbor")
+        XCTAssertNil(player.currentItem, "Paging away, rather than presentation callbacks, stops playback")
+    }
+
+    @MainActor
     func testPrefetchIsBoundedAndPlaybackReusesOpeningBytes() async throws {
         let content = Data(repeating: 0x42, count: 512 * 1024)
         var ranges: [String] = []
@@ -164,11 +190,14 @@ final class MediaStreamTests: XCTestCase {
             XCTAssertTrue(player.currentItem === originalItem)
         }
 
-        let coordinator = NativeVideoPlayer.Coordinator(player: player, stream: stream)
+        let movie = Movie(name: fixtureName, stream: stream, player: player)
         player.pause()
-        coordinator.resumeBufferedPlayback()
+        movie.resumeBufferedPlayback()
         XCTAssertEqual(player.rate, 0, "Buffer recovery must preserve an intentional pause")
-        coordinator.close()
+        try await movie.playIfNeeded()
+        XCTAssertTrue(player.currentItem === originalItem, "Redisplaying a movie must retain its item")
+        XCTAssertEqual(player.rate, 0, "Redisplaying a paused movie must not start it")
+        movie.stop()
         XCTAssertNil(player.currentItem, "Removing the player must release its item")
     }
 

@@ -457,101 +457,84 @@ struct ImportedMedia: Transferable {
     }
 }
 
-struct Movie: Identifiable { let id = UUID(); let name: String; let stream: MediaStream }
+/// The cached movie owns playback; presentation views only display it.
+@MainActor
+final class Movie: Identifiable {
+    let id = UUID()
+    let name: String
+    let stream: MediaStream
+    let player: AVPlayer
+
+    init(name: String, stream: MediaStream, player: AVPlayer = AVPlayer()) {
+        self.name = name; self.stream = stream; self.player = player
+    }
+
+    func playIfNeeded() async throws {
+        guard player.currentItem == nil else { return }
+        try await stream.play(on: player)
+    }
+
+    func stop() {
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        stream.cancel()
+    }
+
+    func resumeBufferedPlayback() {
+        guard player.timeControlStatus == .waitingToPlayAtSpecifiedRate,
+              let item = player.currentItem, item.status == .readyToPlay,
+              item.isPlaybackLikelyToKeepUp, !item.isPlaybackBufferEmpty else { return }
+        player.playImmediately(atRate: player.rate > 0 ? player.rate : 1)
+    }
+}
 struct MovieView: View {
     let movie: Movie
     var fullScreen = false
     @Environment(\.dismiss) private var dismiss
-    @State private var player = AVPlayer()
+    private var player: AVPlayer { movie.player }
     @State private var error = false
     @State private var failureDetails = ""
-    @State private var started = false
     var body: some View {
-        NavigationStack {
-            NativeVideoPlayer(player: player, stream: movie.stream)
-                .background(Color.black.ignoresSafeArea())
-                .ignoresSafeArea(.container, edges: fullScreen ? .all : [])
-                .navigationTitle(movie.name).navigationBarTitleDisplayMode(.inline)
-                .toolbar(fullScreen ? .hidden : .visible, for: .navigationBar)
-                .task {
-                    guard !started else { return }
-                    started = true
-                    do { try await movie.stream.play(on: player) }
-                    catch {
-                        guard !Task.isCancelled else { return }
-                        failureDetails = PlaybackDiagnostics.summary(error: error as NSError)
-                        self.error = true
-                    }
+        // VideoPlayer has no separate native full-screen presentation. The
+        // folder viewer's single control expands this existing surface.
+        VideoPlayer(player: player)
+            .background(Color.black.ignoresSafeArea())
+            .ignoresSafeArea(.container, edges: fullScreen ? .all : [])
+            .task {
+                do { try await movie.playIfNeeded() }
+                catch {
+                    guard !Task.isCancelled else { return }
+                    failureDetails = PlaybackDiagnostics.summary(error: error as NSError)
+                    self.error = true
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime)) { notification in
-                    guard let item = notification.object as? AVPlayerItem, item === player.currentItem else { return }
-                    showFailure(item, error: notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? NSError)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime)) { notification in
+                guard let item = notification.object as? AVPlayerItem, item === player.currentItem else { return }
+                showFailure(item, error: notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? NSError)
+            }
+            .task {
+                // Initial loading failures arrive through status, without an end-of-playback notification.
+                while !Task.isCancelled {
+                    if let item = player.currentItem, item.status == .failed { showFailure(item); break }
+                    movie.resumeBufferedPlayback()
+                    do { try await Task.sleep(for: .seconds(1)) } catch { return }
                 }
-                .task {
-                    // Initial loading failures arrive through status, without an end-of-playback notification.
-                    while !Task.isCancelled {
-                        if let item = player.currentItem, item.status == .failed { showFailure(item); break }
-                        try? await Task.sleep(for: .seconds(1))
-                    }
+            }
+            .alert("Unable to Play", isPresented: $error) { Button("OK") { dismiss() } } message: {
+                Text("Playback failed.\n\n\(failureDetails)")
+            }
+            #if DEBUG
+            .overlay(alignment: .bottomLeading) {
+                if ProcessInfo.processInfo.arguments.contains("--folder-viewer-video-test") {
+                    FolderVideoPlaybackProbe(movie: movie)
                 }
-                .alert("Unable to Play", isPresented: $error) { Button("OK") { dismiss() } } message: {
-                    Text("Playback failed.\n\n\(failureDetails)")
-                }
-        }
+            }
+            #endif
     }
     private func showFailure(_ item: AVPlayerItem, error: NSError? = nil) {
         failureDetails = PlaybackDiagnostics.summary(
             error: error ?? item.error.map { $0 as NSError },
             mediaStatusCodes: item.errorLog()?.events.map { $0.errorStatusCode } ?? [])
         self.error = true
-    }
-}
-
-/// AVKit owns full screen transitions, keeping one player and resource loader alive.
-struct NativeVideoPlayer: UIViewControllerRepresentable {
-    let player: AVPlayer
-    let stream: MediaStream
-    @MainActor final class Coordinator {
-        let player: AVPlayer
-        let stream: MediaStream
-        private var recovery: Task<Void, Never>?
-        init(player: AVPlayer, stream: MediaStream) {
-            self.player = player; self.stream = stream
-            recovery = Task { @MainActor [weak self] in
-                while !Task.isCancelled {
-                    do { try await Task.sleep(for: .seconds(1)) } catch { return }
-                    self?.resumeBufferedPlayback()
-                }
-            }
-        }
-        // Waiting retains AVPlayer's play intent. A user pause changes this to
-        // .paused, so recovery never overrides the native pause control.
-        func resumeBufferedPlayback() {
-            guard player.timeControlStatus == .waitingToPlayAtSpecifiedRate,
-                  let item = player.currentItem, item.status == .readyToPlay,
-                  item.isPlaybackLikelyToKeepUp, !item.isPlaybackBufferEmpty else { return }
-            player.playImmediately(atRate: player.rate > 0 ? player.rate : 1)
-        }
-        func close() {
-            recovery?.cancel(); recovery = nil
-            player.pause(); player.replaceCurrentItem(with: nil); stream.cancel()
-        }
-    }
-    func makeCoordinator() -> Coordinator { Coordinator(player: player, stream: stream) }
-    static func dismantleUIViewController(_ controller: AVPlayerViewController, coordinator: Coordinator) {
-        coordinator.close()
-        controller.player = nil
-    }
-    func makeUIViewController(context: Context) -> AVPlayerViewController {
-        let controller = AVPlayerViewController()
-        controller.view.backgroundColor = .black
-        controller.player = player
-        controller.showsPlaybackControls = true
-        controller.entersFullScreenWhenPlaybackBegins = false
-        controller.exitsFullScreenWhenPlaybackEnds = false
-        return controller
-    }
-    func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
-        if controller.player !== player { controller.player = player }
     }
 }

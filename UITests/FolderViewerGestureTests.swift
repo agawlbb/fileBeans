@@ -1,6 +1,47 @@
 import XCTest
 
 final class FolderViewerGestureTests: XCTestCase {
+    func testVideoFullScreenHasOneControlAndKeepsDecoding() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--folder-viewer-gesture-test", "--folder-viewer-video-test"]
+        app.launch()
+        app.buttons["Open Viewer"].tap()
+        let probe = app.staticTexts["Playback Probe"]
+        XCTAssertTrue(probe.waitForExistence(timeout: 15))
+        let started = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            self.playbackValue("frames", probe: probe).flatMap(Int.init).map { $0 >= 3 } == true
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [started], timeout: 15), .completed)
+        let item = playbackValue("item", probe: probe)
+        for _ in 0..<3 {
+            let fullScreenControls = app.buttons.matching(NSPredicate(format:
+                "label CONTAINS[c] 'full screen' OR label CONTAINS[c] 'fullscreen'"))
+            XCTAssertEqual(fullScreenControls.count, 1, "Video must expose only the viewer's full-screen control")
+            let before = Int(playbackValue("frames", probe: probe) ?? "0") ?? 0
+            app.buttons["Full Screen"].tap()
+            let moving = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                self.playbackValue("attached", probe: probe) == "true" &&
+                self.playbackValue("item", probe: probe) == item &&
+                (Int(self.playbackValue("frames", probe: probe) ?? "0") ?? 0) >= before + 3 &&
+                !app.buttons["Done"].exists
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [moving], timeout: 10), .completed,
+                           "Full screen must keep the same item attached and decoding: \(probe.label)")
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).tap()
+            XCTAssertTrue(app.buttons["Full Screen"].waitForExistence(timeout: 5))
+            XCTAssertEqual(playbackValue("item", probe: probe), item)
+            XCTAssertEqual(playbackValue("attached", probe: probe), "true")
+        }
+        app.buttons["Done"].tap()
+        XCTAssertTrue(app.buttons["Open Viewer"].waitForExistence(timeout: 5))
+    }
+
+    private func playbackValue(_ key: String, probe: XCUIElement) -> String? {
+        probe.label.split(separator: ";").first { $0.hasPrefix(key + "=") }
+            .map { String($0.dropFirst(key.count + 1)) }
+    }
+
     func testFullScreenTogglePreservesPagingAndSelection() {
         continueAfterFailure = false
         let app = XCUIApplication()

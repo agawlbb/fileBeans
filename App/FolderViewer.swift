@@ -24,7 +24,7 @@ enum FolderViewerContent {
         switch self {
         case .document(let url), .image(let url, _):
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
-        case .movie(let movie): movie.stream.cancel(); movie.stream.clearPrefetch()
+        case .movie(let movie): movie.stop(); movie.stream.clearPrefetch()
         }
     }
 
@@ -51,6 +51,9 @@ final class FolderViewerCache: ObservableObject {
 
     func select(_ id: String) {
         guard let index = files.firstIndex(where: { $0.id == id }) else { clear(); return }
+        if selected != id, let selected, let content = contents[selected], case .movie(let movie) = content {
+            movie.stop()
+        }
         selected = id
         wanted = [id]
         for neighbor in [index - 1, index + 1] where files.indices.contains(neighbor) && files[neighbor].canPrefetch {

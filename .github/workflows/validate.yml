@@ -3,6 +3,10 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
+      tests_only:
+        description: Run simulator tests without producing a device archive
+        type: boolean
+        default: false
       runner:
         description: Xcode 27 Apple Silicon runner pool
         type: choice
@@ -40,10 +44,12 @@ jobs:
         run: |
           xcodebuild test -project myFiles.xcodeproj -scheme myFiles -destination "platform=iOS Simulator,id=$DEVICE_ID" -parallel-testing-enabled NO -retry-tests-on-failure -test-iterations 2 CODE_SIGNING_ALLOWED=NO -resultBundlePath TestResults.xcresult
       - name: Build Release archive for iPhone and iPad
+        if: inputs.tests_only != true
         run: |
           xcodebuild archive -project myFiles.xcodeproj -scheme myFiles -configuration Release -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/myFiles-unsigned.xcarchive" CODE_SIGNING_ALLOWED=NO
           ditto -c -k --sequesterRsrc --keepParent "$RUNNER_TEMP/myFiles-unsigned.xcarchive" "$RUNNER_TEMP/myFiles-unsigned.xcarchive.zip"
       - uses: actions/upload-artifact@v4
+        if: inputs.tests_only != true
         with:
           name: unsigned-device-archive
           path: ${{ runner.temp }}/myFiles-unsigned.xcarchive.zip
