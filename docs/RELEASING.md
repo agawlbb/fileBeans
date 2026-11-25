@@ -1,5 +1,29 @@
 # Signing and TestFlight
 
+## Video playback — TestFlight 38 (November 25, 2026)
+
+Release source `40f5839` uses the native player controller so presentation
+transitions do not tear down playback, extends the full-screen black background
+through the safe area, and resumes buffered waiting playback without overriding
+an intentional pause.
+
+- [Apple validation](https://github.com/agawlbb/fileBeans/actions/runs/45707728126)
+  passed 135 unit tests, 3 UI tests and the unsigned iPhone/iPad Release archive.
+  Playback tests include repeated forward/backward seeks with decoded-frame and
+  clock advancement checks, plus intentional-pause and final cleanup assertions.
+- [Signed upload](https://github.com/agawlbb/fileBeans/actions/runs/45710373350)
+  passed signing preflight, archive/export, upload and runner credential cleanup.
+  Apple build `a3eb10cd-ab4d-444a-9ea6-e74104a4aa8a`, version **0.1.0 (38)**,
+  is **VALID / IN_BETA_TESTING**. Automatic notification is enabled;
+  the existing internal group retains access to all builds.
+- Disposable validation artifacts were deleted after success; no local build,
+  signing or staging artifacts were created. No server deployment was needed.
+
+Physical-device acceptance remains manual: verify the bottom edge, repeated
+seek/full-screen transitions and automatic buffering recovery on iPhone/iPad
+using the scenarios in [TESTING.md](TESTING.md). The automated results do not
+establish that every reported device symptom is resolved.
+
 
 ## Stage-three linked archives — server and TestFlight 37 (November 25, 2026)
 

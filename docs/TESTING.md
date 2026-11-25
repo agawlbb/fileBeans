@@ -7,8 +7,10 @@
   playback buffers, restore it, and confirm playback resumes without touching
   pause/play. Pause during buffering and confirm it stays paused after recovery.
   Dismiss or page away while buffering and confirm streaming stops. Repeat from
-  VPS, Samba and Drive. The repeated-seek automated test and these device checks
-  require Apple execution; source inspection alone does not establish acceptance.
+  VPS, Samba and Drive. The repeated-seek automated tests passed in
+  [Apple validation 45707728126](https://github.com/agawlbb/fileBeans/actions/runs/45707728126)
+  with 135 unit and 3 UI tests. TestFlight 0.1.0 (38) is VALID / IN_BETA_TESTING;
+  the device checks above remain manual acceptance work.
 
 - Full screen: open a photo from VPS, Samba and Drive, tap **Full Screen**, and
   confirm the image uses the screen edges and system bars hide. Swipe to the
