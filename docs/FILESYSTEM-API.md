@@ -452,3 +452,15 @@ On 2026-11-25 the Go race suite (including VM-only MariaDB integration) and
 across 64 files. Apple SDK unit tests still require the existing macOS workflow.
 These source changes are not a deployment or an app release; the running phase-one
 server/app continue their earlier behavior until separately requested activation.
+
+### Automatic VPS thumbnail backfill
+
+The API's elected worker scans VPS sources automatically after startup and every
+15 minutes, prioritizing linked Library folders. It processes one missing preview
+at a time through the existing renderer slots/timeouts, and stores the result in
+the adjacent hidden `.filebeans-thumbnails` directory. Current caches are reused
+without opening originals. Revisions detect changed media. Locked folders wait
+until a later pass; nothing is unlocked automatically. Trash, internal caches,
+symlinks, Samba sources and linked Archive trees are excluded. Directory depth
+and traversal work are bounded; unsupported/rendering failures retry on later
+passes. The worker does not copy thumbnails to archives or synchronize media.

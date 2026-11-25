@@ -93,6 +93,9 @@ func (s *Service) loop(ctx context.Context, lease *sql.Conn) {
 	}()
 	defer func() { cancel(); <-heartbeatDone }()
 	ctx = workerCtx
+	thumbnailDone := make(chan struct{})
+	go func() { defer close(thumbnailDone); s.thumbnailBackfill(ctx) }()
+	defer func() { cancel(); <-thumbnailDone }()
 	datasetDone := make(chan struct{})
 	go func() {
 		defer close(datasetDone)
