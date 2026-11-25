@@ -74,7 +74,8 @@ final class FolderViewerTests: XCTestCase {
     }
 
     private func waitUntil(_ condition: () -> Bool) async throws {
-        for _ in 0..<200 {
+        // Simulator disk/preview work can exceed two seconds on shared runners.
+        for _ in 0..<1000 {
             if condition() { return }
             try await Task.sleep(for: .milliseconds(10))
         }
