@@ -450,8 +450,9 @@ acceptance await separately requested build/deployment work.
 On 2026-11-25 the Go race suite (including VM-only MariaDB integration) and
 `go vet ./...` passed. Seven thumbnail-import tests passed; Swift syntax parsed
 across 64 files. Apple SDK unit tests still require the existing macOS workflow.
-These source changes are not a deployment or an app release; the running phase-one
-server/app continue their earlier behavior until separately requested activation.
+Server `30523c3` is deployed and app 0.1.0 (36) is released. Apple validation
+passed 134 unit and 3 UI tests plus the Release archive. See RELEASING.md for
+image identity, live checks and cleanup evidence.
 
 ### Automatic VPS thumbnail backfill
 

@@ -227,3 +227,13 @@ between protected VPS `/pics` and Samba `/pics`; both endpoints reported availab
 No global lock was applied. The temporary thumbnail container was removed and
 verified absent. Cached display and comprehensive read-only enforcement still
 await stage-two deployment and app release.
+
+## Completed thumbnail reconciliation (2026-11-25)
+
+The earlier 536 missing-cache count exposed on-demand-only VPS generation.
+Automatic VPS backfill was implemented and deployed in `30523c3`; the VPS `/pics`
+cache then reached 742 of 742 files. Final archive import verified the same 742
+matching files with zero missing or invalid thumbnails. Its resumed four-worker
+pass copied 456 JPEGs (6,210,137 bytes), verified 286 already identical, and
+confirmed media metadata remained unchanged. No Samba originals were opened.
+Stage-two server behavior is live and app 0.1.0 (36) is released; see RELEASING.md.

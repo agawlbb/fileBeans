@@ -1,5 +1,72 @@
 # Signing and TestFlight
 
+## Stage-two linked archives — server and TestFlight 36 (November 25, 2026)
+
+Deployed server source `30523c31a3f6ba00f5d43a2b919674598a929a3b` as
+`filebeans-api:30523c3-backfill`. Archive roots and descendants are read-only,
+with errors naming the matched Library; previews serve existing archive caches
+without generating thumbnails or opening archive originals. Normal thumbnail
+generation outside archives remains enabled. Automatic copying/transcoding and
+propagation of Library edits remain deferred.
+
+- The missing-thumbnail investigation found generation previously occurred only
+  when browsing. The elected API worker now backfills VPS sources automatically
+  after startup and every 15 minutes, prioritizing linked libraries. It reuses
+  current caches, processes missing previews serially through existing renderer
+  limits, and skips Samba, archives, locked folders, Trash and internal paths.
+- The protected VPS `/pics` cache reached **742 current thumbnails for 742 files**.
+  The completed cache-only Samba import verified all **742 thumbnails**, with
+  zero missing/invalid caches. Its resumed final pass copied 456 JPEGs
+  (6,210,137 bytes) and verified 286 already identical. Both trees match by
+  relative path and filename stem, ignoring the encoding extension; original
+  media and the original tar.gz are preserved. Four atomic transfers at a time
+  stay within the existing memory/process and 128 MiB copy limits; all eight
+  importer regressions passed, including parallel budget enforcement.
+- Full Go race tests with the VM-only database and vet passed. A first database
+  run hit the test user's four-connection quota; the rerun passed. New backfill
+  regressions cover nested generation, cached unreadable originals, cancellation,
+  symlink/Trash/internal exclusion and zero Samba generation.
+- VM-built archive: 243,800,576 bytes; SHA-256
+  `890c514071956f8368655c37b12c38a8a63382fd7e5f6f2b081e810baf4aa644`.
+  Manifest `sha256:6f86215daf27437cc27aba2f3db235092ea4249bb7ed3e22b3d929fecb8130f6`;
+  config `sha256:77b881d7d6df9820ab54cc0520e37c23dbc404d8ef9e570840a09d61406b3e35`.
+  Transfer checksums and loaded image identities were verified before cutover.
+- Only the API was recreated, with no build/pull/dependency restart. Private
+  configuration, other container identities and broker PID **21956** were
+  preserved. No global lock or normalizer restart occurred. Live archive listing,
+  cached JPEG retrieval, read-only rejection naming `VPS /pics`, authenticated
+  public HTTPS 200 and anonymous 401 passed; API restarts zero, no OOM.
+- VPS transfer directories/next-overlay files and both superseded API images
+  were removed. VM image exports, prepared binaries, toolchain/cache, temporary
+  builder state and the bounded scratch filesystem/backing file were removed;
+  the shared builder cache mount was restored.
+
+Released **0.1.0 (36)** from `29719170a929baf9b15dbdc679e232bda83adc84`,
+pinned by `testflight/0.1.0-36`.
+
+- [Apple validation 45549423204](https://github.com/agawlbb/fileBeans/actions/runs/45549423204)
+  passed **134 unit and 3 UI tests**, zero failures, and the unsigned iPhone/iPad
+  Release archive. Its source `703f05d` has identical Apple application, tests,
+  project and workflow inputs to the release; the subsequent commit changes only
+  the standalone thumbnail import tool/tests.
+- Initial validation 45546862498 passed the archive transport/metadata and three
+  UI tests but exposed an existing viewer-cache test's two-second disk wait.
+  Commit `703f05d` extends only that test wait; the final validation passed.
+- [Signed publication 45551465554](https://github.com/agawlbb/fileBeans/actions/runs/45551465554)
+  passed preflight, archive/export, upload with no errors, and temporary runner
+  credential cleanup. Apple build `2d3b1738-bc13-4af4-ae62-7a507670d8cd` is
+  **VALID / IN_BETA_TESTING**, with automatic internal notification enabled.
+  Existing audience and permanent signing credentials were preserved; no external
+  review was submitted. Runner validation artifacts retain the existing seven-day
+  policy; no Apple artifacts were downloaded to the VM or VPS.
+
+The requested deployment, thumbnail reconciliation and internal app release are
+finished and verified. No further deployment or app build is needed. Physical-device
+acceptance remains separate. The previously pending public-hosting API source is
+also included in this main-branch deployment; no hosting links were created by
+this operation.
+
+
 ## Protected Samba listing — server hotfix (November 25, 2026)
 
 Deployed `filebeans-api:5d38260-listing`: the running source
