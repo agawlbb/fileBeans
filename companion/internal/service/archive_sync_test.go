@@ -269,6 +269,21 @@ func testArchiveSyncDatabase(t *testing.T, parent *Service) {
 			t.Fatal("paired restore", e)
 		}
 	})
+	t.Run("extension-only-rename-keeps-original", func(t *testing.T) {
+		f := syncFixture(t, parent)
+		original := f.photo(t, "photo.png")
+		f.encode(t)
+		f.drain(t)
+		f.move(t, "photo.jpg", "photo.jpeg")
+		f.drain(t)
+		if data, e := os.ReadFile(filepath.Join(f.archive, "photo.png")); e != nil || !bytes.Equal(data, original) {
+			t.Fatal("extension-only rename changed original", e)
+		}
+		if len(f.tasks(t)) != 0 {
+			t.Fatal("extension-only rename left pending work")
+		}
+	})
+
 	t.Run("trash-before-delay-and-reuse-name", func(t *testing.T) {
 		f := syncFixture(t, parent)
 		old := f.photo(t, "photo.png")

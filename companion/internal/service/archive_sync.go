@@ -1015,6 +1015,9 @@ func (s *Service) runArchiveMove(ctx context.Context, j *archiveTask) error {
 	if !j.Directory {
 		to = strings.TrimSuffix(to, filepath.Ext(to)) + filepath.Ext(from)
 	}
+	if from == to {
+		return s.finishArchiveMoved(ctx, j, r, a, to)
+	}
 	if e = mkdir(a, filepath.Dir(to)); e != nil {
 		return e
 	}
