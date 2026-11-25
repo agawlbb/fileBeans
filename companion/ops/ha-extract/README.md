@@ -184,3 +184,20 @@ pending an explicit server deployment request; no client build is required.
 The live archive-link listing was empty during diagnosis. Phase two must resolve
 or establish the intended link before relying on archive thumbnail suppression;
 no link was created as part of this layout repair.
+
+## Final deployment and helper cleanup — 2026-11-25
+
+The user approved the listing-fix deployment. It is live as
+`filebeans-api:5d38260-listing`, built from the previous server source plus only
+that patch. Samba/pics now lists all 49 immediate entries in 1.900 seconds
+(previously 48.41); a 51-entry nested folder loaded in 3.948 seconds. Public
+HTTPS and protected/hidden-path checks passed, with the broker and unlocked
+state preserved. The original tar.gz was verified present at its original size.
+
+The stopped temporary HA app was uninstalled. Exact Pi directories
+`/local_apps/filebeans_extract` and `/share/.filebeans-extract-control` were
+verified absent, and the app store refreshed. Original key file, SSH credential,
+archive, and extracted media were preserved. No temporary helper is retained.
+Deployment/source/toolchain staging and task-specific build cache were cleaned;
+the current API image is live production state. Physical app refresh/viewing is
+left to the user; no new app build is necessary for this server fix.

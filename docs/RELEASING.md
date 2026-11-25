@@ -1,5 +1,45 @@
 # Signing and TestFlight
 
+## Protected Samba listing — server hotfix (November 25, 2026)
+
+Deployed `filebeans-api:5d38260-listing`: the running source
+`66e17a84b4a5f2e12378ddcf5ced994fe90ddfec` plus only the approved listing patch
+from `5d38260`. The patch pins an already-authorized protected directory under
+its existing request lease and obtains confined child metadata without repeating
+global boundary classification for every entry. Ordinary folder checks remain
+unchanged, child symlinks are excluded, and canceled listings stop promptly.
+
+- Exact deployment-source filesystem race checks passed, including the pinned
+  directory replacement/symlink regression. Existing renderer fixtures were
+  included in the temporary source export. No schema migration was needed.
+- VM-only build and checksum-verified transfer: 243,767,808 bytes, SHA-256
+  `bbe3f8f97d3bc68ffeccac3d21285a2184a0bbf88042b670ede9c60cd0e64e8a`.
+  Loaded manifest
+  `sha256:d39873843172dcd93dce34da70f5001bb9919a7a130ad720008112b65c49b98f`;
+  image config
+  `sha256:a245785a344615e9e96ba48cba87a39673384552f31bde9379e1c62233e1f5da`.
+- Only the API container was recreated with no build, pull, or dependency
+  restart. Private configuration and runtime settings were identical; broker
+  PID 21956, all other container identities, and unlocked protection state were
+  preserved. API restart count zero, no OOM, no processing worker started.
+- Live Samba/pics listing improved from 48.41 to **1.900 seconds**, returning all
+  49 immediate entries (11 directories). A nested folder returned 51 entries in
+  3.948 seconds; VPS/pics returned 49 entries in 0.526 seconds. Public HTTPS
+  listing/authentication and restricted-path checks passed; anonymous API 401.
+- The extraction wrapper had already been corrected using Pi-local renames;
+  743 files / 45,032,055,965 bytes were preserved and the original tar.gz remains.
+  The temporary HA helper was uninstalled, its two task directories removed,
+  and the user-supplied recovery file and dedicated SSH credential preserved.
+- VPS transfer staging and the unreferenced previous API image were removed.
+  VM export, build context, source export, toolchain/cache and bounded scratch
+  filesystem/backing file were removed. Deployment-specific builder layers and
+  large context cache were removed by exact IDs; unrelated/shared cache remains.
+
+The requested server fix is deployed and verified. No app build is required.
+The separate phase-two comparison, thumbnail transfer/display and archive
+read-only work remains planned; this deployment does not implement it.
+
+
 ## Downloads and public hosting controls — TestFlight 35 (November 24, 2026)
 
 Released **0.1.0 (35)** from source
