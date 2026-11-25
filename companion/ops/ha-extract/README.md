@@ -221,3 +221,9 @@ missing or ambiguous filename stems/relative paths. All 206 current cached JPEGs
 were identical after import; 536 files had no current VPS thumbnail and none were
 generated. The verification transferred zero additional thumbnail bytes and
 reported no invalid cache objects. Original media was never read by the importer.
+
+The existing live phase-one API saved link `785f4a40ec6201758b8f99dec9e131a6`
+between protected VPS `/pics` and Samba `/pics`; both endpoints reported available.
+No global lock was applied. The temporary thumbnail container was removed and
+verified absent. Cached display and comprehensive read-only enforcement still
+await stage-two deployment and app release.
