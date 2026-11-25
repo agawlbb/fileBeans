@@ -70,5 +70,16 @@ class ArchiveThumbnailsTests(unittest.TestCase):
         with mock.patch.object(m.os,'replace',side_effect=OSError('simulated failure')):
             with self.assertRaises(OSError):m.prepare(self.library,self.archive,copy=True)
         self.assertEqual(list((self.archive/m.CACHE).iterdir()),[])
+    def test_parallel_copy_is_idempotent_and_budget_bounded(self):
+        for i in range(12):
+            self.file(self.library,f'nested/{i}.mp4');self.file(self.archive,f'nested/{i}.mov');self.thumb(self.library,f'nested/{i}.mp4')
+        result=m.prepare(self.library,self.archive,copy=True,workers=4)
+        self.assertEqual(result['copied'],12);self.assertEqual(result['thumbnailBytes'],12*len(JPEG))
+        self.assertEqual(m.prepare(self.library,self.archive,copy=True,workers=4)['unchanged'],12)
+        for p in (self.archive/'nested'/m.CACHE).iterdir():p.unlink()
+        with mock.patch.object(m,'MAX_COPY',len(JPEG)*3):
+            with self.assertRaisesRegex(ValueError,'128 MiB'):m.prepare(self.library,self.archive,copy=True,workers=4)
+        caches=list((self.archive/'nested'/m.CACHE).iterdir())
+        self.assertLessEqual(len(caches),3);self.assertTrue(all(p.suffix=='.jpg' for p in caches))
 
 if __name__=='__main__':unittest.main()

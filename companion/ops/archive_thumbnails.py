@@ -2,6 +2,8 @@
 """Compare archive names and backfill existing thumbnails; never open media data."""
 import argparse
 import contextlib
+import concurrent.futures
+import collections
 import dataclasses
 import fcntl
 import hashlib
@@ -11,6 +13,7 @@ import posixpath
 import signal
 import stat
 import time
+import threading
 import uuid
 
 CACHE = '.filebeans-thumbnails'
@@ -171,7 +174,9 @@ def compare(library, archive):
     return report, pairs
 
 
-def prepare(library_path, archive_path, copy=False, progress=None):
+def prepare(library_path, archive_path, copy=False, progress=None, workers=1):
+    if workers not in range(1, 5):
+        raise ValueError('Thumbnail copy workers must be between one and four')
     library, archive = Tree(library_path), Tree(archive_path)
     try:
         left, right = library.inventory(), archive.inventory()
@@ -182,33 +187,60 @@ def prepare(library_path, archive_path, copy=False, progress=None):
         # No cache writes until both complete trees match and the snapshots hold.
         if library.inventory() != left or archive.inventory() != right:
             raise ValueError('File tree changed during comparison')
-        for number, (source, destination) in enumerate(pairs, 1):
+        reserved_bytes = 0
+        budget = threading.Lock()
+        def copy_pair(pair):
+            nonlocal reserved_bytes
+            source, destination = pair
             if library.metadata(source) != left[source] or archive.metadata(destination) != right[destination]:
                 raise ValueError('Media changed since comparison')
             try:
                 data = library.read_cache(source, left[source])
             except FileNotFoundError:
-                report['missingThumbnails'].append(source)
-                continue
+                return 'missing', source
             if len(data) > MAX_THUMB or not data.startswith(b'\xff\xd8\xff') or not data.endswith(b'\xff\xd9'):
-                report['invalidThumbnails'].append(source)
-                continue
+                return 'invalid', source
             try:
                 existing = archive.read_cache(destination, right[destination])
             except FileNotFoundError:
                 existing = None
             if existing == data:
-                report['unchanged'] += 1
-                continue
-            if report['thumbnailBytes'] + len(data) > MAX_COPY:
-                raise ValueError('Thumbnail copy exceeds 128 MiB ceiling')
+                return 'unchanged', 0
+            with budget:
+                if reserved_bytes + len(data) > MAX_COPY:
+                    raise ValueError('Thumbnail copy exceeds 128 MiB ceiling')
+                reserved_bytes += len(data)
             if library.metadata(source) != left[source]:
                 raise ValueError('Library media changed during thumbnail read')
             archive.write_cache(destination, right[destination], data)
-            report['copied'] += 1
-            report['thumbnailBytes'] += len(data)
-            if progress and number % 25 == 0:
-                progress({'processed': number, 'total': len(pairs), 'copied': report['copied'], 'thumbnailBytes': report['thumbnailBytes']})
+            return 'copied', len(data)
+        # At most four tasks/JPEG buffers in flight, including cancellation. No
+        # unbounded executor queue, and roots close only after workers finish.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            pending = collections.deque()
+            iterator = iter(pairs)
+            try:
+                for _ in range(workers):
+                    pair = next(iterator, None)
+                    if pair is not None:
+                        pending.append(pool.submit(copy_pair, pair))
+                number = 0
+                while pending:
+                    kind, value = pending.popleft().result()
+                    number += 1
+                    if kind in ('missing', 'invalid'):
+                        report['missingThumbnails' if kind == 'missing' else 'invalidThumbnails'].append(value)
+                    else:
+                        report[kind] += 1
+                        report['thumbnailBytes'] += value
+                    if progress and number % 25 == 0:
+                        progress({'processed': number, 'total': len(pairs), 'copied': report['copied'], 'thumbnailBytes': report['thumbnailBytes']})
+                    pair = next(iterator, None)
+                    if pair is not None:
+                        pending.append(pool.submit(copy_pair, pair))
+            finally:
+                for future in pending:
+                    future.cancel()
         if library.inventory() != left or archive.inventory() != right:
             raise ValueError('File tree changed before thumbnail copy completed')
         return report
@@ -252,12 +284,13 @@ def main():
     parser.add_argument('--archive', required=True)
     parser.add_argument('--protection', required=True)
     parser.add_argument('--copy', action='store_true')
+    parser.add_argument('--workers', type=int, choices=range(1, 5), default=1)
     args = parser.parse_args()
     def interrupt(signum, frame):
         raise SystemExit('Thumbnail operation interrupted')
     signal.signal(signal.SIGTERM, interrupt)
     with protection_lease(args.protection, args.library, args.archive):
-        result = prepare(args.library, args.archive, args.copy, lambda x: print(json.dumps({'progress': x}), flush=True))
+        result = prepare(args.library, args.archive, args.copy, lambda x: print(json.dumps({'progress': x}), flush=True), args.workers)
     summary = dict(result)
     summary['missingThumbnails'] = len(result['missingThumbnails'])
     summary['invalidThumbnails'] = len(result['invalidThumbnails'])
