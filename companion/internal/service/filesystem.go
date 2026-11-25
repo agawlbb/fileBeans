@@ -176,7 +176,7 @@ func (s *Service) filesystemResource(w http.ResponseWriter, r *http.Request) {
 		filesystemFail(w, ErrUnsafe)
 		return
 	}
-	links, e := s.resolvedArchiveLinks()
+	links, e := s.archivePolicyLinks()
 	unknownArchive := errors.Is(e, ErrVaultLocked)
 	if unknownArchive {
 		e = nil
@@ -348,6 +348,10 @@ func (s *Service) filesystemFolder(w http.ResponseWriter, r *http.Request) {
 		filesystemFail(w, e)
 		return
 	}
+	if e = s.archiveDirectoryAdded(r.URL.Query().Get("source"), p); e != nil {
+		filesystemFail(w, e)
+		return
+	}
 	w.WriteHeader(http.StatusCreated)
 }
 func (s *Service) filesystemUpload(w http.ResponseWriter, r *http.Request) {
@@ -368,6 +372,21 @@ func (s *Service) filesystemUpload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	replacing := r.Method == "PUT"
+	if replacing && archiveMedia(p) {
+		if links, e := s.archivePolicyLinks(); e != nil {
+			filesystemFail(w, e)
+			return
+		} else {
+			for _, link := range links {
+				if link.Library.Source == r.URL.Query().Get("source") {
+					if _, inside := archiveRelative(link.Library.Path, p); inside {
+						reply(w, 403, map[string]string{"error": "Move the existing media to Trash before replacing it."})
+						return
+					}
+				}
+			}
+		}
+	}
 	expected := r.Header.Get("If-Match")
 	if replacing && (expected == "" || expected == "*") {
 		reply(w, 428, map[string]string{"error": "An expected revision is required"})
@@ -473,6 +492,10 @@ func (s *Service) filesystemUpload(w http.ResponseWriter, r *http.Request) {
 		filesystemFail(w, e)
 		return
 	}
+	if e = s.archiveAdded(r.URL.Query().Get("source"), p); e != nil {
+		filesystemFail(w, e)
+		return
+	}
 	reply(w, 201, filesystemInfo(p, st))
 }
 func (s *Service) filesystemMove(w http.ResponseWriter, r *http.Request) {
@@ -513,10 +536,20 @@ func (s *Service) filesystemMove(w http.ResponseWriter, r *http.Request) {
 		filesystemFail(w, e)
 		return
 	}
+	intent, e := s.archiveMoveIntent(input.Source, from, to)
+	if e != nil {
+		filesystemFail(w, e)
+		return
+	}
 	if e = safe(root, to); e == nil {
 		e = renameExclusive(root, from, to)
 	}
 	if e != nil {
+		s.discardArchiveIntent(intent)
+		filesystemFail(w, e)
+		return
+	}
+	if e = s.finishArchiveMove(intent); e != nil {
 		filesystemFail(w, e)
 		return
 	}

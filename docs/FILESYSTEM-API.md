@@ -335,7 +335,35 @@ the existing Apple setup scripts. The extension must not receive the vault Keych
 group. No Apple registrations, signing changes, builds, uploads, or VPS deployment
 were performed as part of source implementation.
 
-## Linked archives (phase two)
+## Linked archives (phase three)
+
+
+Media added to a Library waits five minutes after its last completed upload,
+move, rename or observed modification. A single bounded encoder uses the existing
+photo/video profiles and validates its temporary output before replacing the VPS
+copy. The exact original remains in hidden, protected Library staging until its
+checksum-verified archive copy and thumbnail are stored. An unavailable archive
+does not prevent publishing the encoded VPS copy. Retries occur after one, five,
+fifteen and then thirty minutes; restart recovery preserves pending originals.
+Archive media is never opened to generate a thumbnail.
+
+FileBeans file/folder moves within the Library mirror relative paths, preserving
+original extensions; Trash and restore propagate to archive Trash with its normal
+retention period. Pending originals prevent premature Trash purging. Empty nested
+folders are mirrored too. Moving out of the Library and replacing existing linked
+media in place are blocked; move the existing media to Trash before replacement.
+The archive remains read-only to users. Pairing uses exact-case relative paths and
+filename stems, ignoring the final extension, rather than a permanent file index.
+
+`archiveSyncV1` advertises `GET /v1/archive-sync/status`, returning only counts:
+`pendingOriginals`, `pendingChanges` and `problems`. The app checks on launch and
+foreground and alerts when work remains. Queue and folder-routing metadata are
+encrypted by the Library; archive unavailability does not require locking it.
+External filesystem discrepancies pause discovery and raise attention rather
+than inferring permission to delete originals. Perform supported moves in FileBeans;
+external edits are not automatically reconciled. Discovery walks names, not media,
+and existing matched files are not re-encoded.
+
 
 A folder's **Link Archive…** menu links it as the Library to an existing folder,
 including an existing protected folder, or a protected folder created in the
@@ -345,7 +373,7 @@ One pair covers both complete trees, including existing and future subfolders;
 subfolders need no individual registration or matching structure. Endpoints may
 share a source, but must belong to this connection. Source roots, Trash, identical
 endpoints, overlapping endpoints and trees already covered by another link are
-not eligible. No copying, conversion, mirroring or linked file deletion occurs.
+not eligible. Library changes now propagate through a persistent operation journal.
 The existing normalizer configuration is not enabled or reconfigured by linking.
 
 The archive endpoint and all descendants are read-only in FileBeans. Creating,
@@ -358,7 +386,7 @@ Deleting the Library endpoint or an ancestor requires unlinking first; supported
 Library renames update its location. Cross-source/protection-boundary linked-root
 moves still require unlinking. Unlinking preserves both trees and restores archive
 writes. Copies never inherit a link. Relevant active source/destination jobs
-prevent linking. Library edits are not yet propagated to the archive.
+prevent linking. Unlinking is blocked until pending archive work has completed.
 
 External moves/deletions leave an unavailable link at the recorded location;
 there is no automatic reconciliation or deletion. Ordinary endpoints check

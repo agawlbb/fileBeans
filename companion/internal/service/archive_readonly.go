@@ -37,7 +37,13 @@ func archiveWritePolicy(links []ArchiveLink, source, p string, recursive bool) e
 // Resolve protected locations from the broker snapshot without statting every
 // endpoint. Unrelated VPS writes and thumbnail requests must not probe Samba.
 func (s *Service) archivePolicyLinks() ([]ArchiveLink, error) {
-	links, e := s.archiveLinks()
+	links, e := s.cachedArchivePolicies()
+	if e != nil {
+		links, e = s.archiveLinks()
+		if e == nil {
+			s.cacheArchivePolicies(links)
+		}
+	}
 	if e != nil {
 		return nil, e
 	}
@@ -66,6 +72,9 @@ func (s *Service) archivePolicyLinks() ([]ArchiveLink, error) {
 	return links, nil
 }
 func (s *Service) guardArchiveWrite(source, p string, recursive bool) error {
+	if s.archiveTrusted {
+		return nil
+	}
 	if source == "drive" || source == "upload" {
 		return nil
 	}
@@ -141,7 +150,7 @@ func checkArchiveRoot(root rootFS, p string, recursive bool) error {
 	return nil
 }
 func (s *Service) archiveGuarded(root rootFS, source string) rootFS {
-	if s.db == nil {
+	if s.db == nil || s.archiveTrusted {
 		return root
 	}
 	check := func(p string, recursive bool) error {
@@ -218,6 +227,30 @@ func (r *archiveWriteRoot) RemoveAll(p string) error {
 // Check logical intent before receiving uploads, discovering media, or queuing
 // work; low-level root checks repeat this at actual publication/execution time.
 func (s *Service) guardArchiveJob(req CopyRequest) error {
+	if req.Operation == "move" && !s.archiveTrusted {
+		links, e := s.archivePolicyLinks()
+		if e != nil {
+			return e
+		}
+		for _, link := range links {
+			for _, item := range req.Items {
+				if item.Source == link.Library.Source {
+					if _, ok := archiveRelative(link.Library.Path, item.Path); ok {
+						name := filepath.Base(item.Path)
+						if req.DestinationName != "" {
+							name = req.DestinationName
+						}
+						if req.Destination.Source != item.Source {
+							return ErrArchiveLinked
+						}
+						if _, ok = archiveRelative(link.Library.Path, filepath.Join(req.Destination.Path, name)); !ok {
+							return ErrArchiveLinked
+						}
+					}
+				}
+			}
+		}
+	}
 	if e := s.guardArchiveWrite(req.Destination.Source, req.Destination.Path, false); e != nil {
 		return e
 	}
@@ -258,6 +291,9 @@ func (s *Service) guardArchiveVaultWrite(id string) error {
 	return nil
 }
 func (s *Service) guardArchiveTrash(t Trash) error {
+	if s.archiveTrusted {
+		return nil
+	}
 	if strings.HasPrefix(t.ID, "vault-") {
 		return s.guardArchiveVaultWrite(strings.TrimPrefix(t.ID, "vault-"))
 	}

@@ -15,6 +15,16 @@ private final class TextContentProtocol: URLProtocol {
 }
 
 final class FilesystemClientTests: XCTestCase {
+    func testArchiveSyncStatusCountsWorkWithoutProtectedPaths() throws {
+        let empty = try JSONDecoder().decode(ArchiveSyncStatus.self, from: Data(#"{"pendingOriginals":0,"pendingChanges":0,"problems":0}"#.utf8))
+        XCTAssertFalse(empty.hasPending)
+        for field in ["pendingOriginals", "pendingChanges", "problems"] {
+            var counts = ["pendingOriginals":0, "pendingChanges":0, "problems":0]
+            counts[field] = 1
+            let status = try JSONDecoder().decode(ArchiveSyncStatus.self, from: JSONSerialization.data(withJSONObject: counts))
+            XCTAssertTrue(status.hasPending)
+        }
+    }
     func testArchiveThumbnailRequestsOnlyExistingCache() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ArchiveThumbnailProtocol.self]

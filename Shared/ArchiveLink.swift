@@ -10,7 +10,16 @@ struct ArchiveLink: Codable, Identifiable, Hashable {
     let library: ArchiveEndpoint
     let archive: ArchiveEndpoint
 }
+struct ArchiveSyncStatus: Decodable {
+    let pendingOriginals: Int
+    let pendingChanges: Int
+    let problems: Int
+    var hasPending: Bool { pendingOriginals > 0 || pendingChanges > 0 || problems > 0 }
+}
 extension CompanionClient {
+    func archiveSyncStatus() async throws -> ArchiveSyncStatus {
+        try JSONDecoder().decode(ArchiveSyncStatus.self, from: await request("archive-sync/status"))
+    }
     func archiveLinks() async throws -> [ArchiveLink] {
         try JSONDecoder().decode([ArchiveLink].self, from: await request("archive-links"))
     }

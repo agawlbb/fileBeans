@@ -265,10 +265,27 @@ func (l *Lease) classify(path string) (*Vault, bool, error) {
 			if unix.Stat(sourceRoot, &sourceStat) != nil || unix.Stat(ancestor, &ancestorStat) != nil {
 				return nil, false, ErrUnavailable
 			}
+			// A lexical descendant on its verified, leased FUSE device needs no
+			// probes of unrelated sources. Cross-mount aliases take the full path.
+			if resolved == ancestor {
+				for i := range l.Snapshot.Vaults {
+					v := &l.Snapshot.Vaults[i]
+					public := filepath.Join(l.guard.roots[v.Source], v.Path)
+					if within(path, public) && within(ancestor, public) && v.State == "unlocked" && l.guard.mounted(public, "filebeans-vault-"+v.ID) {
+						var own unix.Stat_t
+						if unix.Stat(public, &own) == nil && own.Dev != sourceStat.Dev && own.Dev == ancestorStat.Dev {
+							return v, false, nil
+						}
+					}
+				}
+			}
 			for _, v := range l.Snapshot.Vaults {
 				public := filepath.Join(l.guard.roots[v.Source], v.Path)
 				if v.Device != 0 && v.Inode != 0 && uint64(ancestorStat.Dev) == v.Device && ancestorStat.Ino == v.Inode && !within(path, public) {
 					return nil, false, ErrBoundary
+				}
+				if l.guard.roots[v.Source] != sourceRoot && ancestorStat.Dev == sourceStat.Dev {
+					continue
 				}
 				var vaultStat unix.Stat_t
 				if unix.Stat(public, &vaultStat) == nil && vaultStat.Dev != sourceStat.Dev && ancestorStat.Dev == vaultStat.Dev && !within(path, public) {

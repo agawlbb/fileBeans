@@ -244,10 +244,22 @@ func (s *Service) archiveRoutes(mux *http.ServeMux) {
 			fail(w, err)
 			return
 		}
+		if tasks, e := s.archiveTasks(); e != nil {
+			fail(w, e)
+			return
+		} else {
+			for _, j := range tasks {
+				if j.Link == link.ID && j.State != "paired" && j.Kind != "drift" {
+					fail(w, ErrConflict)
+					return
+				}
+			}
+		}
 		if _, err := s.db.Exec("DELETE FROM fb_operations WHERE id=? AND kind='archiveLink'", link.ID); err != nil {
 			fail(w, err)
 			return
 		}
+		_, _ = s.db.Exec("DELETE FROM fb_operations WHERE id=? AND kind='archivePolicy'", "policy-"+link.ID)
 		w.WriteHeader(204)
 	})
 }
@@ -265,6 +277,9 @@ func archiveMembership(links []ArchiveLink, source, p string) (string, string, b
 	return "", "", false
 }
 func (s *Service) guardArchiveRemoval(source, p string) error {
+	if s.archiveTrusted {
+		return nil
+	}
 	if e := s.guardArchiveWrite(source, p, true); e != nil {
 		return e
 	}
@@ -294,7 +309,7 @@ func (s *Service) prepareArchiveRename(source, from, to string) error {
 	if e := s.guardArchiveWrite(source, to, true); e != nil {
 		return e
 	}
-	links, err := s.resolvedArchiveLinks()
+	links, err := s.archivePolicyLinks()
 	if err != nil {
 		return err
 	}
@@ -354,11 +369,23 @@ func (s *Service) archiveThumbnailSuppressed(source, p string) (bool, error) {
 }
 
 func (s *Service) finishArchiveRename() error {
-	links, err := s.resolvedArchiveLinks()
+	links, err := s.archivePolicyLinks()
 	if err != nil {
 		return err
 	}
 	for _, link := range links {
+		changed := false
+		if link.Library.Pending != nil {
+			link.Library = s.resolveEndpoint(link.Library)
+			changed = true
+		}
+		if link.Archive.Pending != nil {
+			link.Archive = s.resolveEndpoint(link.Archive)
+			changed = true
+		}
+		if !changed {
+			continue
+		}
 		if err = s.save(link.ID, "archiveLink", "linked", link); err != nil {
 			return err
 		}

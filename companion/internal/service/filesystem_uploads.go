@@ -236,5 +236,11 @@ func (s *Service) filesystemUploadSession(w http.ResponseWriter, r *http.Request
 			session.Completed = true
 		}
 	}
+	if complete && session.Completed {
+		if e = s.archiveAdded(r.URL.Query().Get("source"), p); e != nil {
+			filesystemFail(w, e)
+			return
+		}
+	}
 	reply(w, 200, session)
 }

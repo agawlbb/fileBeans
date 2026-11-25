@@ -19,8 +19,10 @@ func trashDirectory(t Trash) string {
 func trashPath(t Trash) string { return filepath.Join(trashDirectory(t), t.Name) }
 func (s *Service) trash(item Item, key string) (Trash, error) {
 	var t Trash
-	archiveMu.Lock()
-	defer archiveMu.Unlock()
+	if !s.archiveTrusted {
+		archiveMu.Lock()
+		defer archiveMu.Unlock()
+	}
 	if e := s.guardArchiveRemoval(item.Source, item.Path); e != nil {
 		return t, e
 	}
@@ -65,6 +67,9 @@ func (s *Service) trash(item Item, key string) (Trash, error) {
 	if e = s.insert(t.ID, "trash", t.State, key, t); e != nil {
 		return t, e
 	}
+	if e = s.archiveTrashIntent(t); e != nil {
+		return t, e
+	}
 	a, e := s.accessTrash(t)
 	if e != nil {
 		return t, e
@@ -75,11 +80,16 @@ func (s *Service) trash(item Item, key string) (Trash, error) {
 	}
 	t.State = "retained"
 	e = s.save(t.ID, "trash", t.State, t)
+	if e == nil {
+		e = s.archiveTrashCache(t, true)
+	}
 	return t, e
 }
 func (s *Service) restore(id string) error {
-	archiveMu.Lock()
-	defer archiveMu.Unlock()
+	if !s.archiveTrusted {
+		archiveMu.Lock()
+		defer archiveMu.Unlock()
+	}
 	if strings.HasPrefix(id, "vault-") && s.vaults != nil && s.vaults.remote != nil {
 		if e := s.guardArchiveVaultWrite(strings.TrimPrefix(id, "vault-")); e != nil {
 			return e
@@ -117,6 +127,9 @@ func (s *Service) restore(id string) error {
 	if e = mkdir(r, filepath.Dir(original)); e != nil {
 		return e
 	}
+	if e = s.archiveTrashCache(t, false); e != nil {
+		return e
+	}
 	t.State = "restoring"
 	if e = s.save(t.ID, "trash", t.State, t); e != nil {
 		return e
@@ -134,11 +147,19 @@ func (s *Service) restore(id string) error {
 	if e = s.save(t.ID, "trash", t.State, t); e != nil {
 		return e
 	}
+	if e = s.archiveTrashState(t.ID, "restore"); e != nil {
+		return e
+	}
 	return a.bin.RemoveAll(trashDirectory(t))
 }
 func (s *Service) purge(t *Trash) error {
-	archiveMu.Lock()
-	defer archiveMu.Unlock()
+	if !s.archiveTrusted {
+		archiveMu.Lock()
+		defer archiveMu.Unlock()
+	}
+	if e := s.guardArchivePurge(*t); e != nil {
+		return e
+	}
 	if e := s.guardArchiveTrash(*t); e != nil {
 		return e
 	}

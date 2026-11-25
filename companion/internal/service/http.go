@@ -78,6 +78,7 @@ func (s *Service) Handler() http.Handler {
 		g, e := s.google()
 		features := []string{"publicHostingV1", "protectedFolderMoves", "crossDriveMoves", "driveWrite", "driveDestinations", "driveUploads", "driveThumbnails", "driveMedia", "normalization"}
 		if s.config.Filesystem.Enabled {
+			features = append(features, "archiveSyncV1")
 			features = append(features, "archiveLinksV1", "archiveReadOnlyV1", "archiveCachedThumbnailsV1", "filenameStemsV1", "filesystemV1", "resumableUploadsV1", "datasetMediaV1", "datasetOriginalsV1")
 		}
 		if s.vaults != nil && s.vaults.remote != nil && s.vaults.remote.ready() {
@@ -513,6 +514,7 @@ func (s *Service) Handler() http.Handler {
 	public := http.NewServeMux()
 	public.HandleFunc("GET /h/{id}/{filename}", s.publicHosting)
 	s.archiveRoutes(mux)
+	s.archiveSyncRoutes(mux)
 	s.filesystemRoutes(mux)
 	s.datasetRoutes(mux)
 	s.driveRoutes(mux)

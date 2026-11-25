@@ -1,7 +1,7 @@
 # Runtime-only context prepared on VM-laptop; build only on explicit request.
 # Independent of Quantum source, images and runtime assets.
 FROM debian:trixie-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg poppler-utils ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg poppler-utils ca-certificates util-linux && rm -rf /var/lib/apt/lists/*
 COPY filebeans /filebeans
 COPY rclone /rclone
 COPY rclone-README.txt /usr/share/doc/rclone/README.txt

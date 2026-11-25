@@ -23,6 +23,7 @@ type MoveEntry struct {
 	Identity  string `json:"identity"`
 }
 type MoveSelection struct {
+	ArchiveIntent      string      `json:"archiveIntent,omitempty"`
 	Rename             bool        `json:"rename,omitempty"`
 	Renamed            bool        `json:"renamed,omitempty"`
 	RenameIdentity     string      `json:"renameIdentity,omitempty"`
@@ -341,7 +342,28 @@ func (s *Service) executeMove(ctx context.Context, j *Job) error {
 		if err != nil {
 			return err
 		}
-		err = resumeRename(src, dst, destination, selection)
+		archiveMu.Lock()
+		s.fsMu.Lock()
+		if selection.ArchiveIntent != "" {
+			var intent archiveTask
+			if s.read(selection.ArchiveIntent, archiveTaskKind, &intent) != nil {
+				selection.ArchiveIntent = ""
+			}
+		}
+		if !selection.Renamed && selection.ArchiveIntent == "" {
+			selection.ArchiveIntent, err = s.archiveMoveIntent(selection.Source, selection.Path, filepath.Join(destination, selection.To))
+			if err == nil && selection.ArchiveIntent != "" {
+				err = s.saveMove(j)
+			}
+		}
+		if err == nil {
+			err = resumeRename(src, dst, destination, selection)
+		}
+		if err == nil && selection.ArchiveIntent != "" {
+			err = s.finishArchiveMove(selection.ArchiveIntent)
+		}
+		s.fsMu.Unlock()
+		archiveMu.Unlock()
 		if errors.Is(err, errMoveCopyRequired) {
 			selection.Rename = false
 			selection.RenameIdentity = ""

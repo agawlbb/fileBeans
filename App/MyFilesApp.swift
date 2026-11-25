@@ -5,6 +5,8 @@ import FileProvider
 struct MyFilesApp: App {
     @UIApplicationDelegateAdaptor(TransferAppDelegate.self) private var delegate
     @Environment(\.scenePhase) private var phase
+    @State private var archiveAlert: String?
+    @State private var checkingArchives = false
     var body: some Scene {
         WindowGroup {
             #if DEBUG
@@ -18,13 +20,34 @@ struct MyFilesApp: App {
     }
     private var appContent: some View {
         SourcesView()
-                .task { UploadQueue.shared.recover() }
+                .task { UploadQueue.shared.recover(); await checkArchives() }
                 .onChange(of: phase) { _, phase in
-                    if phase == .active { UploadQueue.shared.recover() }
+                    if phase == .active { UploadQueue.shared.recover(); Task { await checkArchives() } }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
                     Task { await ThumbnailCache.shared.clearMemory() }
                 }
+                .alert("Archive Backup Pending", isPresented: Binding(get: { archiveAlert != nil }, set: { if !$0 { archiveAlert = nil } })) {
+                    Button("OK") { archiveAlert = nil }
+                } message: { Text(archiveAlert ?? "") }
+    }
+
+    @MainActor private func checkArchives() async {
+        guard !checkingArchives else { return }
+        checkingArchives = true
+        defer { checkingArchives = false }
+        for connection in (try? SharedStore().connections()) ?? [] where connection.companionURL != nil {
+            let client = CompanionClient(connection: connection)
+            defer { client.close() }
+            do {
+                guard try await client.capabilities().features?.contains("archiveSyncV1") == true else { continue }
+                let status = try await client.archiveSyncStatus()
+                if status.hasPending {
+                    archiveAlert = "Archive work is pending for \(connection.name). Originals awaiting backup are retained on the VPS. FileBeans will retry automatically."
+                    return
+                }
+            } catch { /* Connection failures use the existing connection status. */ }
+        }
     }
 
 }

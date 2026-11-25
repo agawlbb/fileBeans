@@ -172,6 +172,7 @@ func TestDatabaseWorkflow(t *testing.T) {
 	}
 	defer db.Exec("DROP TABLE fb_operations")
 	vps, share := s.config.Roots[0].Path, s.config.Roots[1].Path
+	t.Run("archive-sync", func(t *testing.T) { testArchiveSyncDatabase(t, s) })
 	t.Run("archive-links", func(t *testing.T) { testArchiveDatabase(t, s) })
 	t.Run("dataset-render", func(t *testing.T) { testDatasetDatabase(t, s) })
 	t.Run("protected-records", func(t *testing.T) {

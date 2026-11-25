@@ -211,6 +211,9 @@ func (s *Service) runJob(ctx context.Context, j *Job) {
 	if e == nil {
 		e = s.execute(copyCtx, j)
 	}
+	if e == nil {
+		e = s.archivePublished(j)
+	}
 	if ctx.Err() != nil {
 		return
 	}

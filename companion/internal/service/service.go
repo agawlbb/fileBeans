@@ -8,10 +8,13 @@ import (
 	"encoding/json"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 type Service struct {
+	archiveEpoch     atomic.Uint64
+	archiveTrusted   bool                 // private maintenance instance; never used by HTTP handlers
 	datasetDiskCheck func(*os.File) error // injected only for synthetic filesystem capacity tests
 	fsMu             sync.Mutex           // serialize API mutation publication and revision checks
 	vaultGate        sync.RWMutex         // filesystem operations must finish before an unmount
@@ -93,6 +96,9 @@ func (s *Service) loop(ctx context.Context, lease *sql.Conn) {
 	}()
 	defer func() { cancel(); <-heartbeatDone }()
 	ctx = workerCtx
+	archiveDone := make(chan struct{})
+	go func() { defer close(archiveDone); s.archiveSyncLoop(ctx) }()
+	defer func() { cancel(); <-archiveDone }()
 	thumbnailDone := make(chan struct{})
 	go func() { defer close(thumbnailDone); s.thumbnailBackfill(ctx) }()
 	defer func() { cancel(); <-thumbnailDone }()
