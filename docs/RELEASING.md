@@ -1592,3 +1592,47 @@ was required. The requested server deployment is finished and verified.
 Local `.build/broker-18ce95a` and VPS `/var/tmp/filebeans-broker-18ce95a` staging
 were removed and their absence verified. The installed broker and systemd
 override are the retained runtime files; no disposable artifacts were retained.
+
+## Host-aware archive encoding deployment — November 26, 2026
+
+Requested server source `38855c0` is deployed as
+`filebeans-api:38855c0-host-memory`. The VM-local canonical builder produced:
+
+- Archive SHA-256: `8ba087c8e4b5fc3cd6fc24b16e6e7845172dbdf79195858ea12d935d9690cef9`.
+- Manifest: `sha256:eedb867be8f39e804474d1d23a4373b7e9c8b14de80e7430ff72c88c3755d90b`.
+- Config: `sha256:76e0d8b5a80e75661c408eab11fa3c221dff2cff73a39792b5a86a1e490f4d79`.
+
+The active `makelora-datasets.compose.yaml` overlay changes only the companion
+image and its memory/swap ceiling to 2 GiB, preserving its one CPU, 128-process
+limit, UID/GID, environment, command and mounts. Every other running container's
+start time and memory cap stayed unchanged; broker PID 21956 was preserved.
+Authenticated capability, jobs and additive archive status checks pass;
+unauthenticated access returns 401. The live image identity matches the prepared
+manifest, with zero restarts and zero OOM events.
+
+The efficient x265 profile and host-pressure admission/cancellation policy are
+documented in TESTING.md. NReading.mp4's failed-job retry was brought forward
+without changing its attempt count, paths or original. Its actual encoding child
+reported niceness 10, idle I/O, OOM score 500, 1.5 GiB data / 2 GiB address caps,
+and the restored `pools=none:frame-threads=1` profile.
+
+Live retry completed: the Library video is 8,186,352 bytes, HEVC `yuv420p10le`,
+720x1280 with AAC and the unchanged 9.966667-second duration. The 8,709,260-byte
+archive original matches its pre-encoding SHA-256:
+`05530026f30e59d9236be110ac6308d50a4aaf5309c3dd08a086617a0fe8884a`.
+Container peak memory was 669,642,752 bytes (about 639 MiB), with zero memory
+limit/OOM events or restarts. Two capability requests timed out during publication
+and copying; final authenticated capability, archive-status and jobs checks pass.
+The archive queue now reports zero pending work, pending originals or problems.
+
+Exact VPS `.host-memory-38855c0` staging and the unreferenced previous
+`filebeans-api:4ce7561-archives` image were removed. VM
+`.build/host-memory-work`, its 6 GiB `.ext4` backing file, public runtime/toolchain,
+test clips/caches, build context/export, task builder state and one-off control
+scripts were removed. The shared builder is stopped with its original state
+mount restored. No disposable task artifacts remain.
+
+This server deployment also includes the previously verified representative
+video-thumbnail selection and additive per-file archive-status API. The broker
+auto-lock correction and pending Apple UI changes require their separate
+deliveries; no broker deployment or Apple build was performed here.
