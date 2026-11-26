@@ -674,3 +674,27 @@ unchanged. The changed Swift source passes syntax parsing and whitespace checks.
 After an explicitly requested app build, verify launch and repeated background /
 foreground transitions while archive work is pending produce no popup and uploads
 still recover. No server deployment or temporary artifacts are required.
+
+### Server transfer reconnect after backgrounding — November 26, 2026
+
+Copy/move submission, transfer-list refresh and move completion polling reconnect
+once after a timeout or interrupted network connection. The app waits until it
+is active before reconnecting. Submission retries reuse the exact encoded body
+and persisted idempotency key, so an operation completed while the app was closed
+returns its existing completed job instead of creating a second copy or move.
+Failed reconnects preserve the key for a later retry; permission errors and actual
+failed jobs remain errors. Cancelled/background transfer-list refreshes no longer
+publish stale UI errors. The File Provider has no app-foreground dependency and
+uses the same bounded transport retry immediately.
+
+Five transport regressions cover foreground gating, lost submission responses,
+bounded retry with request-key reuse across client recreation, job-list/move-poll
+reconnects, and permission rejection. These tests await Apple execution; no Swift
+runner is installed in the VM development container. All six changed Swift files,
+including the regressions and new app-only foreground helper, pass syntax parsing
+and whitespace checks. No app build, deployment or temporary artifacts were made.
+
+After an explicitly requested app build, run the transport tests and start long
+copy/move jobs, background the app, let the server complete them, then reopen.
+Verify completed status, refreshed destination/source listings, no duplicate job
+or stale timeout alert, and continued visibility of genuine network/server errors.

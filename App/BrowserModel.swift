@@ -15,7 +15,10 @@ final class BrowserModel: ObservableObject {
     func load(connection: Connection, parent: StoredItem?) async {
         busy = true; defer { busy = false }
         do {
-            if repository == nil { repository = try Repository(connection: connection, store: SharedStore()) }
+            if repository == nil {
+                repository = try Repository(connection: connection, store: SharedStore())
+                repository?.companion?.prepareForJobRetry = { try await ServerRequestRecovery.waitUntilActive() }
+            }
             guard let repository else { return }
             if let companion = repository.companion {
                 canCreateProtectedFolder = false

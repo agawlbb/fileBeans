@@ -71,12 +71,25 @@ private final class CompanionStub: URLProtocol {
     override func stopLoading() {}
 }
 
+private actor JobRetryGate {
+    private var released = false
+    private var continuation: CheckedContinuation<Void, Never>?
+    func wait() async {
+        guard !released else { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+    func resume() {
+        released = true
+        continuation?.resume(); continuation = nil
+    }
+}
+
 final class CompanionTransportTests: XCTestCase {
     private let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    private func client(scope: String = "/") throws -> CompanionClient {
+    private func client(scope: String = "/", connection existing: Connection? = nil) throws -> CompanionClient {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [CompanionStub.self]
-        let connection = Connection(name: "Fixture", url: URL(string: "https://quantum.example")!,
+        let connection = existing ?? Connection(name: "Fixture", url: URL(string: "https://quantum.example")!,
                                     companionURL: URL(string: "https://files.example/companion")!, companionTokenID: UUID())
         let store = SharedStore(directory: directory)
         try store.updateScope(connection: connection.id, source: "samba", boundary: scope)
@@ -174,6 +187,94 @@ final class CompanionTransportTests: XCTestCase {
         let service = try client(); defer { service.close() }
         _ = try await service.submit(BackgroundCopy(items: [CopyLocation(source: "samba", path: "/movie.mov")],
             destination: CopyLocation(source: "samba", path: "/Private")))
+    }
+    func testInterruptedSubmissionWaitsForReconnectAndReturnsCompletedJobWithSameKey() async throws {
+        var requests: [URLRequest] = []
+        CompanionStub.inspect = { request in
+            requests.append(request)
+            if requests.count == 1 { throw URLError(.timedOut) }
+            return (200, Data(#"{"id":"already-finished","state":"completed","total":100,"done":100,"speed":0,"current":""}"#.utf8))
+        }
+        let service = try client(); defer { service.close() }
+        let reconnect = expectation(description: "Waiting for foreground reconnect")
+        let gate = JobRetryGate()
+        service.prepareForJobRetry = { reconnect.fulfill(); await gate.wait() }
+        let submission = Task {
+            try await service.submit(BackgroundCopy(items: [CopyLocation(source: "samba", path: "/movie.mov")],
+                destination: CopyLocation(source: "samba", path: "/Target"), operation: "move"))
+        }
+        await fulfillment(of: [reconnect], timeout: 2)
+        XCTAssertEqual(requests.count, 1, "Do not reconnect while the app is inactive")
+        await gate.resume()
+        let job = try await submission.value
+        XCTAssertEqual(job.id, "already-finished")
+        XCTAssertEqual(job.state, "completed")
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertEqual(requests[0].httpBody, requests[1].httpBody)
+        XCTAssertNotNil(requests[0].value(forHTTPHeaderField: "Idempotency-Key"))
+        XCTAssertEqual(requests[0].value(forHTTPHeaderField: "Idempotency-Key"), requests[1].value(forHTTPHeaderField: "Idempotency-Key"))
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: directory.appendingPathComponent("copy-submissions").path).isEmpty)
+    }
+    func testRepeatedTimeoutRemainsAnErrorAndPreservesRequestKeyAcrossClientRestart() async throws {
+        var keys: [String?] = []
+        CompanionStub.inspect = { request in
+            keys.append(request.value(forHTTPHeaderField: "Idempotency-Key"))
+            if keys.count <= 2 { throw URLError(.timedOut) }
+            return (200, Data(#"{"id":"recovered","state":"completed","total":1,"done":1,"speed":0,"current":""}"#.utf8))
+        }
+        let service = try client()
+        let copy = BackgroundCopy(items: [CopyLocation(source: "samba", path: "/movie.mov")],
+            destination: CopyLocation(source: "samba", path: "/Target"))
+        do { _ = try await service.submit(copy); XCTFail("A persistent connection failure must remain visible") }
+        catch { XCTAssertEqual((error as? URLError)?.code, .timedOut) }
+        XCTAssertEqual(keys.count, 2, "Reconnect must be bounded")
+        service.close()
+        let restarted = try client(connection: service.connection); defer { restarted.close() }
+        let job = try await restarted.submit(copy)
+        XCTAssertEqual(job.state, "completed")
+        XCTAssertEqual(keys.count, 3)
+        XCTAssertNotNil(keys[0])
+        XCTAssertEqual(keys[0], keys[1]); XCTAssertEqual(keys[0], keys[2])
+    }
+    func testJobStatusReconnectsWithoutResubmittingTheOperation() async throws {
+        var calls = 0
+        CompanionStub.inspect = { request in
+            calls += 1
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertEqual(request.url?.path, "/companion/v1/jobs")
+            if calls == 1 { throw URLError(.networkConnectionLost) }
+            return (200, Data(#"[{"id":"finished","state":"completed","total":1,"done":1,"speed":0,"current":""}]"#.utf8))
+        }
+        let service = try client(); defer { service.close() }
+        let jobs = try await service.jobs()
+        XCTAssertEqual(jobs.first?.state, "completed")
+        XCTAssertEqual(calls, 2)
+    }
+    func testRejectedSubmissionDoesNotReconnect() async throws {
+        var calls = 0
+        CompanionStub.inspect = { _ in calls += 1; return (403, Data(#"{"error":"Permission denied"}"#.utf8)) }
+        let service = try client(); defer { service.close() }
+        service.prepareForJobRetry = { XCTFail("A permission failure must not be retried") }
+        do {
+            _ = try await service.submit(BackgroundCopy(items: [CopyLocation(source: "samba", path: "/movie.mov")],
+                destination: CopyLocation(source: "samba", path: "/Target")))
+            XCTFail("Permission failure was hidden")
+        } catch { XCTAssertEqual((error as NSError).code, 403) }
+        XCTAssertEqual(calls, 1)
+    }
+    func testMoveWaitReconnectsToTheKnownCompletedJob() async throws {
+        var calls = 0
+        CompanionStub.inspect = { request in
+            calls += 1
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertEqual(request.url?.path, "/companion/v1/jobs/move-1")
+            if calls == 1 { throw URLError(.timedOut) }
+            return (200, Data(#"{"id":"move-1","state":"completed","total":1,"done":1,"speed":0,"current":""}"#.utf8))
+        }
+        let service = try client(); defer { service.close() }
+        let queued = try JSONDecoder().decode(CopyJob.self, from: Data(#"{"id":"move-1","state":"queued","total":1,"done":0,"speed":0,"current":""}"#.utf8))
+        try await service.waitForMove(queued)
+        XCTAssertEqual(calls, 2)
     }
     func testCommittedMoveDisablesCancellation() throws {
         let job = try JSONDecoder().decode(CopyJob.self, from: Data(#"{"id":"move-1","state":"copying","total":1,"done":1,"speed":0,"current":"","canCancel":false,"request":{"operation":"move","items":[],"destination":{"source":"samba","path":"/Private"}}}"#.utf8))

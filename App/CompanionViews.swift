@@ -72,12 +72,17 @@ struct TransferList: View {
     }
     private func refresh() async {
         let client = CompanionClient(connection: connection); defer { client.close() }
+        client.prepareForJobRetry = { try await ServerRequestRecovery.waitUntilActive() }
         do {
             let incoming = try await client.jobs()
+            guard !Task.isCancelled, phase == .active else { return }
             activity.synchronize(incoming, connection: connection.id)
             jobs = incoming
             error = nil
-        } catch { self.error = error.localizedDescription }
+        } catch {
+            guard !Task.isCancelled, phase == .active else { return }
+            self.error = error.localizedDescription
+        }
     }
     private func action(_ route: String, id: String) {
         pendingActions.insert(id)
