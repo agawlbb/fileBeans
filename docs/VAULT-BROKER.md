@@ -381,8 +381,8 @@ Its container, filesystem, cache and control script were removed. The fixture
 uses synthetic keys and stops at source validation before creating mounts.
 Actual encrypted CIFS folder creation was not exercised in this task.
 
-Deployment of the updated broker binary remains pending an explicit deployment
-request. The API/app protocol is unchanged and this fix needs no Apple build.
+The updated broker binary was deployed with the November 26 overnight-locking
+correction below. The API/app protocol is unchanged and this fix needs no Apple build.
 
 ### Thumbnail cache activity and overnight locking — November 26, 2026
 
@@ -398,7 +398,16 @@ passes with the correction. Focused race tests and service Go vet pass. Syntheti
 FUSE checks cover cache polling, global idle expiry, dataset activity, busy-lease
 retry and recovery of the original bytes after unlocking.
 
-The corrected broker still requires an explicitly requested build/deployment.
-No app build is needed. Production was inspected read-only; no service, folder,
-mount or key was changed. The bounded VM test filesystem and its toolchain,
-caches and executables were removed after verification.
+The corrected broker was explicitly requested and deployed November 26 from
+`5d2e002`. Installed and running executable SHA-256:
+`90aa9cf535e0271cf90d14c0dc312f03ce39fe7803b95dd26dfb0ba4668bc2af`.
+Focused idle/protection race tests and service vet passed before installation.
+The protected consumer stack stopped before broker replacement and resumed after
+restart; all five folders are locked and can be unlocked in the app. API
+capability, protection, vault and archive-status checks pass, unauthenticated
+requests return 401, and the archive queue is empty. Effective and ambient broker
+capabilities retain mask `00000000002000cb`. The `FileBeans` API image and 2 GiB
+cap and all other services are preserved. No app build is needed for this broker
+fix. VM `.build/release-40`, its bounded `.ext4`, compiler/test caches, broker
+binary and controller, and VPS `/usr/local/bin/.filebeans-broker-5d2e002` staging
+were removed and their absence verified. No user data or keys were rewritten.

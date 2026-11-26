@@ -21,7 +21,12 @@ final class DriveBrowserModel: ObservableObject {
         guard !busy, connection.companionURL != nil else { return }
         busy = true; defer { busy = false }
         do {
-            if client?.transport.connection != connection { client?.close(); client = DriveClient(connection: connection) }
+            if client?.transport.connection != connection {
+                client?.close()
+                let updated = DriveClient(connection: connection)
+                updated.transport.prepareForJobRetry = { try await ServerRequestRecovery.waitUntilActive() }
+                client = updated
+            }
             guard let client else { return }
             let capabilities = try await client.transport.capabilities()
             capabilitiesLoaded = true

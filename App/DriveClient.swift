@@ -91,7 +91,6 @@ final class DriveClient {
     let transport: CompanionClient
     init(connection: Connection) {
         transport = CompanionClient(connection: connection)
-        transport.prepareForJobRetry = { try await ServerRequestRecovery.waitUntilActive() }
     }
     func close() { transport.close() }
     func list(folder: String, page: String = "") async throws -> DrivePage {
