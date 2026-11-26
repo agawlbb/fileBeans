@@ -168,7 +168,7 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
         let requestKey = saved ?? key ?? UUID().uuidString
         if saved == nil { try Data(requestKey.utf8).write(to: pending, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]) }
         do {
-            let job = try JSONDecoder().decode(CopyJob.self, from: await jobRequest("jobs", method: "POST", body: body, key: requestKey))
+            let job = try JSONDecoder().decode(CopyJob.self, from: await workRequest("jobs", method: "POST", body: body, key: requestKey))
             try? FileManager.default.removeItem(at: pending)
             return job
         } catch {
@@ -183,14 +183,14 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
         var job = submitted
         while job.active {
             try await Task.sleep(nanoseconds: 1_000_000_000)
-            job = try JSONDecoder().decode(CopyJob.self, from: await jobRequest("jobs/\(job.id)"))
+            job = try JSONDecoder().decode(CopyJob.self, from: await workRequest("jobs/\(job.id)"))
         }
         guard job.state == "completed" else {
             throw NSError(domain: "fileBeans.Companion", code: 409,
                           userInfo: [NSLocalizedDescriptionKey: job.error.flatMap { $0.isEmpty ? nil : $0 } ?? "Move failed"])
         }
     }
-    private func jobRequest(_ route: String, method: String = "GET", body: Data? = nil, key: String? = nil) async throws -> Data {
+    func workRequest(_ route: String, method: String = "GET", body: Data? = nil, key: String? = nil) async throws -> Data {
         do {
             return try await request(route, method: method, body: body, key: key)
         } catch {
@@ -206,7 +206,7 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
             return try await request(route, method: method, body: body, key: key)
         }
     }
-    func jobs() async throws -> [CopyJob] { try JSONDecoder().decode([CopyJob].self, from: await jobRequest("jobs")) }
+    func jobs() async throws -> [CopyJob] { try JSONDecoder().decode([CopyJob].self, from: await workRequest("jobs")) }
     func trash(_ item: StoredItem) async throws {
         let location = try sourceLocation(CopyLocation(source: item.source, path: item.file.path))
         _ = try await request("trash", method: "POST", body: JSONEncoder().encode(location), key: UUID().uuidString)

@@ -355,9 +355,19 @@ media in place are blocked; move the existing media to Trash before replacement.
 The archive remains read-only to users. Pairing uses exact-case relative paths and
 filename stems, ignoring the final extension, rather than a permanent file index.
 
-`archiveSyncV1` advertises `GET /v1/archive-sync/status`, returning only counts:
-`pendingOriginals`, `pendingChanges` and `problems`. The app checks on launch and
-foreground and alerts when work remains. Queue and folder-routing metadata are
+`archiveSyncV1` advertises `GET /v1/archive-sync/status`, retaining the summary
+counts `pendingOriginals`, `pendingChanges` and `problems`, and adding
+`pendingWork` (all unfinished tasks) and `items`. Each visible item contains
+`id`, `name`, `source`, `destination`, `phase`, and optional `error`/`next` retry
+time. Phases distinguish queued transcoding/copying, active `transcoding` and
+`copying`, `retrying`, `finishing`, `updating`, and `attention`. Live worker phases
+are memory-only and clear on completion or restart; names come only from records
+that can currently be decrypted. Locked work contributes to summary counts
+without exposing filenames or internal staging/checksum fields.
+
+The app polls while the Transfers screen is open and active, showing archive work
+beside regular transfers. It does not show an archive launch/foreground popup.
+Older summary-only servers remain compatible. Queue and folder-routing metadata are
 encrypted by the Library; archive unavailability does not require locking it.
 External filesystem discrepancies pause discovery and raise attention rather
 than inferring permission to delete originals. Perform supported moves in FileBeans;

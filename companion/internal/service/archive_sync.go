@@ -477,13 +477,19 @@ func (s *Service) guardArchivePurge(t Trash) error {
 }
 func (s *Service) archiveSyncRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/archive-sync/status", func(w http.ResponseWriter, r *http.Request) {
-		var originals, changes, problems int
-		e := s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(state IN ('publishing','backup','trash-backup')),0), COALESCE(SUM(state NOT IN ('paired','waiting')),0), COALESCE(SUM(state='attention'),0) FROM fb_operations WHERE kind=?", archiveTaskKind).Scan(&originals, &changes, &problems)
+		var status archiveSyncStatus
+		e := s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(state IN ('publishing','backup','trash-backup')),0), COALESCE(SUM(state NOT IN ('paired','waiting')),0), COALESCE(SUM(state='attention'),0), COALESCE(SUM(state<>'paired'),0) FROM fb_operations WHERE kind=?", archiveTaskKind).Scan(&status.PendingOriginals, &status.PendingChanges, &status.Problems, &status.PendingWork)
 		if e != nil {
 			fail(w, e)
 			return
 		}
-		reply(w, 200, map[string]int{"pendingOriginals": originals, "pendingChanges": changes, "problems": problems})
+		tasks, e := s.archiveTasks()
+		if e != nil {
+			fail(w, e)
+			return
+		}
+		status.Items = s.archiveWorkStatuses(tasks)
+		reply(w, 200, status)
 	})
 }
 
@@ -690,6 +696,10 @@ func (s *Service) removeArchiveTask(j *archiveTask) error {
 func (s *Service) runArchiveTask(ctx context.Context, j *archiveTask) error {
 	if e := validateArchiveTask(j); e != nil {
 		return e
+	}
+	if j.Kind != "ingest" {
+		stopActivity := s.startArchiveActivity(j.ID, "updating")
+		defer stopActivity()
 	}
 	if j.Kind != "ingest" && j.State != "intent" {
 		a, e := s.archiveWriter().root(j.Target.Backend)

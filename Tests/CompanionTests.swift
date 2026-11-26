@@ -276,6 +276,20 @@ final class CompanionTransportTests: XCTestCase {
         try await service.waitForMove(queued)
         XCTAssertEqual(calls, 2)
     }
+    func testArchiveStatusReconnectsAfterInterruptedRequest() async throws {
+        var calls = 0
+        CompanionStub.inspect = { request in
+            calls += 1
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertEqual(request.url?.path, "/companion/v1/archive-sync/status")
+            if calls == 1 { throw URLError(.networkConnectionLost) }
+            return (200, Data(#"{"pendingOriginals":0,"pendingChanges":0,"problems":0,"pendingWork":1,"items":[]}"#.utf8))
+        }
+        let service = try client(); defer { service.close() }
+        let status = try await service.archiveSyncStatus()
+        XCTAssertTrue(status.hasPending)
+        XCTAssertEqual(calls, 2)
+    }
     func testCommittedMoveDisablesCancellation() throws {
         let job = try JSONDecoder().decode(CopyJob.self, from: Data(#"{"id":"move-1","state":"copying","total":1,"done":1,"speed":0,"current":"","canCancel":false,"request":{"operation":"move","items":[],"destination":{"source":"samba","path":"/Private"}}}"#.utf8))
         XCTAssertEqual(job.canCancel, false)

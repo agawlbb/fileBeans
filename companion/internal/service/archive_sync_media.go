@@ -324,6 +324,8 @@ func (s *Service) runArchiveIngest(ctx context.Context, j *archiveTask, encodeOn
 			return e
 		}
 		defer a.Close()
+		stopActivity := s.startArchiveActivity(j.ID, "copying")
+		defer stopActivity()
 		if e = s.copyArchiveOriginal(ctx, access.bin, from, a, filepath.Join(j.Target.Base, j.Original), "", filepath.Join(j.Target.Base, archiveStage, j.ID, "copy")); e != nil {
 			return e
 		}
@@ -393,6 +395,8 @@ func (s *Service) runArchiveIngest(ctx context.Context, j *archiveTask, encodeOn
 			return e
 		}
 		defer input.Close()
+		stopActivity := s.startArchiveActivity(j.ID, "transcoding")
+		defer stopActivity()
 		probe, stop := context.WithTimeout(ctx, time.Minute)
 		info, e := s.probeMedia(probe, input, false)
 		stop()
@@ -543,6 +547,8 @@ func (s *Service) runArchiveIngest(ctx context.Context, j *archiveTask, encodeOn
 	}
 	s.resolveTask(&current)
 	target := filepath.Join(current.Target.Base, current.Original)
+	stopActivity := s.startArchiveActivity(j.ID, "copying")
+	defer stopActivity()
 	if e = s.copyArchiveOriginal(ctx, r, raw, a, target, j.Hash, filepath.Join(j.Target.Base, archiveStage, j.ID, "copy")); e != nil {
 		return e
 	}

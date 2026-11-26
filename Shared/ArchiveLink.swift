@@ -14,11 +14,36 @@ struct ArchiveSyncStatus: Decodable {
     let pendingOriginals: Int
     let pendingChanges: Int
     let problems: Int
-    var hasPending: Bool { pendingOriginals > 0 || pendingChanges > 0 || problems > 0 }
+    let pendingWork: Int?
+    let items: [ArchiveWorkStatus]?
+    var hasPending: Bool { pendingOriginals > 0 || pendingChanges > 0 || problems > 0 || (pendingWork ?? 0) > 0 || items?.isEmpty == false }
+}
+struct ArchiveWorkStatus: Decodable, Identifiable {
+    let id: String
+    let name: String
+    let source: String
+    let destination: String
+    let phase: String
+    let error: String?
+    let next: Int64?
+    var active: Bool { ["transcoding", "copying", "updating"].contains(phase) }
+    var status: String {
+        switch phase {
+        case "transcoding": return "Transcoding"
+        case "copying": return "Copying"
+        case "queuedTranscode": return "Queued for transcoding"
+        case "queuedCopy": return "Waiting for copy"
+        case "retrying": return "Waiting to retry"
+        case "finishing": return "Finishing"
+        case "attention": return "Needs attention"
+        case "updating": return "Updating"
+        default: return "Queued"
+        }
+    }
 }
 extension CompanionClient {
     func archiveSyncStatus() async throws -> ArchiveSyncStatus {
-        try JSONDecoder().decode(ArchiveSyncStatus.self, from: await request("archive-sync/status"))
+        try JSONDecoder().decode(ArchiveSyncStatus.self, from: await workRequest("archive-sync/status"))
     }
     func archiveLinks() async throws -> [ArchiveLink] {
         try JSONDecoder().decode([ArchiveLink].self, from: await request("archive-links"))

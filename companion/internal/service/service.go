@@ -14,6 +14,8 @@ import (
 
 type Service struct {
 	archiveEpoch     atomic.Uint64
+	archiveStatusMu  sync.Mutex
+	archiveActive    map[string]*archiveActivity
 	archiveTrusted   bool                 // private maintenance instance; never used by HTTP handlers
 	datasetDiskCheck func(*os.File) error // injected only for synthetic filesystem capacity tests
 	fsMu             sync.Mutex           // serialize API mutation publication and revision checks

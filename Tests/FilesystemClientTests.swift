@@ -25,6 +25,19 @@ final class FilesystemClientTests: XCTestCase {
             XCTAssertTrue(status.hasPending)
         }
     }
+    func testArchiveStatusIncludesQueuedAndActiveWork() throws {
+        let data = Data(#"{"pendingOriginals":1,"pendingChanges":1,"problems":0,"pendingWork":2,"items":[{"id":"encode","name":"video.mov","source":"VPS","destination":"Samba","phase":"transcoding"},{"id":"copy","name":"photo.jpg","source":"VPS","destination":"Samba","phase":"queuedCopy"}]}"#.utf8)
+        let status = try JSONDecoder().decode(ArchiveSyncStatus.self, from: data)
+        XCTAssertTrue(status.hasPending)
+        XCTAssertEqual(status.items?.map(\.status), ["Transcoding", "Waiting for copy"])
+        XCTAssertEqual(status.items?.map(\.active), [true, false])
+        let locked = try JSONDecoder().decode(ArchiveSyncStatus.self, from: Data(#"{"pendingOriginals":0,"pendingChanges":0,"problems":0,"pendingWork":2,"items":[]}"#.utf8))
+        XCTAssertTrue(locked.hasPending)
+        XCTAssertEqual(locked.items?.count, 0)
+        let legacy = try JSONDecoder().decode(ArchiveSyncStatus.self, from: Data(#"{"pendingOriginals":1,"pendingChanges":0,"problems":0}"#.utf8))
+        XCTAssertTrue(legacy.hasPending)
+        XCTAssertNil(legacy.items)
+    }
     func testArchiveThumbnailRequestsOnlyExistingCache() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ArchiveThumbnailProtocol.self]

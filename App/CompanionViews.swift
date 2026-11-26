@@ -7,6 +7,10 @@ struct TransferList: View {
     @State private var showHistory = false
     @State private var jobs: [CopyJob] = []
     @State private var error: String?
+    @State private var archives: ArchiveSyncStatus?
+    @State private var archiveError: String?
+    @State private var supportsArchives: Bool?
+    @State private var refreshing = false
     @State private var pendingActions: Set<String> = []
     @Environment(\.scenePhase) private var phase
     private var visibleJobs: [CopyJob] { activity.visibleTransfers(jobs, connection: connection.id, history: showHistory) }
@@ -14,7 +18,7 @@ struct TransferList: View {
         List {
             if let error { Text(error).foregroundStyle(.red) }
             let activeUploads = uploads.transfers(connection: connection.id)
-            if visibleJobs.isEmpty && activeUploads.isEmpty { Text("No transfers") }
+            if visibleJobs.isEmpty && activeUploads.isEmpty && archives?.hasPending != true && error == nil && archiveError == nil { Text("No transfers") }
             ForEach(activeUploads.filter { upload in !visibleJobs.contains { $0.id == upload.job } }) { upload in
                 VStack(alignment: .leading, spacing: 6) {
                     Text(upload.name).lineLimit(2)
@@ -58,6 +62,7 @@ struct TransferList: View {
                 .buttonStyle(.borderless)
             }
             Toggle("Show history", isOn: $showHistory)
+            archiveSection
         }
         .navigationTitle("Transfers")
         .refreshable { await refresh() }
@@ -71,8 +76,16 @@ struct TransferList: View {
         }
     }
     private func refresh() async {
+        guard !refreshing else { return }
+        refreshing = true
+        defer { refreshing = false }
         let client = CompanionClient(connection: connection); defer { client.close() }
         client.prepareForJobRetry = { try await ServerRequestRecovery.waitUntilActive() }
+        async let transfers: Void = refreshJobs(client)
+        async let archiveWork: Void = refreshArchives(client)
+        _ = await (transfers, archiveWork)
+    }
+    private func refreshJobs(_ client: CompanionClient) async {
         do {
             let incoming = try await client.jobs()
             guard !Task.isCancelled, phase == .active else { return }
@@ -82,6 +95,57 @@ struct TransferList: View {
         } catch {
             guard !Task.isCancelled, phase == .active else { return }
             self.error = error.localizedDescription
+        }
+    }
+    private func refreshArchives(_ client: CompanionClient) async {
+        do {
+            let status = try await loadArchives(client)
+            guard !Task.isCancelled, phase == .active else { return }
+            archives = status
+            archiveError = nil
+        } catch {
+            guard !Task.isCancelled, phase == .active else { return }
+            archiveError = error.localizedDescription
+        }
+    }
+    private func loadArchives(_ client: CompanionClient) async throws -> ArchiveSyncStatus? {
+        if supportsArchives == nil {
+            supportsArchives = try await client.capabilities().features?.contains("archiveSyncV1") == true
+        }
+        guard supportsArchives == true else { return nil }
+        return try await client.archiveSyncStatus()
+    }
+    @ViewBuilder private var archiveSection: some View {
+        if supportsArchives != false {
+            Section("Archive") {
+                if let archiveError { Text(archiveError).foregroundStyle(.red) }
+                else if let archives {
+                    if let items = archives.items, !items.isEmpty {
+                        ForEach(items) { item in
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text(item.name).lineLimit(2)
+                                    Spacer()
+                                    if item.active { ProgressView() }
+                                }
+                                Text("\(item.source) → \(item.destination)").font(.caption)
+                                Text(item.status).font(.caption)
+                                if let detail = item.error, !detail.isEmpty {
+                                    Text(detail).font(.caption).foregroundStyle(.red)
+                                    if let next = item.next, next > Int64(Date().timeIntervalSince1970) {
+                                        Text("Retry \(Date(timeIntervalSince1970: Double(next)).formatted(date: .omitted, time: .shortened))").font(.caption)
+                                    }
+                                }
+                            }
+                        }
+                    } else if archives.hasPending {
+                        if let pending = archives.pendingWork { LabeledContent("Pending", value: String(pending)) }
+                        if archives.pendingOriginals > 0 { LabeledContent("Awaiting copy", value: String(archives.pendingOriginals)) }
+                        if archives.pendingChanges > 0 { LabeledContent("Changes", value: String(archives.pendingChanges)) }
+                        if archives.problems > 0 { LabeledContent("Needs attention", value: String(archives.problems)) }
+                    } else { Text("Up to date") }
+                } else if archiveError == nil { ProgressView() }
+            }
         }
     }
     private func action(_ route: String, id: String) {

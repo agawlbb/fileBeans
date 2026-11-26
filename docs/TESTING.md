@@ -698,3 +698,29 @@ After an explicitly requested app build, run the transport tests and start long
 copy/move jobs, background the app, let the server complete them, then reopen.
 Verify completed status, refreshed destination/source listings, no duplicate job
 or stale timeout alert, and continued visibility of genuine network/server errors.
+
+### Archive status in Transfers — November 26, 2026
+
+The transfer status icon opens the existing Transfers screen with an Archive
+section. Visible files show queued transcoding/copying, live transcoding/copying,
+finishing, retry time/error, or attention; empty work shows Up to date. Regular
+transfers and archive work refresh independently every two seconds while this
+screen is active. There is no startup popup or fabricated percentage progress.
+Older servers show their available summary counts. Locked work shows counts
+without names; viewing status never unlocks a folder.
+
+The additive archive status API retains its previous count fields and adds total
+unfinished work plus visible item details. The worker activity map stores only
+IDs/phases, uses a mutex, and protects a newer worker from an older worker cleanup.
+Go race tests cover phase mapping, activity/retry transitions, hidden/stale worker
+visibility and concurrent workers; related archive protection/retry and copy
+collision/bounds tests and service vet pass. Swift status decoding/reconnect
+regressions are added; all five changed Swift files pass syntax parsing. Apple
+execution and database-backed HTTP integration remain pending: the VM has no
+Swift runner or fileBeans-specific `.test-config` database file.
+
+API build/deployment and an app build/release require explicit requests. Acceptance
+should open the transfer icon during both encoding and original backup, verify
+the per-file transition and offline retry, then lock protected folders and confirm
+names disappear. The bounded VM test filesystem, toolchain, caches and container
+were removed after verification. No production changes were made.
