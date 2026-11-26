@@ -724,3 +724,43 @@ should open the transfer icon during both encoding and original backup, verify
 the per-file transition and offline retry, then lock protected folders and confirm
 names disappear. The bounded VM test filesystem, toolchain, caches and container
 were removed after verification. No production changes were made.
+
+### Archive encoder memory failure — November 26, 2026
+
+NReading.mp4's four failed attempts corresponded to kernel segmentation faults in
+libx265 at 10:54:29, 10:55:33, 11:00:40 and 11:15:46 UTC. Container OOM counters
+were zero. Read-only metadata inspection identified a 720x1280, 30 fps H.264/AAC
+clip lasting 9.966667 seconds. Production and development both use FFmpeg
+7.1.5-0+deb13u1 and x265 4.1-2.
+
+The cause was the archive worker's encoding configuration: x265's default buffered
+frames exceeded the existing 512 MiB process-data allocation cap. A synthetic
+720x1280 reproduction under the same 2 GiB address / 512 MiB data caps reported
+`malloc of size 2764800 failed`, then `memory allocation failure, aborting encode`
+and exited with SIGSEGV. Allocator-only changes still failed. Reducing lookahead
+alone succeeded at 720x1280 but still failed at larger supported resolutions.
+
+The archive profile now uses one frame thread, one reference, no B frames or
+lookahead, and no CU-tree buffering. Its HEVC 10-bit format, CRF-18 quality target,
+medium preset, audio policy and resolution limits are preserved. The tradeoff is
+less compression efficiency and potentially larger files. All existing process,
+container, validation, disk-reserve and original-retention limits remain intact.
+The upstream [x265 options](https://x265.readthedocs.io/en/master/cli.html#cmdoption-bframes)
+document buffered-frame memory costs and the low-latency P/I-frame mode.
+
+Race-enabled integration tests passed in a 1 GiB/no-swap, two-CPU VM container:
+synthetic H.264/AAC at 720x1280/30 fps/10 seconds, 1080x1920 and 2560x1080 all
+encoded under the unchanged caps and passed full decode/format/duration/audio
+validation. The 720p test also checksum-verified the archive copy and confirmed
+the source original remained unchanged. Related archive protection, copy-boundary,
+status/concurrency tests and service vet pass. Error regressions confirm that
+allocation failure, encoder crash, cancellation and timeout produce specific
+public errors without exposing raw private diagnostic paths.
+
+No private video was transferred: automatic approval review rejected the proposed
+private-file transfer, and the matching synthetic reproduction made it unnecessary.
+No production settings, jobs or files were changed. The bounded VM reproduction
+filesystem, public runtime bundle/toolchain, synthetic clips, test binary/caches
+and local helper scripts were removed after verification. A requested API build
+and deployment, followed by NReading.mp4's live retry, remain pending. This encoder
+fix requires no app build.

@@ -281,6 +281,10 @@ func (s *Service) execute(ctx context.Context, j *Job) error {
 	return s.executeRclone(ctx, j)
 }
 func publicError(e error) string {
+	var encodingFailure *archiveEncodingError
+	if errors.As(e, &encodingFailure) {
+		return encodingFailure.publicMessage()
+	}
 	var archiveError *archiveReadOnlyError
 	if errors.As(e, &archiveError) {
 		return archiveError.Error()

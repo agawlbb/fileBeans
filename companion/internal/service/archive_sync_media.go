@@ -197,7 +197,10 @@ func (s *Service) encodeArchiveMedia(ctx context.Context, input, directory *os.F
 		if arg == "-threads" && i+1 < len(encoding) {
 			encoding[i+1] = "1"
 		}
-		encoding[i] = strings.ReplaceAll(arg, "pools=4:frame-threads=2", "pools=none:frame-threads=1")
+		// The 512 MiB data cap cannot hold x265's default lookahead/reference
+		// buffers, even for 720x1280 video. Keep the quality target and format,
+		// but bound retained frames instead of raising the process limits.
+		encoding[i] = strings.ReplaceAll(arg, "pools=4:frame-threads=2", "pools=none:frame-threads=1:rc-lookahead=0:bframes=0:ref=1:cutree=0")
 	}
 	args = append(args, encoding...)
 	args = append(args, "-threads", "1")
@@ -211,9 +214,42 @@ func (s *Service) encodeArchiveMedia(ctx context.Context, input, directory *os.F
 	diagnostic.limit = 4096
 	cmd.Stderr = &diagnostic
 	if e := cmd.Run(); e != nil {
-		return fmt.Errorf("archive encoding: %w: %s", e, string(diagnostic.data))
+		if ctx.Err() != nil {
+			e = ctx.Err()
+		}
+		return &archiveEncodingError{cause: e, diagnostic: string(diagnostic.data)}
 	}
 	return nil
+}
+
+type archiveEncodingError struct {
+	cause      error
+	diagnostic string
+}
+
+func (e *archiveEncodingError) Error() string {
+	return fmt.Sprintf("archive encoding: %v: %s", e.cause, e.diagnostic)
+}
+func (e *archiveEncodingError) Unwrap() error { return e.cause }
+func (e *archiveEncodingError) publicMessage() string {
+	diagnostic := strings.ToLower(e.diagnostic)
+	if strings.Contains(diagnostic, "memory allocation failure") || strings.Contains(diagnostic, "cannot allocate memory") ||
+		strings.Contains(diagnostic, "malloc of size") && strings.Contains(diagnostic, "failed") {
+		return "Video encoder ran out of memory"
+	}
+	if errors.Is(e.cause, context.Canceled) {
+		return "Video encoding interrupted; waiting to retry"
+	}
+	if errors.Is(e.cause, context.DeadlineExceeded) {
+		return "Video encoding timed out"
+	}
+	var exit *exec.ExitError
+	if errors.As(e.cause, &exit) {
+		if status, ok := exit.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+			return "Video encoder crashed"
+		}
+	}
+	return "Video encoding failed"
 }
 func (s *Service) validateArchiveMedia(ctx context.Context, root rootFS, path string, plan mediaPlan) error {
 	f, e := filesystemOpenFile(root, path)
