@@ -1,5 +1,44 @@
 # Signing and TestFlight
 
+## Archive status and transfer recovery — TestFlight 40 (November 26, 2026)
+
+Released **0.1.0 (40)** from `9c6cf05`, tagged `testflight/0.1.0-40`.
+The app selects representative video thumbnails, preselects the filename before
+its extension in Rename, removes the recurring archive launch notice, reconnects
+interrupted server transfer requests with their original idempotency keys, and
+shows archive transcoding/copying/memory-wait status in Transfers.
+
+- [Simulator validation](https://github.com/agawlbb/fileBeans/actions/runs/45824838827)
+  passed 143 unit tests and four UI scenarios. The existing photo full-screen
+  scenario passed on its configured retry; video transition/decoding passed on
+  its first attempt. Initial validation `45823579503` found an app-only recovery
+  reference in the Share extension's shared DriveClient. `9c6cf05` moves that
+  foreground callback into the app's Drive browser; both targets then compile.
+- [Signed release](https://github.com/agawlbb/fileBeans/actions/runs/45827527301)
+  passed preflight, device archive/export, upload and temporary signing-credential
+  cleanup. Apple build `9d997abd-17d0-44f0-9f1e-9a6ddc640c83` is
+  **VALID / IN_BETA_TESTING**, with automatic notification enabled. The existing
+  internal group retains access to all builds; audience settings are unchanged.
+- The broker auto-lock correction was deployed from `5d2e002`, with installed and
+  running SHA-256 `90aa9cf535e0271cf90d14c0dc312f03ce39fe7803b95dd26dfb0ba4668bc2af`.
+  The consumer stack stopped before broker replacement and resumed afterward.
+  Five protected folders are locked following restart and can be unlocked in the
+  app. Focused idle/protection race tests, service vet and live API checks pass.
+- The API retains `filebeans-api:38855c0-host-memory`, its 2 GiB cap and container
+  name `FileBeans`. Caddy's old upstream was corrected to `FileBeans:8095`,
+  validated and reloaded without container restarts; infrastructure commit
+  `vps_admin` `5dbae08` records the route and base Compose name. Public HTTPS
+  capability checks return 200 authenticated / 401 anonymous. No pending archive
+  work or problems remain; other services and their memory caps are unchanged.
+
+VM `.build/release-40`, its bounded `.ext4`, compiler/test caches, prepared broker
+and one-off controllers were removed. VPS
+`/usr/local/bin/.filebeans-broker-5d2e002` and Caddy's
+`.filebrowser-name.caddy.candidate` staging are absent. Both validation runs'
+disposable result artifacts were deleted; the upload run has zero artifacts.
+No local IPA or disposable task artifact is retained. Physical-device acceptance
+of the app changes and actual overnight inactivity remains manual.
+
 ## Video full-screen regression correction — TestFlight 39 (November 26, 2026)
 
 Released **0.1.0 (39)** from `d07eabc`, tagged `testflight/0.1.0-39`.
