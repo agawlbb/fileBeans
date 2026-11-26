@@ -68,7 +68,7 @@ func TestArchiveEncoderMemoryBudget(t *testing.T) {
 			}
 			defer directory.Close()
 			if err = s.encodeArchiveMedia(ctx, input, directory, plan, 64<<20); err != nil {
-				t.Fatalf("encoding under unchanged 512 MiB data / 2 GiB address caps: %v", err)
+				t.Fatalf("efficient encoding under 1.5 GiB data / 2 GiB address caps: %v", err)
 			}
 			if err = s.validateArchiveMedia(ctx, root, "stage/output.mp4", plan); err != nil {
 				t.Fatal("full output validation", err)

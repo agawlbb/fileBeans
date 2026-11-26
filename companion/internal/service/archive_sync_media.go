@@ -11,10 +11,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 const archiveStage = ".filebeans-stage/archive-sync"
@@ -197,10 +198,7 @@ func (s *Service) encodeArchiveMedia(ctx context.Context, input, directory *os.F
 		if arg == "-threads" && i+1 < len(encoding) {
 			encoding[i+1] = "1"
 		}
-		// The 512 MiB data cap cannot hold x265's default lookahead/reference
-		// buffers, even for 720x1280 video. Keep the quality target and format,
-		// but bound retained frames instead of raising the process limits.
-		encoding[i] = strings.ReplaceAll(arg, "pools=4:frame-threads=2", "pools=none:frame-threads=1:rc-lookahead=0:bframes=0:ref=1:cutree=0")
+		encoding[i] = strings.ReplaceAll(arg, "pools=4:frame-threads=2", "pools=none:frame-threads=1")
 	}
 	args = append(args, encoding...)
 	args = append(args, "-threads", "1")
@@ -214,8 +212,9 @@ func (s *Service) encodeArchiveMedia(ctx context.Context, input, directory *os.F
 	diagnostic.limit = 4096
 	cmd.Stderr = &diagnostic
 	if e := cmd.Run(); e != nil {
-		if ctx.Err() != nil {
-			e = ctx.Err()
+		_ = unix.Unlinkat(int(directory.Fd()), name, 0)
+		if context.Cause(ctx) != nil {
+			e = context.Cause(ctx)
 		}
 		return &archiveEncodingError{cause: e, diagnostic: string(diagnostic.data)}
 	}
@@ -232,6 +231,9 @@ func (e *archiveEncodingError) Error() string {
 }
 func (e *archiveEncodingError) Unwrap() error { return e.cause }
 func (e *archiveEncodingError) publicMessage() string {
+	if errors.Is(e.cause, errArchiveMemory) {
+		return "Waiting for memory"
+	}
 	diagnostic := strings.ToLower(e.diagnostic)
 	if strings.Contains(diagnostic, "memory allocation failure") || strings.Contains(diagnostic, "cannot allocate memory") ||
 		strings.Contains(diagnostic, "malloc of size") && strings.Contains(diagnostic, "failed") {
@@ -294,13 +296,22 @@ func (s *Service) validateArchiveMedia(ctx context.Context, root rootFS, path st
 	return cmd.Run()
 }
 func archiveCommand(ctx context.Context, tool string, args ...string) *exec.Cmd {
-	command := exec.CommandContext(ctx, "/usr/bin/prlimit", append([]string{"--as=2147483648", "--data=536870912", "--core=0", "--", tool}, args...)...)
+	// Prefer this restartable child over the API/mail/database if a sudden
+	// spike reaches the kernel OOM killer before the one-second monitor reacts.
+	priority := `read score < /proc/self/oom_score_adj || exit 1; if [ "$score" -lt 500 ]; then echo 500 > /proc/self/oom_score_adj || exit 1; fi; exec /usr/bin/nice -n 10 /usr/bin/ionice -c 3 "$@"`
+	command := exec.CommandContext(ctx, "/usr/bin/prlimit", append([]string{"--as=2147483648", fmt.Sprintf("--data=%d", archiveEncoderDataLimit), "--core=0", "--", "/bin/sh", "-c", priority, "archive-worker", tool}, args...)...)
 	command.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL}
 	return command
 }
 func (s *Service) runArchiveIngest(ctx context.Context, j *archiveTask, encodeOnly bool) error {
 	if e := validateArchiveTask(j); e != nil {
 		return e
+	}
+	if j.State == "waiting" {
+		if !s.archiveMemory.canStart(time.Now(), j.WaitingForMemory) {
+			return errArchiveMemory
+		}
+		j.WaitingForMemory = false
 	}
 	r, e := s.root(j.Library.Source)
 	if e != nil {
@@ -462,8 +473,10 @@ func (s *Service) runArchiveIngest(ctx context.Context, j *archiveTask, encodeOn
 			return e
 		}
 		defer directory.Close()
-		encode, cancel := context.WithTimeout(ctx, 24*time.Hour)
-		defer cancel()
+		deadline, stopEncode := context.WithTimeout(ctx, 24*time.Hour)
+		defer stopEncode()
+		encode, cancel := context.WithCancelCause(deadline)
+		defer cancel(nil)
 		monitorDone := make(chan struct{})
 		monitorStopped := make(chan struct{})
 		go func() {
@@ -477,22 +490,21 @@ func (s *Service) runArchiveIngest(ctx context.Context, j *archiveTask, encodeOn
 				case <-encode.Done():
 					return
 				case <-ticker.C:
+					if s.archiveMemory.cancelIfPressure(cancel) {
+						return
+					}
 					latest, err := r.Stat(path)
 					if err != nil || version(latest) != j.Version {
-						cancel()
+						cancel(nil)
 						return
 					}
 					var current archiveTask
 					if s.read(j.ID, archiveTaskKind, &current) != nil || current.Relative != j.Relative || current.State != "waiting" {
-						cancel()
-						return
-					}
-					if archiveMemoryPressure() {
-						cancel()
+						cancel(nil)
 						return
 					}
 					if _, err := archiveSpace(r, j.Library.Path, 0); err != nil {
-						cancel()
+						cancel(nil)
 						return
 					}
 				}
@@ -504,6 +516,9 @@ func (s *Service) runArchiveIngest(ctx context.Context, j *archiveTask, encodeOn
 		}
 		close(monitorDone)
 		<-monitorStopped
+		if errors.Is(context.Cause(encode), errArchiveMemory) {
+			e = errArchiveMemory
+		}
 		if e != nil {
 			_ = r.Remove(output)
 			return e
@@ -616,16 +631,6 @@ func (s *Service) runArchiveIngest(ctx context.Context, j *archiveTask, encodeOn
 		return e
 	}
 	return s.removeArchiveTask(j)
-}
-func archiveMemoryPressure() bool {
-	threshold := uint64(768 << 20)
-	if data, e := os.ReadFile("/sys/fs/cgroup/memory.max"); e == nil {
-		if limit, e := strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64); e == nil && limit > 0 {
-			threshold = limit - limit/4
-		}
-	}
-	used, e := normMemoryUsage()
-	return e == nil && used > threshold
 }
 func (s *Service) publishArchiveEncoded(root rootFS, j *archiveTask, base, raw string) error {
 	from := filepath.Join(j.Library.Path, j.Relative)

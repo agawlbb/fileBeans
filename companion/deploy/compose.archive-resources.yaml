@@ -1,0 +1,5 @@
+# Merge into the existing API stack when deploying the host-aware archive worker.
+services:
+  companion:
+    mem_limit: 2g
+    memswap_limit: 2g

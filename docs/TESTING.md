@@ -740,7 +740,7 @@ frames exceeded the existing 512 MiB process-data allocation cap. A synthetic
 and exited with SIGSEGV. Allocator-only changes still failed. Reducing lookahead
 alone succeeded at 720x1280 but still failed at larger supported resolutions.
 
-The archive profile now uses one frame thread, one reference, no B frames or
+The initial mitigation in `90e0b0e` used one frame thread, one reference, no B frames or
 lookahead, and no CU-tree buffering. Its HEVC 10-bit format, CRF-18 quality target,
 medium preset, audio policy and resolution limits are preserved. The tradeoff is
 less compression efficiency and potentially larger files. All existing process,
@@ -762,5 +762,38 @@ private-file transfer, and the matching synthetic reproduction made it unnecessa
 No production settings, jobs or files were changed. The bounded VM reproduction
 filesystem, public runtime bundle/toolchain, synthetic clips, test binary/caches
 and local helper scripts were removed after verification. A requested API build
-and deployment, followed by NReading.mp4's live retry, remain pending. This encoder
-fix requires no app build.
+and deployment, followed by NReading.mp4's live retry, were pending at that point.
+
+### Efficient archive encoding with host memory protection — November 26, 2026
+
+The selected policy restores x265's normal lookahead, reference and B-frame
+buffers, retaining HEVC 10-bit, medium, CRF 18, one frame thread and no thread pool.
+Each media subprocess has a 1.5 GiB data limit and 2 GiB address-space limit;
+the API deployment overlay sets a 2 GiB container limit with no swap allowance.
+The API, copying and encoding share that container cap. Other VPS service caps,
+including FlightData's shared limits and its reduced 256 MiB service cap, are
+unchanged by this deployment.
+
+Admission requires at least 2.5 GiB host `MemAvailable` and 1.5 GiB remaining in
+the container's working-set budget. During encoding and validation the worker
+checks once per second: host availability below 1 GiB or container working set
+above 75% cancels the subprocess. Missing memory metrics also defer work safely.
+Available memory includes reclaimable filesystem cache. A pressure deferral waits
+for 30 seconds of healthy admission samples before restarting from the beginning;
+it preserves the original and durable job, deletes partial output, and does not
+consume a failure attempt. Persisted deferrals retain the cooldown after restart.
+Only one archive encoding runs at a time. CPU niceness 10, idle I/O scheduling and
+child-only OOM score adjustment of at least 500 favor foreground services. These
+controls reduce risk; a sufficiently abrupt host-wide spike can still reach the
+kernel OOM killer before the monitor reacts.
+
+VM tests cover host versus free-memory parsing, both pressure thresholds, metric
+failure, cooldown reset and restart, durable deferral state, subprocess priority,
+and actual child cancellation with partial-output deletion and original retention.
+The race-enabled encoder integration passed in a two-CPU, 2 GiB/no-swap VM
+container: synthetic 720x1280/30 fps/10 seconds, 1080x1920 and 2560x1080 footage
+encoded under the new process caps, passed full-decode validation and checksum
+verification of the original copy. The guard, cancellation, priority, status,
+protection and copy-boundary regressions and service vet passed. The Swift status
+label passed syntax parsing; no Apple build was run.
+No private media is copied to the VM and no production memory spike is induced.

@@ -28,31 +28,32 @@ type archiveTarget struct {
 	Relative string `json:"relative,omitempty"`
 }
 type archiveTask struct {
-	Birth           string          `json:"birth,omitempty"`
-	ParentMove      string          `json:"parentMove,omitempty"`
-	ArchiveIdentity string          `json:"archiveIdentity,omitempty"`
-	ID              string          `json:"id"`
-	Link            string          `json:"link"`
-	Library         ArchiveEndpoint `json:"library"`
-	Target          archiveTarget   `json:"target"`
-	Kind            string          `json:"kind"`
-	State           string          `json:"state"`
-	Relative        string          `json:"relative"`
-	Original        string          `json:"original"`
-	To              string          `json:"to,omitempty"`
-	Identity        string          `json:"identity,omitempty"`
-	Version         string          `json:"version,omitempty"`
-	Output          string          `json:"output,omitempty"`
-	Hash            string          `json:"hash,omitempty"`
-	OutputHash      string          `json:"outputHash,omitempty"`
-	Size            int64           `json:"size,omitempty"`
-	Directory       bool            `json:"directory,omitempty"`
-	TrashID         string          `json:"trashID,omitempty"`
-	ArchiveTrashID  string          `json:"archiveTrashID,omitempty"`
-	Created         int64           `json:"created"`
-	Next            int64           `json:"next"`
-	Attempts        int             `json:"attempts,omitempty"`
-	Error           string          `json:"error,omitempty"`
+	Birth            string          `json:"birth,omitempty"`
+	ParentMove       string          `json:"parentMove,omitempty"`
+	ArchiveIdentity  string          `json:"archiveIdentity,omitempty"`
+	ID               string          `json:"id"`
+	Link             string          `json:"link"`
+	Library          ArchiveEndpoint `json:"library"`
+	Target           archiveTarget   `json:"target"`
+	Kind             string          `json:"kind"`
+	State            string          `json:"state"`
+	Relative         string          `json:"relative"`
+	Original         string          `json:"original"`
+	To               string          `json:"to,omitempty"`
+	Identity         string          `json:"identity,omitempty"`
+	Version          string          `json:"version,omitempty"`
+	Output           string          `json:"output,omitempty"`
+	Hash             string          `json:"hash,omitempty"`
+	OutputHash       string          `json:"outputHash,omitempty"`
+	Size             int64           `json:"size,omitempty"`
+	Directory        bool            `json:"directory,omitempty"`
+	TrashID          string          `json:"trashID,omitempty"`
+	ArchiveTrashID   string          `json:"archiveTrashID,omitempty"`
+	Created          int64           `json:"created"`
+	Next             int64           `json:"next"`
+	Attempts         int             `json:"attempts,omitempty"`
+	Error            string          `json:"error,omitempty"`
+	WaitingForMemory bool            `json:"waitingForMemory,omitempty"`
 }
 
 func (s *Service) archiveWriter() *Service {
@@ -102,6 +103,13 @@ func (s *Service) failArchiveTask(j *archiveTask, e error) {
 		return
 	}
 	j = &current
+	if errors.Is(e, errArchiveMemory) {
+		if deferArchiveForMemory(j, time.Now()) {
+			_ = s.saveArchiveTask(j)
+		}
+		return
+	}
+	j.WaitingForMemory = false
 	j.Error = publicError(e)
 	j.Next = time.Now().Add(archiveRetry(j.Attempts)).Unix()
 	j.Attempts++
@@ -546,6 +554,11 @@ func (s *Service) archiveEncodeLoop(ctx context.Context) {
 	for ctx.Err() == nil {
 		tasks, e := s.archiveTasks()
 		if e == nil {
+			recovering := false
+			for _, task := range tasks {
+				recovering = recovering || task.WaitingForMemory
+			}
+			s.archiveMemory.canStart(time.Now(), recovering)
 			for _, j := range tasks {
 				if ctx.Err() != nil {
 					return

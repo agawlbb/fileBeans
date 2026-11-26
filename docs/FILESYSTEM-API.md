@@ -360,7 +360,8 @@ counts `pendingOriginals`, `pendingChanges` and `problems`, and adding
 `pendingWork` (all unfinished tasks) and `items`. Each visible item contains
 `id`, `name`, `source`, `destination`, `phase`, and optional `error`/`next` retry
 time. Phases distinguish queued transcoding/copying, active `transcoding` and
-`copying`, `retrying`, `finishing`, `updating`, and `attention`. Live worker phases
+`copying`, `waitingMemory`, `retrying`, `finishing`, `updating`, and `attention`.
+Memory deferrals preserve the job without increasing its failure count. Live worker phases
 are memory-only and clear on completion or restart; names come only from records
 that can currently be decrypted. Locked work contributes to summary counts
 without exposing filenames or internal staging/checksum fields.

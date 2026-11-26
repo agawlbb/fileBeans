@@ -66,6 +66,9 @@ func (s *Service) archiveWorkStatuses(tasks []archiveTask) []archiveWorkStatus {
 		if message != "" && phase != "attention" {
 			phase = "retrying"
 		}
+		if task.WaitingForMemory {
+			phase = "waitingMemory"
+		}
 		if activity := s.archiveActive[task.ID]; activity != nil {
 			phase = activity.phase
 			message, next = "", 0

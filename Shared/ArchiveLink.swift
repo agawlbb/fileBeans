@@ -34,6 +34,7 @@ struct ArchiveWorkStatus: Decodable, Identifiable {
         case "queuedTranscode": return "Queued for transcoding"
         case "queuedCopy": return "Waiting for copy"
         case "retrying": return "Waiting to retry"
+        case "waitingMemory": return "Waiting for memory"
         case "finishing": return "Finishing"
         case "attention": return "Needs attention"
         case "updating": return "Updating"
