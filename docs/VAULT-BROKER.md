@@ -383,3 +383,22 @@ Actual encrypted CIFS folder creation was not exercised in this task.
 
 Deployment of the updated broker binary remains pending an explicit deployment
 request. The API/app protocol is unchanged and this fix needs no Apple build.
+
+### Thumbnail cache activity and overnight locking — November 26, 2026
+
+Protected-folder previews now live in `.filebeans-thumbnails` directories under
+the public mount. The idle watcher recursively watched those directories, so
+automatic cache reads every fifteen minutes renewed the one-hour session timer
+even without user activity. The watcher now skips reserved cache/staging trees
+and ignores their named events on parent directories. Public file access still
+renews the timer, and active filesystem operations retain their protection leases.
+
+The twelve-hour cache-polling regression fails against the original watcher and
+passes with the correction. Focused race tests and service Go vet pass. Synthetic
+FUSE checks cover cache polling, global idle expiry, dataset activity, busy-lease
+retry and recovery of the original bytes after unlocking.
+
+The corrected broker still requires an explicitly requested build/deployment.
+No app build is needed. Production was inspected read-only; no service, folder,
+mount or key was changed. The bounded VM test filesystem and its toolchain,
+caches and executables were removed after verification.

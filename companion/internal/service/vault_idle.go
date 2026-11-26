@@ -14,8 +14,8 @@ import (
 
 const vaultIdleTimeout = time.Hour
 
-// Watch public decrypted files. Directory polling and private cache writes
-// must not extend the inactivity period.
+// Watch public decrypted files. Directory polling and internal cache/staging
+// activity must not extend the inactivity period.
 type vaultIdleWatch struct {
 	fd    int
 	last  time.Time
@@ -37,6 +37,9 @@ func (w *vaultIdleWatch) scan(root string) error {
 		}
 		if !entry.IsDir() {
 			return nil
+		}
+		if path != root && filesystemHidden(entry.Name()) {
+			return filepath.SkipDir
 		}
 		_, err = unix.InotifyAddWatch(w.fd, path, unix.IN_ACCESS|unix.IN_OPEN|
 			unix.IN_MODIFY|unix.IN_ATTRIB|unix.IN_CLOSE_WRITE|unix.IN_CREATE|
@@ -66,6 +69,18 @@ func (w *vaultIdleWatch) drain(now time.Time) error {
 			if mask&(unix.IN_Q_OVERFLOW|unix.IN_IGNORED) != 0 {
 				w.dirty = true
 				w.last = now // Lost events require a fresh complete idle interval.
+			}
+			// Caches and staging live inside public folders, but background work
+			// on them is not user activity, including creating their directories.
+			nameStart := offset + unix.SizeofInotifyEvent
+			nameEnd := nameStart + int(event.Len)
+			if nameEnd > n {
+				return unix.EINVAL
+			}
+			name := unix.ByteSliceToString(buf[nameStart:nameEnd])
+			if filesystemHidden(name) {
+				offset = nameEnd
+				continue
 			}
 			if mask&(unix.IN_MODIFY|unix.IN_ATTRIB|unix.IN_CLOSE_WRITE|
 				unix.IN_CREATE|unix.IN_DELETE|unix.IN_MOVED_FROM|unix.IN_MOVED_TO|

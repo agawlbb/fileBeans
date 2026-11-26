@@ -65,6 +65,76 @@ func TestVaultIdlePublicFileActivity(t *testing.T) {
 	}
 }
 
+func TestVaultIdleIgnoresInternalCachesOvernight(t *testing.T) {
+	root := t.TempDir()
+	visible := filepath.Join(root, "photos")
+	if err := os.Mkdir(visible, 0700); err != nil {
+		t.Fatal(err)
+	}
+	cache := filepath.Join(visible, thumbnailDirectory)
+	if err := os.Mkdir(cache, 0700); err != nil {
+		t.Fatal(err)
+	}
+	preview := filepath.Join(cache, "preview.jpg")
+	if err := os.WriteFile(preview, []byte("cached"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Unix(10000, 0)
+	w, err := newVaultIdleWatch(start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.close()
+	if err = w.scan(root); err != nil {
+		t.Fatal(err)
+	}
+	if err = w.drain(start); err != nil {
+		t.Fatal(err)
+	}
+	// Automatic backfill reads cached previews every fifteen minutes.
+	for elapsed := 15 * time.Minute; elapsed <= 12*time.Hour; elapsed += 15 * time.Minute {
+		if _, err = os.ReadFile(preview); err != nil {
+			t.Fatal(err)
+		}
+		if err = w.drain(start.Add(elapsed)); err != nil {
+			t.Fatal(err)
+		}
+		if !w.last.Equal(start) {
+			t.Fatal("background cache read extended idle deadline")
+		}
+	}
+	// Internal directories created after watching starts must also be ignored.
+	for _, name := range []string{thumbnailDirectory, ".FILEBEANS-THUMBNAILS", ".filebeans-stage"} {
+		path := filepath.Join(root, name)
+		if err = os.Mkdir(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err = w.drain(start.Add(12 * time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+		if err = w.scan(root); err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(filepath.Join(path, "internal"), []byte("background"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err = w.drain(start.Add(12 * time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !w.expired(start.Add(time.Hour)) || !w.last.Equal(start) {
+		t.Fatal("internal work prevented one-hour idle expiry")
+	}
+	// Public files still renew the deadline after rescanning.
+	if err = os.WriteFile(filepath.Join(visible, "photo.jpg"), []byte("public"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	active := start.Add(12 * time.Hour)
+	if err = w.drain(active); err != nil || !w.last.Equal(active) {
+		t.Fatal("public activity did not renew deadline", err)
+	}
+}
+
 func TestVaultIdleNewDirectoriesAndIndependentTimers(t *testing.T) {
 	root := t.TempDir()
 	start := time.Unix(10000, 0)
@@ -155,6 +225,14 @@ func testBrokerIdleFilesystem(t *testing.T, smb bool) {
 	if err = os.WriteFile(file, []byte("recoverable"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	cacheDir := filepath.Join(public, thumbnailDirectory)
+	if err = os.Mkdir(cacheDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	cache := filepath.Join(cacheDir, "preview.jpg")
+	if err = os.WriteFile(cache, []byte("cached preview"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	watches := map[string]*vaultIdleWatch{}
 	defer func() {
 		for _, w := range watches {
@@ -175,7 +253,13 @@ func testBrokerIdleFilesystem(t *testing.T, smb bool) {
 		if _, err = os.ReadDir(public); err != nil {
 			t.Fatal(err)
 		}
+		if _, err = os.ReadFile(cache); err != nil {
+			t.Fatal(err)
+		}
 		b.pollIdleVaults(watches, start.Add(time.Duration(i)*time.Minute))
+	}
+	if !watches[entry.ID].last.Equal(start) {
+		t.Fatal("background thumbnail polling extended idle deadline")
 	}
 	if b.statuses()[0].State != "unlocked" {
 		t.Fatal("locked before hour")
