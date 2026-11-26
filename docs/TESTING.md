@@ -648,3 +648,19 @@ API deployment and an app build/release are still required; neither was requeste
 or performed. The resource-limited VM test container and its bounded 2 GiB test
 filesystem, renderer bundle, toolchain, fixtures and caches were removed after
 verification. No production changes were made.
+
+### Rename selection — November 26, 2026
+
+Filesystem and Google Drive Rename dialogs initialize the text selection to the
+filename before its final extension, using SwiftUI's
+[TextSelection](https://developer.apple.com/documentation/swiftui/textselection).
+Folders, native Drive document titles, extensionless names, leading-dot names
+without another extension, and names ending in a dot are selected in full.
+Selection state resets on dismissal. New Folder controls are unchanged.
+
+The three changed Swift files pass syntax parsing and the patch passes whitespace
+checks. App compilation and device/simulator acceptance await an explicitly
+requested app build. Verify that immediate typing replaces `report.final` in
+`report.final.pdf`, preserves `.pdf`, works with Unicode names, and selects all
+of `.env` and a folder named `Photos.2026`; repeat after cancelling and reopening
+in both browsers. No server deployment or temporary artifacts are required.

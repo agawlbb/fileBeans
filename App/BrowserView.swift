@@ -19,6 +19,7 @@ struct BrowserView: View {
     @State private var selected = Set<String>()
     @State private var renameItem: StoredItem?
     @State private var proposedName = ""
+    @State private var renameSelection: TextSelection?
     @State private var archiveFolder: StoredItem?
     @State private var newFolder = false
     @State private var newTextFile = false
@@ -212,12 +213,13 @@ struct BrowserView: View {
             Button("OK") { model.error = nil; activity.errors[connection.id] = nil }
             Button("Refresh") { Task { await reload() } }
         } message: { Text(model.error ?? activity.errors[connection.id] ?? "") }
-        .alert("Rename", isPresented: Binding(get: { renameItem != nil }, set: { if !$0 { renameItem = nil } })) {
-            TextField("Name", text: $proposedName)
-            Button("Cancel", role: .cancel) { renameItem = nil }
+        .alert("Rename", isPresented: Binding(get: { renameItem != nil }, set: { if !$0 { renameItem = nil; renameSelection = nil } })) {
+            TextField("Name", text: $proposedName, selection: $renameSelection)
+            Button("Cancel", role: .cancel) { renameItem = nil; renameSelection = nil }
             Button("Save") {
                 guard let item = renameItem, let parent else { return }
                 renameItem = nil
+                renameSelection = nil
                 Task { await model.perform { try await model.repository?.move(item, to: parent, name: proposedName); await reload() } }
             }
         }
@@ -378,7 +380,11 @@ struct BrowserView: View {
                     .disabled(model.busy)
             }
             if !item.isSource && item.permissions.modify && !protected(item) {
-                Button("Rename", systemImage: "pencil") { proposedName = item.file.name; renameItem = item }
+                Button("Rename", systemImage: "pencil") {
+                    proposedName = item.file.name
+                    renameSelection = RenameText.selection(for: proposedName, isDirectory: item.file.isDirectory)
+                    renameItem = item
+                }
                 Button("Move", systemImage: "folder") { selected = [item.id]; copying = false; moving = true }
             }
             if !item.file.isDirectory && item.permissions.download {

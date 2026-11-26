@@ -81,6 +81,7 @@ struct DriveBrowser: View {
     @State private var selected = Set<String>()
     @State private var renaming: DriveFile?
     @State private var proposedName = ""
+    @State private var renameSelection: TextSelection?
     @State private var newFolder = false
     @State private var deleting = false
     @State private var choosingDestination = false
@@ -257,11 +258,11 @@ struct DriveBrowser: View {
             .alert("Google Drive", isPresented: Binding(get: { model.error != nil || activity.errors[connection.id] != nil }, set: { if !$0 { model.error = nil; activity.errors[connection.id] = nil } })) {
                 Button("OK") { model.error = nil; activity.errors[connection.id] = nil }
             } message: { Text(model.error ?? activity.errors[connection.id] ?? "") }
-            .alert("Rename", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
-                TextField("Name", text: $proposedName)
-                Button("Cancel", role: .cancel) { renaming = nil }
+            .alert("Rename", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil; renameSelection = nil } })) {
+                TextField("Name", text: $proposedName, selection: $renameSelection)
+                Button("Cancel", role: .cancel) { renaming = nil; renameSelection = nil }
                 Button("Save") {
-                    guard let item = renaming else { return }; renaming = nil
+                    guard let item = renaming else { return }; renaming = nil; renameSelection = nil
                     mutate(DriveMutationRequest(action: "rename", fileId: item.id, name: proposedName, version: item.version))
                 }
             }
@@ -367,7 +368,13 @@ struct DriveBrowser: View {
                 Button("Normalize to VPS pics", systemImage: "film.stack") { normalizing = item }
             }
             if item.canCopy { Button("Copy", systemImage: "doc.on.doc") { selected = [item.id]; copying = true; choosingDestination = true } }
-            if model.writable && item.canRename { Button("Rename", systemImage: "pencil") { renaming = item; proposedName = item.name } }
+            if model.writable && item.canRename {
+                Button("Rename", systemImage: "pencil") {
+                    proposedName = item.name
+                    renameSelection = RenameText.selection(for: proposedName, isDirectory: item.folder || item.nativeDocument)
+                    renaming = item
+                }
+            }
             if model.writable && item.canMove { Button("Move", systemImage: "folder") { selected = [item.id]; copying = false; choosingDestination = true } }
             if !item.folder { Button("Open", systemImage: "arrow.up.right.square") { open(item) } }
             if model.writable && item.canTrash { Button("Delete", systemImage: "trash", role: .destructive) { selected = [item.id]; deleting = true } }

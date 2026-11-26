@@ -1,6 +1,17 @@
 import SwiftUI
 import UIKit
 
+enum RenameText {
+    static func selection(for name: String, isDirectory: Bool) -> TextSelection {
+        var end = name.endIndex
+        if !isDirectory, let dot = name.lastIndex(of: "."),
+           dot != name.startIndex, name.index(after: dot) != name.endIndex {
+            end = dot
+        }
+        return TextSelection(range: name.startIndex..<end)
+    }
+}
+
 struct BrowserFileCollection<Item: Identifiable, Header: View, Row: View>: View {
     let items: [Item]
     let grid: Bool
