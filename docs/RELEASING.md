@@ -1,5 +1,39 @@
 # Signing and TestFlight
 
+## Database account cap and capacity waiting — November 26, 2026
+
+Deployed server source `abbcad2` as `filebeans-api:abbcad2-db-cap` and set
+MariaDB account `filebeans`@`%` to `MAX_USER_CONNECTIONS 10` (previously unlimited).
+The active API keeps its five-connection pool limit, now with one idle connection
+and 30-second idle expiry. The legacy normalizer remains disabled. Settled live
+FileBeans sessions were two before and after rollout; the optional two-process
+budget in the companion README is not the current deployment topology.
+
+New connection establishment waits on connection-limit errors 1203/1226/1040
+until capacity returns or its context expires. SQL statements are never replayed.
+Existing operation deadlines still apply to persistent exhaustion. Focused race
+tests cover pool queuing with 32 callers, simulated server capacity recovery,
+cancellation and immediate authentication-error propagation; related locked
+preview, archive status, normalization paths and dataset checks pass. Service
+and command vet pass. Go 1.26.11 and pinned rclone 1.76.0 were checksum verified
+inside the bounded VM workspace; no production database was used for tests.
+
+Archive SHA-256 `f6cad4a52ff419570a847258fe2cdf049dc0f802433030a678573d2d9027872b`;
+manifest `sha256:be3cbea1e30d7e8734a2bbbf12d1992f2155fce46a49dcff44b4fc034d09f9a9`;
+config `sha256:10bed7ffd6dda294cd277a8b47aa9ac35338d18997a46014683286f81c1f4b55`.
+Public capability, job, source and archive-status checks pass; anonymous access
+returns 401. Both pre-cap and post-cap bursts of 24 read requests returned only
+HTTP 200. These are health/concurrency checks, not deliberate live account
+exhaustion. Container restarts/OOM are zero; the 2 GiB/no-swap limit, mounts,
+configuration, broker PID 1294702 and all other running services are preserved.
+No Apple app build or release was needed.
+VPS `.deploy-filebeans-db-cap-abbcad2` staging and the unreferenced prior
+`filebeans-api:3481f76-locked-previews` image were removed. VM `.build/db-cap`
+and its 6 GiB `.ext4` backing file, toolchain, runtime context/export, compiler
+and module caches, temporary deployment controller and task builder state were
+removed. The stopped shared builder's original storage mount is restored.
+No task artifact remains; the configured live image is retained.
+
 ## Cached previews with locked archive policies — November 26, 2026
 
 Server follow-up `3481f76` is deployed as
