@@ -1,5 +1,38 @@
 # Signing and TestFlight
 
+## Cached previews with locked archive policies — November 26, 2026
+
+Server follow-up `3481f76` is deployed as
+`filebeans-api:3481f76-locked-previews`. A locked archive policy previously hid
+preview eligibility and blocked thumbnail requests for unrelated ordinary files.
+Listings now retain eligibility, and unknown archive membership permits existing
+cache reads while suppressing generation. Locked files and policy metadata remain
+inaccessible; cache misses never render archive originals.
+
+Prepared VM image archive SHA-256:
+`ab47e278aa811531ac51d287df3dd17b904d1890cc467c3c4f2d27c1ada3c65f`;
+manifest `sha256:4fd4b13ad932f9337de4220fcb93ab8e685ebfd60e592c04999280ed7756f2e2`;
+config `sha256:8b27766e45458880da7ed9db957550e39ee51253526d2d188b837b4f9f4d04c5`.
+The focused race regression fails against the old listing behavior and passes
+with the correction. Related filesystem/cache, archive read-only/alias,
+protected-record and status/concurrency checks and service vet pass.
+
+Live verification found an ordinary cached file with `hasPreview: false` before
+rollout. With protection still locked afterward, its listing reports true and
+its default thumbnail request returns HTTP 200 / image/jpeg / 19,399 bytes through
+public Caddy HTTPS. The locked NReading.mp4 thumbnail returns 404; anonymous
+capabilities return 401. Only the API image changed: container name `FileBeans`,
+2 GiB/no-swap cap, configuration, mounts and broker PID 1294702 are preserved.
+Other services are unchanged; archive work is empty, restarts and OOM events zero.
+
+Exact VPS `.locked-previews-3481f76` staging and the unreferenced prior
+`filebeans-api:38855c0-host-memory` image were removed. VM `.build/locked-preview`,
+its bounded `.ext4`, compiler/test caches, context/export, task builder state and
+three one-off preview controllers were removed. The shared builder is stopped
+with its original state mount restored. No private media was copied to the VM.
+The existing TestFlight 40 app can use this server correction after reopening or
+refreshing the folder; no additional app build/release was needed.
+
 ## Archive status and transfer recovery — TestFlight 40 (November 26, 2026)
 
 Released **0.1.0 (40)** from `9c6cf05`, tagged `testflight/0.1.0-40`.
