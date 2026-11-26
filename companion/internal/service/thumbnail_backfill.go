@@ -55,6 +55,7 @@ func (s *Service) thumbnailBackfillPass(ctx context.Context) (counts thumbnailBa
 			continue
 		}
 		visited := map[string]bool{}
+		links, _ := s.archivePolicyLinks()
 		var walk func(string, int)
 		walk = func(path string, depth int) {
 			path = archivePath(path)
@@ -125,6 +126,7 @@ func (s *Service) thumbnailBackfillPass(ctx context.Context) (counts thumbnailBa
 				s.filesystemCachedThumbnail(cached, request)
 				if cached.status == 200 {
 					counts.cached++
+					_ = s.refreshArchiveVideoThumbnail(ctx, source.Name, child.path, links)
 					continue
 				}
 				// Missing caches only. Permission, lock and transient errors wait for
@@ -137,6 +139,7 @@ func (s *Service) thumbnailBackfillPass(ctx context.Context) (counts thumbnailBa
 				s.filesystemThumbnail(out, request)
 				if out.status == 200 {
 					counts.generated++
+					_ = s.refreshArchiveVideoThumbnail(ctx, source.Name, child.path, links)
 				} else {
 					counts.unavailable++
 				}
@@ -154,4 +157,46 @@ func (s *Service) thumbnailBackfillPass(ctx context.Context) (counts thumbnailBa
 		walk("/", 0)
 	}
 	return counts
+}
+
+// Refresh imported video previews from the local library's new cache version.
+// This copies only thumbnail bytes; Samba originals are never decoded.
+func (s *Service) refreshArchiveVideoThumbnail(ctx context.Context, source, path string, links []ArchiveLink) error {
+	path, err := clean(path)
+	if err != nil {
+		return err
+	}
+	if !strings.HasPrefix(filesystemType(path), "video/") {
+		return nil
+	}
+	for _, link := range links {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		relative, ok := archiveRelative(link.Library.Path, path)
+		if link.Library.Source != source || !ok {
+			continue
+		}
+		return func() error {
+			library, err := s.root(source)
+			if err != nil {
+				return err
+			}
+			defer library.Close()
+			archive, err := s.archiveWriter().root(link.Archive.Source)
+			if err != nil {
+				return err
+			}
+			defer archive.Close()
+			if err = archiveCheckRoot(archive, link.Archive.Path, link.Archive.Vault, link.Archive.Identity); err != nil {
+				return err
+			}
+			original, err := archiveMatch(archive, link.Archive.Path, relative, false)
+			if err != nil {
+				return err
+			}
+			return s.copyArchiveThumbnail(&archiveTask{ID: ID()}, library, archive, path, original)
+		}()
+	}
+	return nil
 }

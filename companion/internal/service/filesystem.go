@@ -68,11 +68,14 @@ func filesystemRevision(st os.FileInfo) string {
 	sum := sha256.Sum256([]byte(version(st)))
 	return hex.EncodeToString(sum[:])
 }
-func filesystemInfo(p string, st os.FileInfo) filesystemEntry {
+func filesystemType(p string) string {
 	ext := strings.ToLower(filepath.Ext(p))
+	if ext == ".webm" {
+		return "video/webm"
+	}
 	typ := mime.TypeByExtension(ext)
 	if typ == "" {
-		typ = map[string]string{".mov": "video/quicktime", ".m4v": "video/mp4", ".mkv": "video/x-matroska", ".m4a": "audio/mp4", ".heic": "image/heic", ".heif": "image/heif", ".webp": "image/webp"}[ext]
+		typ = map[string]string{".mov": "video/quicktime", ".m4v": "video/mp4", ".mkv": "video/x-matroska", ".webm": "video/webm", ".m4a": "audio/mp4", ".heic": "image/heic", ".heif": "image/heif", ".webp": "image/webp"}[ext]
 	}
 	if i := strings.IndexByte(typ, ';'); i >= 0 {
 		typ = typ[:i]
@@ -80,6 +83,10 @@ func filesystemInfo(p string, st os.FileInfo) filesystemEntry {
 	if typ == "" {
 		typ = "application/octet-stream"
 	}
+	return typ
+}
+func filesystemInfo(p string, st os.FileInfo) filesystemEntry {
+	typ := filesystemType(p)
 	if st.IsDir() {
 		typ = "directory"
 	}

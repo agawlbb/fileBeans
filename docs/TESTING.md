@@ -617,3 +617,34 @@ This resolves the Apple execution/build prerequisites above for downloads,
 full-screen controls and hosting. Physical-device acceptance remains manual.
 The hosting API deployment and anonymous live hosting checks remain pending;
 no server deployment was part of the app release.
+
+### Video thumbnails — November 26, 2026
+
+Video previews sample at two frames per second within the first thirty seconds,
+discard frames with at least 98% near-black pixels, and select a representative
+frame from up to twelve remaining samples. Samples are scaled before batching.
+Short clips and clips without an eligible sample fall back to their first frame,
+including FFmpeg versions that report empty filtered output as an error. The
+existing renderer timeout, pinned descriptors and protected scratch paths remain.
+Frame metadata and selection use FFmpeg's documented
+[blackframe](https://ffmpeg.org/ffmpeg-filters.html#blackframe) and
+[thumbnail](https://ffmpeg.org/ffmpeg-filters.html#thumbnail) filters.
+
+Only video cache versions change on the server and in the app. Automatic VPS
+backfill refreshes video previews and copies the new cache to matching linked
+archive originals without opening either media file for the copy. An existing
+imported archive preview remains available until its new copy arrives; archive
+requests remain cache-only. Images, documents and source video bytes are preserved.
+
+Focused Go race tests and service vet pass, including synthetic videos with
+two-/six-second black openings, a 0.1-second clip, an all-black clip, legacy video
+caches, cache-only archive refresh, existing video/PDF renderers under the
+protected-process policy, thumbnail backfill and overnight idle regressions.
+The changed Swift source passes syntax parsing. Full `validate-source.py` stops
+at its existing target-list assertion: `myFilesUITests` is present in project.yml
+but absent from that assertion. Apple compilation/runtime checks remain pending.
+
+API deployment and an app build/release are still required; neither was requested
+or performed. The resource-limited VM test container and its bounded 2 GiB test
+filesystem, renderer bundle, toolchain, fixtures and caches were removed after
+verification. No production changes were made.

@@ -186,7 +186,19 @@ func (s *Service) renderPreview(ctx context.Context, in *os.File, typ string, ro
 	}
 	defer dir.Close()
 	tool := s.config.Filesystem.FFmpeg
-	args := []string{"-v", "error", "-nostdin", "-threads", "1", "-filter_threads", "1", "-filter_complex_threads", "1", "-protocol_whitelist", "file,pipe", "-i", "/proc/self/fd/3", "-map", "0:v:0", "-frames:v", "1", "-vf", "scale=320:320:force_original_aspect_ratio=decrease", "-threads", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1"}
+	video := strings.HasPrefix(typ, "video/")
+	const scale = "scale=320:320:force_original_aspect_ratio=decrease"
+	filter := scale
+	if video {
+		// Keep only useful samples from the first thirty seconds. Scaling before
+		// batching bounds memory, including for high-resolution source videos.
+		filter = "fps=2," + scale + ",blackframe=amount=0:threshold=32,metadata=mode=select:key=lavfi.blackframe.pblack:value=98:function=less,thumbnail=12"
+	}
+	args := []string{"-v", "error", "-nostdin", "-threads", "1", "-filter_threads", "1", "-filter_complex_threads", "1", "-protocol_whitelist", "file,pipe"}
+	if video {
+		args = append(args, "-t", "30")
+	}
+	args = append(args, "-i", "/proc/self/fd/3", "-map", "0:v:0", "-frames:v", "1", "-vf", filter, "-threads", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1")
 	if typ == "application/pdf" {
 		tool = s.config.Filesystem.PDFToPPM
 		args = []string{"-f", "1", "-singlefile", "-scale-to", "320", "-jpeg", "/proc/self/fd/3"}
@@ -194,6 +206,41 @@ func (s *Service) renderPreview(ctx context.Context, in *os.File, typ string, ro
 	if tool == "" {
 		return nil, ErrUnsupported
 	}
+	data, e := runPreview(ctx, tool, args, in, dir)
+	if e != nil && (!video || len(data) > 0 || ctx.Err() != nil) {
+		return nil, e
+	}
+	if video && len(data) == 0 && ctx.Err() == nil {
+		// Very short or entirely black clips may have no eligible sample.
+		// FFmpeg versions differ on whether an empty output is an error.
+		// Rewind the same pinned input and fall back to its first frame.
+		if _, e = in.Seek(0, io.SeekStart); e != nil {
+			return nil, e
+		}
+		for i := range args {
+			if args[i] == "-vf" {
+				args[i+1] = scale
+				break
+			}
+		}
+		data, e = runPreview(ctx, tool, args, in, dir)
+		if e != nil {
+			return nil, e
+		}
+	}
+	// Decode and re-encode to enforce dimensions and a consistent JPEG response.
+	cfg, _, e := image.DecodeConfig(bytes.NewReader(data))
+	if e != nil || cfg.Width > 1024 || cfg.Height > 1024 {
+		return nil, ErrUnsupported
+	}
+	img, _, e := image.Decode(bytes.NewReader(data))
+	if e != nil {
+		return nil, e
+	}
+	return scaledJPEG(img)
+}
+
+func runPreview(ctx context.Context, tool string, args []string, in, dir *os.File) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, tool, args...)
 	cmd.ExtraFiles = []*os.File{in, dir}
 	// All subprocess scratch/cache files remain beside the original, inside the
@@ -206,19 +253,10 @@ func (s *Service) renderPreview(ctx context.Context, in *os.File, typ string, ro
 	cmd.Env = []string{"PATH=/usr/bin:/bin", "TMPDIR=/proc/self/fd/4", "HOME=/proc/self/fd/4", "XDG_CACHE_HOME=/proc/self/fd/4"}
 	var output limitedPreview
 	cmd.Stdout = &output
-	if e = cmd.Run(); e != nil {
-		return nil, e
+	if e := cmd.Run(); e != nil {
+		return output.Bytes(), e
 	}
-	// Decode and re-encode to enforce dimensions and a consistent JPEG response.
-	cfg, _, e := image.DecodeConfig(bytes.NewReader(output.Bytes()))
-	if e != nil || cfg.Width > 1024 || cfg.Height > 1024 {
-		return nil, ErrUnsupported
-	}
-	img, _, e := image.Decode(bytes.NewReader(output.Bytes()))
-	if e != nil {
-		return nil, e
-	}
-	return scaledJPEG(img)
+	return output.Bytes(), nil
 }
 
 type limitedPreview struct{ bytes.Buffer }
@@ -361,7 +399,15 @@ func (s *Service) filesystemCachedThumbnail(w http.ResponseWriter, r *http.Reque
 		filesystemFail(w, e)
 		return
 	}
-	cached, e := filesystemOpenFile(root, filepath.Join(dir, previewCacheName(p, filesystemRevision(st))))
+	revision := filesystemRevision(st)
+	cached, e := filesystemOpenFile(root, filepath.Join(dir, previewCacheName(p, revision)))
+	if os.IsNotExist(e) && strings.HasPrefix(filesystemType(p), "video/") {
+		// Linked originals remain cache-only. Keep their imported preview until
+		// it can be refreshed from the VPS library, never render the archive.
+		if suppressed, err := s.archiveThumbnailSuppressed(r.URL.Query().Get("source"), p); err == nil && suppressed {
+			cached, e = filesystemOpenFile(root, filepath.Join(dir, previewCacheNameVersion(p, revision, "jpeg-320-v1")))
+		}
+	}
 	if e != nil {
 		filesystemFail(w, e)
 		return
@@ -380,6 +426,13 @@ func (s *Service) filesystemCachedThumbnail(w http.ResponseWriter, r *http.Reque
 	_, _ = io.Copy(w, io.LimitReader(cached, 2<<20))
 }
 func previewCacheName(p, revision string) string {
-	digest := sha256.Sum256([]byte(filepath.Base(p) + "\x00" + revision + "\x00jpeg-320-v1"))
+	version := "jpeg-320-v1"
+	if strings.HasPrefix(filesystemType(p), "video/") {
+		version = "jpeg-320-video-v2"
+	}
+	return previewCacheNameVersion(p, revision, version)
+}
+func previewCacheNameVersion(p, revision, version string) string {
+	digest := sha256.Sum256([]byte(filepath.Base(p) + "\x00" + revision + "\x00" + version))
 	return hex.EncodeToString(digest[:]) + ".jpg"
 }

@@ -5,7 +5,7 @@ struct ThumbnailView: View {
     let client: FilesystemClient?
     @State private var image: UIImage?
     private var key: ThumbnailKey {
-        ThumbnailKey(connection: client?.connection.id ?? UUID(uuidString: "00000000-0000-0000-0000-000000000000")!, provider: "filesystem", source: item.source,
+        ThumbnailKey(connection: client?.connection.id ?? UUID(uuidString: "00000000-0000-0000-0000-000000000000")!, provider: item.file.type.hasPrefix("video/") ? "filesystem-video-v2" : "filesystem", source: item.source,
                      file: item.id, revision: item.file.modified.map { $0 + ":" + String(item.file.size ?? 0) } ?? "")
     }
     var body: some View {

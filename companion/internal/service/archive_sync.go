@@ -1292,6 +1292,22 @@ func (s *Service) archiveThumbnail(ctx context.Context, j *archiveTask, library,
 	if w.status != 200 {
 		return ErrUnsupported
 	}
+	return s.copyArchiveThumbnail(j, library, archive, visible, original)
+}
+
+// Copy an already rendered library cache without opening either media file.
+func (s *Service) copyArchiveThumbnail(j *archiveTask, library, archive rootFS, visible, original string) error {
+	originalInfo, e := archive.Stat(original)
+	if e != nil {
+		return e
+	}
+	dir := filepath.Join(filepath.Dir(original), thumbnailDirectory)
+	target := filepath.Join(dir, previewCacheName(original, filesystemRevision(originalInfo)))
+	if _, e = archive.Stat(target); e == nil {
+		return nil
+	} else if !os.IsNotExist(e) {
+		return e
+	}
 	st, e := library.Stat(visible)
 	if e != nil {
 		return e
@@ -1308,11 +1324,6 @@ func (s *Service) archiveThumbnail(ctx context.Context, j *archiveTask, library,
 	if len(data) > 2<<20 {
 		return ErrUnsupported
 	}
-	st, e = archive.Stat(original)
-	if e != nil {
-		return e
-	}
-	dir := filepath.Join(filepath.Dir(original), thumbnailDirectory)
 	if e = mkdir(archive, dir); e != nil {
 		return e
 	}
@@ -1333,10 +1344,6 @@ func (s *Service) archiveThumbnail(ctx context.Context, j *archiveTask, library,
 	}
 	if ce != nil {
 		return ce
-	}
-	target := filepath.Join(dir, previewCacheName(original, filesystemRevision(st)))
-	if _, e = archive.Stat(target); e == nil {
-		return nil
 	}
 	if e = renameExclusive(archive, temp, target); e != nil {
 		return e
