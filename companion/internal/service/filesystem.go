@@ -184,8 +184,7 @@ func (s *Service) filesystemResource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	links, e := s.archivePolicyLinks()
-	unknownArchive := errors.Is(e, ErrVaultLocked)
-	if unknownArchive {
+	if errors.Is(e, ErrVaultLocked) {
 		e = nil
 	}
 	if e != nil {
@@ -201,9 +200,6 @@ func (s *Service) filesystemResource(w http.ResponseWriter, r *http.Request) {
 					break
 				}
 			}
-		}
-		if unknownArchive {
-			entry.HasPreview = false
 		}
 	}
 	entry := filesystemInfo(p, st)

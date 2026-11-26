@@ -797,3 +797,20 @@ verification of the original copy. The guard, cancellation, priority, status,
 protection and copy-boundary regressions and service vet passed. The Swift status
 label passed syntax parsing; no Apple build was run.
 No private media is copied to the VM and no production memory spike is induced.
+
+### Cached previews while archive metadata is locked — November 26, 2026
+
+A locked encrypted archive policy previously set every listing's `hasPreview` to
+false and rejected every thumbnail request, even for ordinary files with existing
+adjacent caches. The regression reproduces that listing failure against the old
+code, using a sealed policy envelope with an independently locked protection
+domain. The corrected handlers preserve preview eligibility and use cache-only
+reads when routing cannot be decrypted. Requests for locked files still fail;
+missing caches return 404 without rendering originals, and protected policy
+metadata stays unavailable. Original bytes remain unchanged.
+
+The regression and related filesystem cache/invalidation, adjacent-cache,
+lifecycle, archive read-only/alias, protected-record and status/concurrency checks
+pass with the race detector, along with service vet, in a two-CPU, 2 GiB/no-swap
+development-image container with bounded disk scratch. The fix changes only the
+server; the existing app can use it after refreshing/reopening the folder.

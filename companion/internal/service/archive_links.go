@@ -361,6 +361,11 @@ func (s *Service) prepareArchiveRename(source, from, to string) error {
 // Suppression is checked before opening media, including for older clients.
 func (s *Service) archiveThumbnailSuppressed(source, p string) (bool, error) {
 	links, err := s.archivePolicyLinks()
+	if errors.Is(err, ErrVaultLocked) {
+		// Unknown routing must not render archive originals. Existing caches
+		// remain readable under the requested file's own protection checks.
+		return true, nil
+	}
 	if err != nil {
 		return true, err
 	}

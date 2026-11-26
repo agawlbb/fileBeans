@@ -406,7 +406,12 @@ locations follow the vault's identity and recorded relative path. Locked link
 metadata is omitted from public link lists; protected locations remain encrypted
 using the existing operation-record mechanism. When link metadata is locked,
 destructive link checks fail closed, and thumbnail generation is conservatively
-unavailable until unlock. Source unavailability never deletes the link.
+unavailable until unlock. Supported files remain eligible for cached previews:
+requests serve existing adjacent caches under the requested file's own protection
+checks. An unrelated locked link does not hide ordinary files' cached previews.
+A cache miss returns 404 without opening media or generating output; locked files
+and protected metadata remain inaccessible. Source unavailability never deletes
+the link.
 
 Listings include `archiveLink`, `archiveRole` (`library` or `archive`),
 `archiveRoot` and `archiveLibrary` (the matched Library source/path). Archive media
