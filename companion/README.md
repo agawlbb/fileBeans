@@ -12,6 +12,31 @@ performed by these files.
 
 ## Configuration and installation
 
+### Database connection budget
+
+Each process shares one lazy MySQL pool, capped at five connections. The API
+worker holds one connection for its advisory lock; the separate normalization
+worker holds another in its own pool. Keep these leases open: they prevent
+duplicate workers and detect lost ownership. Normalization job locks reuse its
+worker lease, including concurrent transcodes. Copies/moves, archive sync,
+thumbnails and MakeLORA dataset work use short queries on the API pool rather
+than holding a connection for the duration of media or network processing.
+
+For one API and one normalizer, the working minimum is four connections (one
+lease and one query connection each). A normalization retry temporarily reserves
+another API connection for its job lock, requiring five combined to allow both
+processes to keep querying. Concurrent foreground requests and background
+checkpoints can benefit from more, so retain the five-per-process burst ceiling
+(ten combined); this is a limit, not an allocation or measured requirement.
+Each pool retains at most one idle connection and expires it after 30 seconds
+without use. Expect roughly four open connections during routine worker polling,
+versus up to six with the previous default of two idle connections per process.
+Disabled processes consume none. These counts cover FileBeans, not a separate
+MakeLORA application's pool or other applications sharing the database server.
+Query results and the vault-record migration transaction close on exit; reviewed
+media and transfer paths do not retain pooled SQL connections while processing.
+This budget is a source audit, not a live database measurement.
+
 1. Install Go 1.26 or newer in the development container. Run `go mod download`
    and `go test ./...` from this directory through `dev`. A release binary can be
    built from `./cmd/filebeans` when a build/deployment is requested.

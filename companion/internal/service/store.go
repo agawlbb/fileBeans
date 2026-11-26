@@ -84,6 +84,10 @@ func openDB(dsn string) (*sql.DB, error) {
 		return nil, e
 	}
 	d.SetMaxOpenConns(5)
+	// Each worker process reserves a lease connection; queries share the rest.
+	// Keep one warm query connection, releasing spare burst capacity promptly.
+	d.SetMaxIdleConns(1)
+	d.SetConnMaxIdleTime(30 * time.Second)
 	d.SetConnMaxLifetime(time.Minute * 3)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
