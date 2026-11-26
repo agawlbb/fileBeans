@@ -3,11 +3,13 @@ package service
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	_ "embed"
 	"encoding/json"
 	"errors"
-	_ "github.com/go-sql-driver/mysql"
 	"time"
+
+	"github.com/go-sql-driver/mysql"
 )
 
 //go:embed schema.sql
@@ -79,10 +81,15 @@ type Trash struct {
 }
 
 func openDB(dsn string) (*sql.DB, error) {
-	d, e := sql.Open("mysql", dsn)
+	cfg, e := mysql.ParseDSN(dsn)
 	if e != nil {
 		return nil, e
 	}
+	connector, e := mysql.NewConnector(cfg)
+	if e != nil {
+		return nil, e
+	}
+	d := sql.OpenDB(&capacityConnector{Connector: connector})
 	d.SetMaxOpenConns(5)
 	// Each worker process reserves a lease connection; queries share the rest.
 	// Keep one warm query connection, releasing spare burst capacity promptly.
@@ -97,6 +104,30 @@ func openDB(dsn string) (*sql.DB, error) {
 		return nil, e
 	}
 	return d, nil
+}
+
+// Connection limits are temporary capacity pressure. Wait for a slot rather
+// than returning the server's account-limit error to an operation. Only retry
+// opening connections: replaying SQL could duplicate a completed mutation.
+type capacityConnector struct {
+	driver.Connector
+}
+
+func (c *capacityConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	for {
+		conn, err := c.Connector.Connect(ctx)
+		var mysqlErr *mysql.MySQLError
+		if !errors.As(err, &mysqlErr) || (mysqlErr.Number != 1203 && mysqlErr.Number != 1226 && mysqlErr.Number != 1040) {
+			return conn, err
+		}
+		timer := time.NewTimer(250 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 func (s *Service) save(id, kind, state string, v any) error {
 	b, e := json.Marshal(v)

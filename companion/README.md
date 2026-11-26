@@ -37,6 +37,14 @@ Query results and the vault-record migration transaction close on exit; reviewed
 media and transfer paths do not retain pooled SQL connections while processing.
 This budget is a source audit, not a live database measurement.
 
+The production `filebeans` account is limited to ten simultaneous connections
+across processes. Requests above a process's five-connection pool limit wait for
+an available slot. Opening a connection also waits/retries MySQL connection-limit
+rejections (1203, 1226, 1040), subject to the operation's cancellation/deadline.
+SQL statements are never replayed by this handling. Persistent exhaustion can
+still reach an operation's timeout; transient capacity pressure does not expose
+the raw account-limit error to users. Keep other applications on separate accounts.
+
 1. Install Go 1.26 or newer in the development container. Run `go mod download`
    and `go test ./...` from this directory through `dev`. A release binary can be
    built from `./cmd/filebeans` when a build/deployment is requested.
