@@ -664,3 +664,13 @@ requested app build. Verify that immediate typing replaces `report.final` in
 `report.final.pdf`, preserves `.pdf`, works with Unicode names, and selects all
 of `.env` and a folder named `Photos.2026`; repeat after cancelling and reopening
 in both browsers. No server deployment or temporary artifacts are required.
+
+### Archive launch notice — November 26, 2026
+
+App launch and foreground activation no longer request archive status or present
+the Archive Backup Pending alert. Upload recovery and memory-warning handling
+remain; server archive processing, original retention and automatic retries are
+unchanged. The changed Swift source passes syntax parsing and whitespace checks.
+After an explicitly requested app build, verify launch and repeated background /
+foreground transitions while archive work is pending produce no popup and uploads
+still recover. No server deployment or temporary artifacts are required.
