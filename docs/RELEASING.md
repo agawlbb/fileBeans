@@ -1,5 +1,25 @@
 # Signing and TestFlight
 
+## Video full-screen regression correction — TestFlight 39 (November 26, 2026)
+
+Released **0.1.0 (39)** from `d07eabc`, tagged `testflight/0.1.0-39`.
+The app code matches simulator-validated `4d91955`; intervening changes are
+documentation only. The viewer has one full-screen control, no nested video
+navigation stack, and a cached movie owns its player independently of layout.
+Paging away or closing the viewer stops playback.
+
+- [Simulator validation](https://github.com/agawlbb/fileBeans/actions/runs/45713689672)
+  passed 136 unit tests and four UI scenarios. The streamed-video full-screen
+  test passed first attempt, checking one control and the same attached item
+  continuing to decode through three enter/exit cycles. The existing photo
+  expansion test passed on its configured retry.
+- [Signed release](https://github.com/agawlbb/fileBeans/actions/runs/45727108140)
+  passed preflight, archive/export, upload and temporary credential cleanup.
+  Apple build `9f494b03-61f4-4a04-bff3-67a72bbdf539` is **VALID / IN_BETA_TESTING**,
+  with automatic notification enabled. Existing tester settings were preserved.
+- No server deployment, local staging or retained release artifacts; the release
+  run has zero artifacts. Physical-device playback acceptance remains manual.
+
 ## Video playback — TestFlight 38 (November 25, 2026)
 
 Device feedback found a regression: build 38 exposes two full-screen controls
@@ -8,16 +28,16 @@ The simulator results below did not cover video presentation transitions.
 Correction source `50804b3` restores the single viewer control, removes the
 nested video navigation stack, and gives the cached movie ownership of its
 player. The new video UI regression checks control count, item identity and
-continued decoding through repeated transitions. This correction is not yet
-released to TestFlight. [Simulator-only validation
+continued decoding through repeated transitions. This correction is released
+in TestFlight 39 above. [Simulator-only validation
 45713689672](https://github.com/agawlbb/fileBeans/actions/runs/45713689672)
 passed for `4d91955`: 136 unit tests and four UI scenarios, including the new
 video control-count/item-identity/decoding test on its first attempt. The existing
 photo expansion test required its configured retry. The preceding run
 45712414768 stopped before compilation because the shared fixture had a duplicate
 generated project group; `4d91955` corrects the grouping. Both runs' disposable
-result artifacts were removed after recording these results. No device archive,
-TestFlight upload or server deployment was performed for this correction.
+result artifacts were removed after recording these results. That correction
+task ran simulator tests only; the separately requested release is recorded above.
 
 Release source `40f5839` attempted to preserve playback with a native player
 controller, extended the full-screen black background through the safe area,

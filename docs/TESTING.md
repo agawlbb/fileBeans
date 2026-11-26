@@ -12,8 +12,8 @@
   136 unit tests and four UI scenarios. The new streamed-video transition test
   and cache-lifecycle test passed on their first attempts. The existing photo
   expansion test timed out initially, then passed on its configured retry.
-  No corrected device build has been released; iPhone/iPad device acceptance
-  remains pending.
+  Corrected TestFlight 0.1.0 (39) is VALID / IN_BETA_TESTING;
+  iPhone/iPad device acceptance remains pending.
 
 - Video playback regression: repeatedly seek forward/backward while playing,
   enter/exit full screen after each seek, and repeat while paused. Confirm moving
