@@ -1,0 +1,10 @@
+{
+  "serverId": "filebeans-vps",
+  "peers": [{
+    "id": "filebeans-pi",
+    "url": "https://100.98.4.101:8095",
+    "token": "REPLACE_WITH_THE_PI_TOKEN_PRIVATELY",
+    "fingerprint": "REPLACE_WITH_THE_PI_CERTIFICATE_SHA256_HEX",
+    "sources": ["Samba"]
+  }]
+}

@@ -297,6 +297,9 @@ func (s *Service) runRclone(ctx context.Context, j *Job, f File, dst rootFS, sta
 		}
 	}
 	args := rcloneTransferOptions(config, private, f.Directory)
+	if s.config.Profile == "pi" {
+		args = append(args, "--transfers", "1", "--checkers", "1", "--buffer-size", "256k", "--bwlimit", "12M", "--multi-thread-streams", "0")
+	}
 	// CIFS can expose fixed ownership through FUSE. Group writers can write
 	// bytes but cannot set another UID's timestamps. Content verification remains
 	// authoritative; do not make protected transfers depend on chtimes.

@@ -1,0 +1,18 @@
+{
+  "profile": "pi",
+  "serverId": "filebeans-pi",
+  "listen": "0.0.0.0:8095",
+  "state": "/data/api",
+  "sqlite": "/data/api/operations.sqlite",
+  "token": "REPLACE_WITH_A_RANDOM_PRIVATE_TOKEN_OF_AT_LEAST_32_CHARACTERS",
+  "rclone": "/usr/local/bin/rclone",
+  "protectedRuntime": "/run/filebeans-vaults",
+  "filesystem": {"enabled": true},
+  "roots": [{"name": "Samba", "path": "/share/fileBeans"}],
+  "peers": [{
+    "id": "filebeans-vps",
+    "url": "https://files.coffeybean.com/companion",
+    "token": "REPLACE_WITH_EXISTING_VPS_TOKEN_PRIVATELY",
+    "sources": ["VPS", "drive"]
+  }]
+}

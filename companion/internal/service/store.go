@@ -27,6 +27,7 @@ type CopyRequest struct {
 	Destination     Item   `json:"destination"`
 }
 type File struct {
+	Vault     string `json:"vault,omitempty"`
 	DriveID   string `json:"driveId,omitempty"`
 	From      string `json:"from"`
 	To        string `json:"to"`
@@ -43,28 +44,29 @@ type File struct {
 	Attempted bool   `json:"attempted,omitempty"`
 }
 type Job struct {
-	Move         *MoveState  `json:"move,omitempty"`
-	CanCancel    *bool       `json:"canCancel,omitempty"`
-	RclonePlan   []File      `json:"rclonePlan,omitempty"`
-	Engine       string      `json:"engine,omitempty"`
-	ID           string      `json:"id"`
-	State        string      `json:"state"`
-	Request      CopyRequest `json:"request"`
-	Manifest     []File      `json:"manifest,omitempty"`
-	Connection   string      `json:"connection,omitempty"`
-	Total        int64       `json:"total"`
-	Done         int64       `json:"done"`
-	Speed        float64     `json:"speed"`
-	Current      string      `json:"current"`
-	Error        string      `json:"error,omitempty"`
-	Attempts     int         `json:"attempts"`
-	Next         int64       `json:"next"`
-	Cancel       bool        `json:"cancel"`
-	Published    []string    `json:"published,omitempty"`
-	RemoteStage  string      `json:"remoteStage,omitempty"`
-	ProgressUnit string      `json:"progressUnit,omitempty"`
-	ItemsTotal   int         `json:"itemsTotal,omitempty"`
-	ItemsDone    int         `json:"itemsDone,omitempty"`
+	PeerPlan     []PeerSelection `json:"peerPlan,omitempty"`
+	Move         *MoveState      `json:"move,omitempty"`
+	CanCancel    *bool           `json:"canCancel,omitempty"`
+	RclonePlan   []File          `json:"rclonePlan,omitempty"`
+	Engine       string          `json:"engine,omitempty"`
+	ID           string          `json:"id"`
+	State        string          `json:"state"`
+	Request      CopyRequest     `json:"request"`
+	Manifest     []File          `json:"manifest,omitempty"`
+	Connection   string          `json:"connection,omitempty"`
+	Total        int64           `json:"total"`
+	Done         int64           `json:"done"`
+	Speed        float64         `json:"speed"`
+	Current      string          `json:"current"`
+	Error        string          `json:"error,omitempty"`
+	Attempts     int             `json:"attempts"`
+	Next         int64           `json:"next"`
+	Cancel       bool            `json:"cancel"`
+	Published    []string        `json:"published,omitempty"`
+	RemoteStage  string          `json:"remoteStage,omitempty"`
+	ProgressUnit string          `json:"progressUnit,omitempty"`
+	ItemsTotal   int             `json:"itemsTotal,omitempty"`
+	ItemsDone    int             `json:"itemsDone,omitempty"`
 }
 type Trash struct {
 	Vault         string `json:"vault,omitempty"`
@@ -173,10 +175,19 @@ func (s *Service) read(id, kind string, v any) error {
 	}
 	return json.Unmarshal(b, v)
 }
-func (s *Service) records(kind string) ([][]byte, error) {
+func (s *Service) records(kind string) ([][]byte, error) { return s.operationRecords(kind, false) }
+func (s *Service) operationRecords(kind string, active bool) ([][]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	rows, e := s.db.QueryContext(ctx, "SELECT id,body FROM fb_operations WHERE kind=? ORDER BY updated_at DESC", kind)
+	query := "SELECT id,body FROM fb_operations WHERE kind=?"
+	if active {
+		query += " AND state IN ('queued','preparing','running','discovering','waiting')"
+	}
+	query += " ORDER BY updated_at DESC"
+	if s.config.Profile == "pi" {
+		query += " LIMIT 100"
+	}
+	rows, e := s.db.QueryContext(ctx, query, kind)
 	if e != nil {
 		return nil, e
 	}

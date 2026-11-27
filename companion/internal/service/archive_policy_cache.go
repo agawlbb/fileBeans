@@ -23,7 +23,7 @@ func (s *Service) cachedArchivePolicies() ([]ArchiveLink, error) {
 	if s.db == nil {
 		return nil, errArchivePolicyMiss
 	}
-	rows, e := s.db.Query("SELECT l.id,l.body,p.body FROM fb_operations l LEFT JOIN fb_operations p ON p.id=CONCAT('policy-',l.id) AND p.kind='archivePolicy' WHERE l.kind='archiveLink'")
+	rows, e := s.db.Query(s.sqlDialect("SELECT l.id,l.body,p.body FROM fb_operations l LEFT JOIN fb_operations p ON p.id=CONCAT('policy-',l.id) AND p.kind='archivePolicy' WHERE l.kind='archiveLink'"))
 	if e != nil {
 		return nil, e
 	}
@@ -89,7 +89,7 @@ func (s *Service) cacheArchivePolicies(links []ArchiveLink) {
 		if e != nil {
 			continue
 		}
-		_, _ = s.db.Exec("INSERT INTO fb_operations (id,kind,state,body) VALUES (?,'archivePolicy','ready',?) ON DUPLICATE KEY UPDATE body=VALUES(body)", id, encoded)
+		_, _ = s.db.Exec(s.sqlDialect("INSERT INTO fb_operations (id,kind,state,body) VALUES (?,'archivePolicy','ready',?) ON DUPLICATE KEY UPDATE body=VALUES(body)"), id, encoded)
 	}
 }
 

@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+export GOMAXPROCS=1
+export GOMEMLIMIT=192MiB
+count=0
+while [ ! -S /run/filebeans-vaults/broker.sock ]; do
+ count=$((count + 1))
+ [ "$count" -lt 30 ] || exit 1
+ sleep 1
+done
+# Schema changes are explicit maintenance operations, never performed by boot.
+exec su-exec 1000:1000 /usr/local/bin/filebeans -config /config/server.json

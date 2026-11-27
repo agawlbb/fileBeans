@@ -70,6 +70,7 @@ func (s *Service) existing(key, kind string, v any) error {
 }
 func (s *Service) Handler() http.Handler {
 	mux := http.NewServeMux()
+	s.peerRoutes(mux)
 	mux.HandleFunc("GET /v1/capabilities", func(w http.ResponseWriter, r *http.Request) {
 		roots := make([]map[string]string, 0)
 		for _, root := range s.config.Roots {
@@ -81,10 +82,13 @@ func (s *Service) Handler() http.Handler {
 			features = append(features, "archiveSyncV1")
 			features = append(features, "archiveLinksV1", "archiveReadOnlyV1", "archiveCachedThumbnailsV1", "filenameStemsV1", "filesystemV1", "resumableUploadsV1", "datasetMediaV1", "datasetOriginalsV1")
 		}
+		if s.config.Profile == "pi" {
+			features = []string{"filesystemV1", "resumableUploadsV1", "filenameStemsV1", "protectedFolderMoves", "crossDriveMoves", "driveWrite", "driveDestinations", "driveUploads", "driveThumbnails", "driveMedia", "peerTransfersV1"}
+		}
 		if s.vaults != nil && s.vaults.remote != nil && s.vaults.remote.ready() {
 			features = append(features, "protectedFoldersCreate")
 		}
-		reply(w, 200, map[string]any{"version": 1, "roots": roots, "driveConnected": e == nil, "driveWriteAccess": e == nil && g.writable(), "normalizationEnabled": s.config.Normalization.Enabled, "features": features})
+		reply(w, 200, map[string]any{"version": 1, "roots": roots, "driveConnected": e == nil, "driveWriteAccess": e == nil && g.writable(), "normalizationEnabled": s.config.Normalization.Enabled, "features": features, "serverId": s.config.ServerID})
 	})
 	mux.HandleFunc("POST /v1/jobs", func(w http.ResponseWriter, r *http.Request) {
 		var req CopyRequest
@@ -170,6 +174,9 @@ func (s *Service) Handler() http.Handler {
 				fail(w, ErrUnsafe)
 				return
 			}
+			if s.peerFor(item.Source) != nil {
+				continue
+			}
 			if item.Source == "drive" {
 				if !driveID(item.Path) {
 					fail(w, ErrUnsafe)
@@ -197,13 +204,29 @@ func (s *Service) Handler() http.Handler {
 			}
 		}
 		j := Job{ID: ID(), State: "queued", Request: req}
-		if hasDrive(req) {
+		if hasDrive(req) && s.peerFor("drive") == nil {
 			g, e := s.google()
 			if e != nil {
 				fail(w, e)
 				return
 			}
 			j.Connection = g.Connection
+		}
+		if s.crossPeer(req) {
+			total := 0
+			for _, item := range req.Items {
+				files, err := s.peerSnapshot(r.Context(), item)
+				if err != nil {
+					fail(w, err)
+					return
+				}
+				total += len(files)
+				if total > piManifestLimit {
+					fail(w, ErrUnsafe)
+					return
+				}
+				j.PeerPlan = append(j.PeerPlan, PeerSelection{Item: item, Files: files})
+			}
 		}
 		if e = s.insert(j.ID, "copy", j.State, k, j); e != nil {
 			fail(w, e)
@@ -300,6 +323,7 @@ func (s *Service) Handler() http.Handler {
 				return
 			}
 			j.RemoteStage = ""
+			j.PeerPlan = nil
 		}
 		// Rclone reconciles its private staging on retry. Keep completed files rather
 		// than deleting the entire copy and downloading everything again.
@@ -548,7 +572,7 @@ func (s *Service) Handler() http.Handler {
 			s.vaultGate.RLock()
 			defer s.vaultGate.RUnlock()
 		}
-		mux.ServeHTTP(w, r)
+		s.federated(mux, w, r)
 	})
 }
 func hasDrive(r CopyRequest) bool {

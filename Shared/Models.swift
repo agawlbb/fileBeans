@@ -6,6 +6,9 @@ struct Connection: Codable, Identifiable, Hashable {
     var url: URL
     var companionURL: URL?
     var companionTokenID: UUID?
+    var localURL: URL? = nil
+    var localFingerprint: String? = nil
+    var serverID: String? = nil
     // Existing connections already identify the companion, which now hosts
     // file access too. Keep connection/domain IDs and stored credentials.
     var filesystemURL: URL { companionURL ?? url }

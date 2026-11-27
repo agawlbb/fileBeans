@@ -244,7 +244,12 @@ func (s *Service) filesystemResource(w http.ResponseWriter, r *http.Request) {
 			}
 			defer metadataRoot.Close()
 		}
-		children, e := f.ReadDir(-1)
+		var children []os.DirEntry
+		if s.config.Profile == "pi" {
+			children, e = boundedReadDir(f, piManifestLimit)
+		} else {
+			children, e = f.ReadDir(-1)
+		}
 		if e != nil {
 			filesystemFail(w, e)
 			return

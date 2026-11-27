@@ -38,11 +38,12 @@ for path in root.glob('.github/workflows/*.yml'):
     workflow = yaml.safe_load(path.read_text())
     assert workflow['permissions'] == {'contents': 'read'}, f'Unexpected workflow permissions: {path}'
     assert workflow.get('on', workflow.get(True)), f'Missing workflow triggers: {path}'
-assert set(project['targets']) == {'myFiles', 'QuantumFileProvider', 'FileBeansShare', 'myFilesTests'}
+assert set(project['targets']) == {'myFiles', 'QuantumFileProvider', 'FileBeansShare', 'myFilesTests', 'myFilesUITests'}
 for name, target in project['targets'].items():
     for source in target['sources']:
-        assert (root / source).exists(), f'Missing source directory: {source}'
-    if name != 'myFilesTests':
+        source_path = source['path'] if isinstance(source, dict) else source
+        assert (root / source_path).exists(), f'Missing source directory: {source_path}'
+    if not name.endswith('Tests'):
         info = plistlib.loads((root / target['settings']['base']['INFOPLIST_FILE']).read_bytes())
         assert info['AppGroup'] == '$(APP_GROUP)'
         assert info['KeychainGroup'] == '$(KEYCHAIN_GROUP)'

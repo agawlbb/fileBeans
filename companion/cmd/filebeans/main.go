@@ -20,6 +20,9 @@ func main() {
 	mediaSocket := flag.String("media-worker", "", "run isolated archive media worker on this Unix socket")
 	migrate := flag.Bool("migrate", false, "apply schema and exit")
 	printSchema := flag.Bool("schema", false, "print migration SQL and exit without connecting")
+	exportState := flag.String("export-source-state", "", "export source Trash metadata to a new private file")
+	importState := flag.String("import-source-state", "", "import exported Trash metadata into Pi SQLite")
+	handoff := flag.String("handoff-bundle", "", "sealed vault handoff bundle for source ownership")
 	flag.Parse()
 	if *mediaSocket != "" {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -36,6 +39,27 @@ func main() {
 	c, e := service.Load(*path)
 	if e != nil {
 		log.Fatal("Invalid or unreadable configuration")
+	}
+	if *exportState != "" || *importState != "" {
+		if *handoff == "" || (*exportState != "" && *importState != "") {
+			log.Fatal("Specify one state operation and a handoff bundle")
+		}
+		output := *exportState
+		importing := *importState != ""
+		if importing {
+			output = *importState
+		}
+		if err := service.MigrationOperations(c, *handoff, output, importing); err != nil {
+			log.Fatal("Source metadata handoff failed: ", err)
+		}
+		return
+	}
+	fingerprint, err := service.EnsureNodeTLS(&c)
+	if err != nil {
+		log.Fatal("TLS setup failed; existing identity was not replaced")
+	}
+	if fingerprint != "" {
+		log.Printf("Server ID: %s; certificate SHA-256: %s", c.ServerID, fingerprint)
 	}
 	s, e := service.New(c)
 	if e != nil {
@@ -69,7 +93,12 @@ func main() {
 		defer cancel()
 		server.Shutdown(shutdown)
 	}()
-	if e = server.ListenAndServe(); e != nil && e != http.ErrServerClosed {
+	if c.TLS.Certificate != "" {
+		e = server.ListenAndServeTLS(c.TLS.Certificate, c.TLS.Key)
+	} else {
+		e = server.ListenAndServe()
+	}
+	if e != nil && e != http.ErrServerClosed {
 		stop()
 		log.Print("HTTP listener stopped unexpectedly")
 	}

@@ -116,6 +116,9 @@ struct ConnectionEditor: View {
     @State private var name = ""
     @State private var address = ""
     @State private var token = ""
+    @State private var localAddress = ""
+    @State private var fingerprint = ""
+    @State private var serverID = ""
     @State private var busy = false
     @State private var error: String?
     var body: some View {
@@ -127,6 +130,13 @@ struct ConnectionEditor: View {
                     .accessibilityLabel("Server URL")
                 SecureField(connection == nil ? "API token" : "New API token (optional)", text: $token)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
+                Section("Local connection") {
+                    TextField("https://192.168.12.246:8095", text: $localAddress)
+                        .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .accessibilityLabel("Local server URL")
+                    TextField("Server ID", text: $serverID).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    TextField("Certificate SHA-256", text: $fingerprint).textInputAutocapitalization(.never).autocorrectionDisabled()
+                }
                 if let error { Text(error).foregroundStyle(.red) }
                 if busy { ProgressView("Connecting…") }
             }
@@ -138,7 +148,7 @@ struct ConnectionEditor: View {
                         .disabled(busy || name.trimmingCharacters(in: .whitespaces).isEmpty || address.isEmpty || (connection == nil && token.isEmpty))
                 }
             }
-            .onAppear { name = connection?.name ?? ""; address = connection?.filesystemURL.absoluteString ?? "" }
+            .onAppear { name = connection?.name ?? ""; address = connection?.filesystemURL.absoluteString ?? ""; localAddress = connection?.localURL?.absoluteString ?? ""; fingerprint = connection?.localFingerprint ?? ""; serverID = connection?.serverID ?? "" }
         }.interactiveDismissDisabled(busy)
     }
     private func save() async {
@@ -146,10 +156,17 @@ struct ConnectionEditor: View {
         do {
             let url = try FilesystemClient.validateURL(address)
             let credentialID = connection?.filesystemTokenID ?? connection?.id ?? UUID()
-            let c = Connection(id: connection?.id ?? credentialID,
+            var c = Connection(id: connection?.id ?? credentialID,
                                name: name.trimmingCharacters(in: .whitespaces),
                                url: connection?.url ?? url,
                                companionURL: url, companionTokenID: credentialID)
+            if !localAddress.isEmpty {
+                c.localURL = try FilesystemClient.validateURL(localAddress)
+                let pin = fingerprint.replacingOccurrences(of: ":", with: "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                guard pin.count == 64, pin.allSatisfy({ "0123456789abcdef".contains($0) }), !serverID.isEmpty,
+                      c.localURL?.host != url.host || c.localURL?.port != url.port else { throw APIError.invalidURL }
+                c.localFingerprint = pin; c.serverID = serverID
+            }
             if let connection, connection.filesystemURL != url, token.isEmpty {
                 throw NSError(domain: "fileBeans", code: 1, userInfo: [NSLocalizedDescriptionKey: "Enter a token when changing the server URL."])
             }
@@ -157,8 +174,10 @@ struct ConnectionEditor: View {
             let store = try SharedStore()
             let repo = try Repository(connection: c, store: store, token: credential)
             _ = try await repo.client.scopes()
-            guard let companion = repo.companion,
-                  try await companion.capabilities().features?.contains("filesystemV1") == true else { throw APIError.incompatible }
+            guard let companion = repo.companion else { throw APIError.incompatible }
+            let capabilities = try await companion.capabilities()
+            guard capabilities.features?.contains("filesystemV1") == true else { throw APIError.incompatible }
+            if let expected = c.serverID, capabilities.serverId != expected { throw APIError.incompatible }
             let previousToken = try? TokenStore.read(credentialID)
             try TokenStore.save(credential, for: credentialID)
             let domain = NSFileProviderDomain(identifier: .init(c.id.uuidString), displayName: c.name)

@@ -46,7 +46,7 @@ func (s *Service) filesystemThumbnail(w http.ResponseWriter, r *http.Request) {
 		filesystemFail(w, err)
 		return
 	}
-	if cachedOnly || r.URL.Query().Get("cachedOnly") == "true" {
+	if s.config.Profile == "pi" || cachedOnly || r.URL.Query().Get("cachedOnly") == "true" {
 		s.filesystemCachedThumbnail(w, r)
 		return
 	}

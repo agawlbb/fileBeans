@@ -12,7 +12,7 @@ final class FilesystemClient: NSObject, URLSessionTaskDelegate {
         config.timeoutIntervalForRequest = 60
         return URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }()
-    private lazy var mediaSession = MediaRangeTransport(configuration: configuration)
+    private lazy var mediaSession = MediaRangeTransport(configuration: configuration, connection: connection)
     init(connection: Connection, token: String? = nil, configuration: URLSessionConfiguration = .ephemeral) {
         self.connection = connection; self.token = token; self.configuration = configuration
     }
@@ -22,6 +22,10 @@ final class FilesystemClient: NSObject, URLSessionTaskDelegate {
                     newRequest request: URLRequest,
                     completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
 
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        ServerTrust.handle(challenge, connection: connection, completion: completionHandler)
+    }
     static func validateURL(_ value: String) throws -> URL {
         guard var c = URLComponents(string: value.trimmingCharacters(in: .whitespacesAndNewlines)),
               c.scheme?.lowercased() == "https", c.host?.isEmpty == false,
@@ -63,13 +67,13 @@ final class FilesystemClient: NSObject, URLSessionTaskDelegate {
     private struct FilesystemServiceError: Decodable { let error: String }
     func data(_ request: URLRequest) async throws -> Data {
         try Task.checkCancellation()
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await ServerRoute.shared.data(request, connection: connection, session: session)
         try check(response, body: data)
         return data
     }
     func data(_ request: URLRequest, limit: Int) async throws -> Data {
         try Task.checkCancellation()
-        let (bytes, response) = try await session.bytes(for: request)
+        let (bytes, response) = try await session.bytes(for: ServerRoute.shared.prepare(request, connection: connection))
         defer { bytes.task.cancel() }
         try check(response)
         guard response.expectedContentLength <= Int64(limit) else { throw CocoaError(.fileReadTooLarge) }
@@ -120,7 +124,7 @@ final class FilesystemClient: NSObject, URLSessionTaskDelegate {
         mediaSession.chunks(request, offset: offset, length: length)
     }
     func download(source: String, path: String) async throws -> URL {
-        let (url, response) = try await session.download(for: request("content", query: ["source": source, "path": path]))
+        let (url, response) = try await session.download(for: ServerRoute.shared.prepare(request("content", query: ["source": source, "path": path]), connection: connection))
         do {
             try check(response)
             let destination = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -140,15 +144,20 @@ final class FilesystemClient: NSObject, URLSessionTaskDelegate {
             r.setValue("\"" + expectedRevision + "\"", forHTTPHeaderField: "If-Match")
         }
         r.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-        let delegate = UploadDelegate(progress)
-        let (data, response) = try await session.upload(for: r, fromFile: file, delegate: delegate)
+        let delegate = UploadDelegate(progress, connection: connection)
+        let (data, response) = try await session.upload(for: ServerRoute.shared.prepare(r, connection: connection), fromFile: file, delegate: delegate)
         try check(response, body: data)
     }
 }
 
 private final class UploadDelegate: NSObject, URLSessionTaskDelegate {
     let update: (Double) -> Void
-    init(_ update: @escaping (Double) -> Void) { self.update = update }
+    let connection: Connection
+    init(_ update: @escaping (Double) -> Void, connection: Connection) { self.update = update; self.connection = connection }
+    func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        ServerTrust.handle(challenge, connection: connection, completion: completionHandler)
+    }
     func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64,
                     totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
         if totalBytesExpectedToSend > 0 { update(Double(totalBytesSent) / Double(totalBytesExpectedToSend)) }

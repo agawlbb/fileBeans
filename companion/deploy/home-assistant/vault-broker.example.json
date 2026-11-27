@@ -1,0 +1,11 @@
+{
+  "state": "/data/broker",
+  "runtime": "/run/filebeans-vaults",
+  "filesystemConsumer": true,
+  "gocryptfs": "/usr/local/bin/gocryptfs",
+  "fusermount": "/usr/bin/fusermount3",
+  "controlUID": 1000,
+  "readerUID": 10001,
+  "gid": 1000,
+  "roots": [{"name": "Samba", "path": "/share/fileBeans"}]
+}

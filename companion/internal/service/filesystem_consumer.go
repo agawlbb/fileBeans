@@ -14,6 +14,9 @@ func (s *Service) StartFilesystem(ctx context.Context) error {
 		return nil
 	}
 	for _, path := range []string{s.config.Filesystem.FFmpeg, s.config.Filesystem.PDFToPPM} {
+		if s.config.Profile == "pi" {
+			break
+		}
 		st, e := os.Stat(path)
 		if e != nil || !st.Mode().IsRegular() || st.Mode()&0111 == 0 {
 			return ErrUnsupported

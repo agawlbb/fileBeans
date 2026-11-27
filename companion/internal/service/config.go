@@ -15,6 +15,11 @@ type Root struct {
 	MountSource string `json:"mountSource,omitempty"`
 }
 type Config struct {
+	Profile            string              `json:"profile,omitempty"`
+	SQLite             string              `json:"sqlite,omitempty"`
+	ServerID           string              `json:"serverId,omitempty"`
+	TLS                TLSConfig           `json:"tls,omitempty"`
+	Peers              []PeerConfig        `json:"peers,omitempty"`
 	ArchiveMediaSocket string              `json:"archiveMediaSocket,omitempty"`
 	ArchiveDrainFile   string              `json:"archiveDrainFile,omitempty"`
 	Filesystem         FilesystemConfig    `json:"filesystem,omitempty"`
@@ -53,8 +58,11 @@ func Load(path string) (Config, error) {
 	if c.Listen == "" {
 		c.Listen = "127.0.0.1:8095"
 	}
-	if len(c.Token) < 32 || c.DSN == "" || !filepath.IsAbs(c.State) {
+	if len(c.Token) < 32 || (c.DSN == "" && c.SQLite == "") || !filepath.IsAbs(c.State) {
 		return c, errors.New("configure DSN, absolute state directory, and token of at least 32 characters")
+	}
+	if err := c.validateNode(); err != nil {
+		return c, err
 	}
 	names := map[string]bool{}
 	for _, r := range c.Roots {

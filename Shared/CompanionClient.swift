@@ -4,6 +4,7 @@ import CryptoKit
 struct CompanionCapabilities: Decodable {
     struct Root: Decodable { let source: String; let trash: String }
     let version: Int
+    let serverId: String?
     let roots: [Root]
     let driveConnected: Bool
     let normalizationEnabled: Bool?
@@ -78,7 +79,7 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
         config.timeoutIntervalForRequest = 30
         return URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }()
-    private lazy var mediaSession = MediaRangeTransport(configuration: configuration)
+    private lazy var mediaSession = MediaRangeTransport(configuration: configuration, connection: connection)
     init(connection: Connection, credential: String? = nil, configuration: URLSessionConfiguration = .ephemeral,
          store: SharedStore? = nil) {
         self.connection = connection.unified; self.credential = credential; self.configuration = configuration
@@ -87,6 +88,10 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
     func close() { session.invalidateAndCancel(); mediaSession.close() }
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        ServerTrust.handle(challenge, connection: connection, completion: completionHandler)
+    }
     func authorizedRequest(_ route: String, method: String = "GET", body: Data? = nil,
                            key: String? = nil, permanent: Bool = false, query: [String: String] = [:],
                            headers: [String: String] = [:]) throws -> URLRequest {
@@ -109,7 +114,7 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
                  key: String? = nil, permanent: Bool = false, query: [String: String] = [:],
                  headers: [String: String] = [:]) async throws -> Data {
         let r = try authorizedRequest(route, method: method, body: body, key: key, permanent: permanent, query: query, headers: headers)
-        let (data, response) = try await session.data(for: r)
+        let (data, response) = try await ServerRoute.shared.data(r, connection: connection, session: session)
         guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
         guard (200..<300).contains(http.statusCode) else {
             if http.statusCode == 401 { throw APIError.authentication }
@@ -128,7 +133,7 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
         mediaSession.chunks(request, offset: offset, length: length)
     }
     func download(_ route: String) async throws -> URL {
-        let (file, response) = try await session.download(for: authorizedRequest(route))
+        let (file, response) = try await session.download(for: ServerRoute.shared.prepare(authorizedRequest(route), connection: connection))
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             try? FileManager.default.removeItem(at: file)
             throw APIError.status((response as? HTTPURLResponse)?.statusCode ?? 0)
