@@ -31,6 +31,14 @@ def bind(source, target):
         os.close(fd)
 
 
+def validate_samba_parent(parent):
+    """A previous boot leaves our empty share placeholder on the root disk."""
+    for entry in parent.iterdir():
+        if (entry.name != 'share' or entry.is_symlink() or not entry.is_dir()
+                or entry.is_mount() or any(entry.iterdir())):
+            raise RuntimeError('Unexpected files in Samba bind parent')
+
+
 def setup():
     local = '/opt/services/filebrowser/files'
     pathlib.Path('/folder').mkdir(exist_ok=True)
@@ -42,8 +50,7 @@ def setup():
     parent = pathlib.Path('/samba')
     parent.mkdir(exist_ok=True)
     if '/samba' not in mounts():
-        if any(parent.iterdir()):
-            raise RuntimeError('Unexpected files in Samba bind parent')
+        validate_samba_parent(parent)
         bind('/samba', '/samba')
         # A subdirectory bind inherits the host root's peer group. Split it
         # before sharing, so child mounts propagate only to FileBeans peers.
