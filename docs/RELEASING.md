@@ -1,10 +1,62 @@
 # Signing and TestFlight
 
+## Requested server deployment and TestFlight 41 — November 27, 2026
+
+Released **0.1.0 (41)** from `fe8ef98`, tagged `testflight/0.1.0-41`.
+[Signed release 46006464537](https://github.com/agawlbb/fileBeans/actions/runs/46006464537)
+passed preflight, archive/export, upload and signing-credential cleanup. Apple
+build `fb2248f0-d781-4e88-8996-6dd13f46c572` is **VALID / IN_BETA_TESTING**;
+automatic notification and the existing internal audience are preserved. This
+delivers thumbnail reuse, progressive cached streaming, destination ordering and
+reversible date sorting. Simulator validation 46002293143 passed 156 unit/four
+UI tests on their first attempts; physical-device acceptance remains manual.
+
+API and isolated media worker use `filebeans-api:fe8ef98-release41`, with
+FFmpeg/ffprobe 7.1.5 and checksum-pinned rclone 1.76.0. Archive SHA-256 is
+`2c01e61d9f4c54d3031dd273204f2f59e579c39de5f597277d8f9692f21012ae`;
+loaded manifest is
+`sha256:8403351ff00de44414539613a7fb75c79eda0e8faf39a28731569cdd0b735e6e`;
+config is
+`sha256:7ba50e7db2ac109110d54e94990bcacd1a548a42601acc9234717247357c0709`.
+Running binary SHA-256 is
+`e7aef8114a63d2091aeec812f55a9f271938510255f7360e566de331d5dbb8c7`.
+This also delivers ordinary-move routing and active archive date preservation.
+
+Cutover verified zero unfinished archive work/original backups, active file jobs
+or media children before stopping the older API. New ingests stayed drained
+through verification. API limits remain 2 GiB/no swap, shares 1024 and 128 PIDs.
+The worker has 1 GiB/no swap, uncapped CPU/shares 128, 128 PIDs, no network, a
+read-only root and only its private socket-directory mount. Broker PID 1294702
+and all unrelated container identities/start times were preserved. The disabled
+legacy normalizer remains stopped; no schema migration ran.
+
+A supplied 354,814-byte fixture passed live descriptor-based probing, HEVC
+10-bit encoding and full-decode validation. Encoding took 3.847 seconds and
+produced 508,080 bytes. During observed FFmpeg activity, 24 authenticated public
+capability checks took 8.94–18.74 ms, median 11.605 ms. This is a small controlled
+workload, not a general throughput claim. Capability/source/policy/listing and
+queue checks pass; anonymous access returns 401. Both containers have zero
+restarts/OOM events, the queue is empty and the drain marker is removed.
+
+The primary rclone download returned 403; its GitHub asset matched the pinned
+checksum. A process-list preflight needed Docker's PID column and stopped before
+replacement. A root-only synthetic fixture needed UID 1000 ownership before
+descriptor probing; the corrected fixture passed and both input/output were removed.
+
+VPS `.deploy-release-41` transfers/recovery files and the unreferenced prior
+`filebeans-api:abbcad2-db-cap` image were removed. VM `.build/release-41`, its
+8 GiB bounded `.ext4`, toolchain/dependency/compiler caches, image export,
+temporary BuildKit state and controllers were removed; the shared builder is
+stopped with its original state mount restored. Release artifacts are zero;
+no IPA was downloaded. The live `/opt/services/filebeans/media-runtime`
+socket/lock directory is required and recreated with UID/GID 1000, mode 0700
+during recovery. No further deployment or app build remains for these changes.
+
 ## Client thumbnail reuse and video streaming — November 27, 2026
 
-Client source `a5ef6fb` is implemented and simulator-verified; an explicitly
-requested Apple app build/release and device acceptance remain pending. No
-server API, server memory policy or deployed application was changed.
+Client source `a5ef6fb` is simulator-verified and delivered in TestFlight 41
+above. Physical-device acceptance remains manual. The client correction itself
+made no server API or server memory-policy change.
 
 Filesystem and Drive cells reuse decoded thumbnails synchronously from a shared
 128 MiB image cache, without clearing images when scrolling offscreen. The
@@ -33,25 +85,26 @@ photo-control UI failure; neither recurred in final validation. No unrelated
 photo gesture code was changed. Source syntax and whitespace checks pass.
 
 Both runs used `tests_only=true`; device archives and releases were skipped.
-Disposable simulator artifacts were removed after reviewing the results. No VM
-or VPS staging, media downloads or task build artifacts were created. Earlier
-server deployments and app delivery recorded in the shared register remain pending.
+Disposable simulator artifacts were removed after reviewing the results. That
+source-only task created no VM/VPS staging or build artifacts. Earlier pending
+deliveries were completed in the release above.
 
 ## Original media dates and reversible date sorting — November 27, 2026
 
-Source implemented; service deployment and an Apple app build are pending.
+Delivered with the requested server deployment and TestFlight 41 above.
 Name remains the default browser sort; selecting Last Modified selects newest
 first, and selecting it again toggles oldest first. The shared filesystem/Drive
 control retains Size and saved preferences, keeps folders first, breaks date
-ties by name and puts missing dates last. Swift syntax checks pass; Apple
-compilation and XCTest execution await the requested app build.
+ties by name and puts missing dates last. Swift syntax, Apple compilation and
+XCTest checks pass with the release above.
 
 Archive encodings and original-file backups now retain input modification dates.
 The legacy normalizer and independent queue preserve local/Drive dates through
 retries and publication recovery. The legacy discovery scan verifies the stored
 output hash before reconciling a timestamp-only version change, preventing
-unnecessary re-encoding after maintenance. This behavior requires deployment
-before the disabled legacy worker is restarted.
+unnecessary re-encoding after maintenance. The disabled legacy worker remains
+stopped; any future activation must use the current binary and its separately
+approved runtime configuration.
 
 The requested live VPS correction is finished and verified: 742 of 748 files
 matched uniquely and had their dates restored, including 224 MFC files. The
@@ -1822,7 +1875,7 @@ video-thumbnail selection and additive per-file archive-status API. The broker
 auto-lock correction and pending Apple UI changes require their separate
 deliveries; no broker deployment or Apple build was performed here.
 
-## Isolated archive media worker — November 27, 2026 (deployment pending)
+## Isolated archive media worker — November 27, 2026
 
 Archive probing, encoding and full-decode validation now support a separate
 `-media-worker` container. The API retains archive coordination, copying,
@@ -1845,9 +1898,9 @@ boundary rather than assume that creating it pauses the old worker.
 
 Full service/database/real-media tests, focused race tests, all-package vet and
 Compose validation pass; TESTING.md records the separate-container 1 GiB check.
-Source only: no application/image build, deployment or production job interruption
-was performed. Requested image preparation, cutover and live latency verification
-remain pending. Earlier pending Apple changes still require their app build.
+The original source task made no application/image build, deployment or job
+interruption. Requested deployment and controlled live encoding/latency checks
+are now complete in the TestFlight 41 entry above.
 
 Task test containers, `.build/media-worker-test`,
 `.build/media-worker-fixtures`, both 3 GiB `.ext4` backing files and their loop
