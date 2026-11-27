@@ -203,3 +203,55 @@ installation, real Drive peer transfers and HA load acceptance remain pending.
 Tests ran in a disposable VM container with two CPUs, 2 GiB RAM/no swap, 256 PIDs
 and a separate 3 GiB disk filesystem for tool scratch and caches. No production
 API mutations, migration, image build, mobile build or deployment was performed.
+
+## Held image and app builds — November 27, 2026
+
+The owner requested image preparation and an app build while withholding deployment
+and TestFlight upload. Both images and the signed app were built from runtime
+source `ee576bd1bd70866edf618e8617638ca389224aec` on `feature/pi-server`.
+The branch remains unmerged; these builds do not authorize permanent cutover.
+
+Prepared VM deliverables are in `.build/prepared-pi-ee576bd/` in this worktree:
+
+| Deliverable | Identity |
+| --- | --- |
+| `filebeans-pi-ee576bd-arm64.tar` | Linux ARM64; `filebeans-pi:ee576bd`; manifest `sha256:72fe3205c1ebe4580b09db9acd14b94bd79678209db2eb8c84caa9dd454f2870` |
+| `filebeans-api-ee576bd-amd64.tar` | Linux AMD64; `filebeans-api:ee576bd-pi-peer`; manifest `sha256:dbf90243a6ca1217466b6a4f74c3a22f8706fe7290222d7b1b0dc86691ff06d8` |
+| `myFiles-build-54.ipa` | Signed version 0.1.0, build 54; SHA-256 `01e5a882e51dfb6ef976a6c0ebe5c5b5bdbbf95814f76a961a1a8a78041bd3bb` |
+| `manifest.json` and image `.tar.json` files | Exact source, sizes, archive/config/manifest digests, verification and hold status |
+
+The [signed build workflow](https://github.com/agawlbb/fileBeans/actions/runs/46044466696)
+completed successfully in `operation=build` mode. Its TestFlight upload step was
+skipped and runner signing-credential cleanup succeeded. The retained IPA has
+both File Provider and Share extensions and build number 54. GitHub artifact
+`myFiles-signed-54` expires December 4, 2026; the verified VM copy is held for the
+later requested upload. [Simulator validation](https://github.com/agawlbb/fileBeans/actions/runs/46044470531)
+is recorded separately below when it completes.
+
+Both image archives were built using the canonical VM-local builder. The helper
+now supports explicit ARM64 selection and a bounded task cache under its existing
+lifecycle lock. Seven helper tests passed, including restoration after a failed
+build. Preparation and builder state each had separate 8 GiB ext4 disk ceilings;
+the final six deliverables were copied/readback-verified under a 512 MiB aggregate
+write ceiling. The final set is about 309 MiB; the manifest records the immutable artifact sizes.
+
+Actual image smoke tests passed with no published ports or production mounts:
+TLS identity pinning, unauthenticated rejection, unified source discovery, a
+135,000-byte Pi-to-VPS server copy, and a reverse VPS-to-Pi move with source Trash.
+The Pi API ran under ARM64 emulation; the VPS API ran natively. Both API containers
+had one CPU, 512 MiB/no swap, 128 PIDs and read-only image filesystems; neither
+restarted nor suffered an OOM. These checks did not start the HA app's privileged
+boot/FUSE broker or establish real Pi/HA load acceptance.
+
+Official rclone 1.76.0 binaries were obtained from the GitHub release and verified
+against its checksum manifest; the existing AMD64 checksum pin also matched.
+The previously excluded rclone critical-log regression then passed. Pi gocryptfs
+2.6.1 passed its upstream signature and the already recorded ARM64 binary checksum.
+No signing private key, recovery key or production configuration is in the images.
+
+The disposable image tags, smoke network/containers, tool downloads, synthetic
+keys/data, contexts, Go caches and both staging/cache filesystems were removed.
+The builder is stopped and its original shared state is restored. Only the six
+prepared deliverables remain for explicit deployment/upload or rejection of this
+trial. No registry publication, production deployment, TestFlight upload or merge
+was performed.
