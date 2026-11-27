@@ -8,6 +8,9 @@ enum BrowserDestination: Identifiable {
     }
     var isFolder: Bool { switch self { case .local(let item): return item.file.isDirectory; case .drive(let item): return item.folder } }
     var name: String { switch self { case .local(let item): return item.file.name; case .drive(let item): return item.name } }
+    var sortValue: BrowserSortValue {
+        BrowserSortValue(id: id, name: name, folder: isFolder, size: 0, modified: .distantPast)
+    }
 }
 enum DestinationMode {
     case copy
@@ -112,6 +115,7 @@ struct SourceDestinationPicker: View {
                 }
             }
             if page.isEmpty { folders = result } else { folders += result.filter { child in !folders.contains { $0.id == child.id } } }
+            folders.sort { BrowserOrdering.precedes($0.sortValue, $1.sortValue, order: "name") }
             error = nil
         } catch { folders = []; self.error = error.localizedDescription }
     }
