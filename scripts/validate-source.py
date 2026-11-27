@@ -36,7 +36,8 @@ assert f"APPLE_TEAM_ID = {release['teamID']}" in configuration
 project = yaml.safe_load((root / 'project.yml').read_text())
 for path in root.glob('.github/workflows/*.yml'):
     workflow = yaml.safe_load(path.read_text())
-    assert workflow['permissions'] == {'contents': 'read'}, f'Unexpected workflow permissions: {path}'
+    expected_permissions = {'contents': 'read', 'actions': 'read'} if path.name == 'testflight.yml' else {'contents': 'read'}
+    assert workflow['permissions'] == expected_permissions, f'Unexpected workflow permissions: {path}'
     assert workflow.get('on', workflow.get(True)), f'Missing workflow triggers: {path}'
 assert set(project['targets']) == {'myFiles', 'QuantumFileProvider', 'FileBeansShare', 'myFilesTests', 'myFilesUITests'}
 for name, target in project['targets'].items():
