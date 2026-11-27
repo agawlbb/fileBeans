@@ -39,6 +39,18 @@ func (s *Service) cachedArchivePolicies() ([]ArchiveLink, error) {
 			return nil, errArchivePolicyMiss
 		}
 		plain, e := s.decodeRecord("policy-"+id, "archivePolicy", sealed)
+		var envelope struct {
+			Boundary *archivePolicy `json:"archiveBoundary"`
+		}
+		if json.Unmarshal(sealed, &envelope) != nil {
+			return nil, ErrUnsafe
+		}
+		if errors.Is(e, ErrVaultLocked) && envelope.Boundary != nil {
+			plain, e = json.Marshal(envelope.Boundary)
+		} else if e == nil && envelope.Boundary == nil {
+			// Rebuild older caches while their routing metadata is readable.
+			return nil, errArchivePolicyMiss
+		}
 		if e != nil {
 			return nil, e
 		}
@@ -73,10 +85,41 @@ func (s *Service) cacheArchivePolicies(links []ArchiveLink) {
 		if e != nil {
 			continue
 		}
-		encoded, e = s.encodeRecord(id, "archivePolicy", encoded)
+		encoded, e = s.encodeArchivePolicy(id, p, encoded)
 		if e != nil {
 			continue
 		}
 		_, _ = s.db.Exec("INSERT INTO fb_operations (id,kind,state,body) VALUES (?,'archivePolicy','ready',?) ON DUPLICATE KEY UPDATE body=VALUES(body)", id, encoded)
 	}
+}
+
+// Keep ordinary endpoints available to write guards even when the Library is
+// locked. Protected endpoints reveal only their public vault identity; the
+// broker resolves that to the vault root, conservatively guarding the whole
+// locked vault rather than exposing its private relative paths.
+func (s *Service) encodeArchivePolicy(id string, policy archivePolicy, plain []byte) ([]byte, error) {
+	encoded, err := s.encodeRecord(id, "archivePolicy", plain)
+	if err != nil {
+		return nil, err
+	}
+	boundary := policy
+	if boundary.Library.Vault != "" {
+		boundary.Library.Path = ""
+		boundary.Library.Relative = ""
+		boundary.Library.Identity = ""
+	}
+	if boundary.Target.VaultID != "" {
+		boundary.Target.Base = ""
+		boundary.Target.Relative = ""
+		boundary.Target.Identity = ""
+	}
+	var envelope map[string]json.RawMessage
+	if err = json.Unmarshal(encoded, &envelope); err != nil {
+		return nil, err
+	}
+	envelope["archiveBoundary"], err = json.Marshal(boundary)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(envelope)
 }

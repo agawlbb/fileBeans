@@ -404,7 +404,12 @@ there is no automatic reconciliation or deletion. Ordinary endpoints check
 filesystem identity to avoid silently adopting a replacement directory. Protected
 locations follow the vault's identity and recorded relative path. Locked link
 metadata is omitted from public link lists; protected locations remain encrypted
-using the existing operation-record mechanism. When link metadata is locked,
+using the existing operation-record mechanism. Routing caches also retain ordinary
+endpoints and public vault identities, without private paths or file identities.
+While locked, write guards use those boundaries and conservatively cover whole
+protected vaults; unrelated ordinary moves remain available, and ordinary Archive
+endpoints remain read-only even when their Library is locked. Older caches need
+one unlocked policy read to populate these boundaries. Without a usable cache,
 destructive link checks fail closed, and thumbnail generation is conservatively
 unavailable until unlock. Supported files remain eligible for cached previews:
 requests serve existing adjacent caches under the requested file's own protection

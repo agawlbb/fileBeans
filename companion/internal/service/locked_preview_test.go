@@ -16,25 +16,28 @@ import (
 // Supply a real sealed-record envelope without requiring a running database.
 // Its protection domain is locked, so decoding must stop before decryption.
 type lockedPreviewDriver struct{}
-type lockedPreviewConn struct{}
+type lockedPreviewConn struct{ policy []byte }
 type lockedPreviewRows struct {
 	columns int
 	read    bool
+	policy  []byte
 }
 
-func init()                                                  { sql.Register("locked-preview-policy", lockedPreviewDriver{}) }
-func (lockedPreviewDriver) Open(string) (driver.Conn, error) { return lockedPreviewConn{}, nil }
+func init() { sql.Register("locked-preview-policy", lockedPreviewDriver{}) }
+func (lockedPreviewDriver) Open(name string) (driver.Conn, error) {
+	return lockedPreviewConn{policy: []byte(name)}, nil
+}
 func (lockedPreviewConn) Prepare(string) (driver.Stmt, error) {
 	return nil, errors.New("unexpected prepare")
 }
 func (lockedPreviewConn) Close() error              { return nil }
 func (lockedPreviewConn) Begin() (driver.Tx, error) { return nil, errors.New("unexpected transaction") }
-func (lockedPreviewConn) QueryContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
+func (c lockedPreviewConn) QueryContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
 	columns := 2
 	if strings.Contains(query, "LEFT JOIN") {
 		columns = 3
 	}
-	return &lockedPreviewRows{columns: columns}, nil
+	return &lockedPreviewRows{columns: columns, policy: c.policy}, nil
 }
 func (r *lockedPreviewRows) Columns() []string {
 	if r.columns == 3 {
@@ -53,6 +56,9 @@ func (r *lockedPreviewRows) Next(values []driver.Value) error {
 	values[1] = sealed
 	if r.columns == 3 {
 		values[2] = []byte(strings.ReplaceAll(string(sealed), `"id":"locked-link"`, `"id":"policy-locked-link"`))
+	}
+	if r.columns == 3 && len(r.policy) != 0 {
+		values[2] = r.policy
 	}
 	return nil
 }
