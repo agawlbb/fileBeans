@@ -27,7 +27,8 @@ func TestPrivateStoreNeverInheritsShareAccessOrDefaultACL(t *testing.T) {
 		t.Fatal(e)
 	}
 	marker := filepath.Join(root, "PrivateMarker")
-	if e := os.Mkdir(marker, 0500); e != nil {
+	// The real broker has root's rename privilege; this fixture is unprivileged.
+	if e := os.Mkdir(marker, 0700); e != nil {
 		t.Fatal(e)
 	}
 	var identity unix.Stat_t
