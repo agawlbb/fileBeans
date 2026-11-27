@@ -27,7 +27,6 @@ struct ThumbnailView: View {
         .accessibilityHidden(true)
         .task(id: ThumbnailLoadID(key: key, enabled: canPreview)) {
             guard canPreview, let client else { image = nil; imageKey = nil; return }
-            if imageKey == key, image != nil { return }
             do {
                 let thumbnail = try await ThumbnailCache.shared.image(for: key) {
                     try await client.thumbnail(source: item.source, file: item.file)

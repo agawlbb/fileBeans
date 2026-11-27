@@ -58,6 +58,20 @@ final class ThumbnailCacheTests: XCTestCase {
         XCTAssertNil(cache.cachedImage(for: key))
     }
 
+    func testScrollingPastTwoHundredSmallThumbnailsKeepsDecodedImages() async throws {
+        let root = temporaryRoot(); defer { try? FileManager.default.removeItem(at: root) }
+        let cache = ThumbnailCache(root: root), connection = UUID(), data = png()
+        var first: UIImage?
+        var firstKey: ThumbnailKey?
+        for index in 0..<210 {
+            let key = ThumbnailKey(connection: connection, provider: "filesystem", source: "VPS", file: "file-\(index)", revision: "1")
+            let image = try await cache.image(for: key) { data }
+            if index == 0 { first = image; firstKey = key }
+        }
+        XCTAssertTrue(cache.cachedImage(for: try XCTUnwrap(firstKey)) === first,
+                      "Decoded thumbnails must be limited by memory cost, not the former 200-entry ceiling")
+    }
+
     func testConnectionRemovalRejectsPendingImageDecode() async throws {
         let root = temporaryRoot(); defer { try? FileManager.default.removeItem(at: root) }
         let cache = ThumbnailCache(root: root), key = makeKey(), data = png(), gate = ThumbnailFetchGate()
