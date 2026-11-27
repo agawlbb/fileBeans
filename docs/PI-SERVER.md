@@ -1,9 +1,11 @@
 # Experimental Pi server
 
 This implementation is isolated on `feature/pi-server`, in
-`.worktrees/pi-server`. Do not merge it or change the running services until the
-owner decides to trial it. Image/mobile builds, publishing and deployment remain
-separately authorized operations. No live storage has been migrated.
+`.worktrees/pi-server`. The owner authorized the trial deployment and app release;
+the Pi now owns the three Pi-backed vaults and ordinary Samba files through its
+native server. Keep the feature branches unmerged until the permanence decision.
+See “Completed ownership cutover” below for current state; earlier dated sections
+are historical checkpoints.
 
 ## Runtime and routing
 
@@ -12,9 +14,8 @@ The API is UID/GID 1000; only the broker has mount privileges. HA, Supervisor an
 Docker APIs, host PID/IPC and host networking are not exposed. The app maps
 `/share` and its own configuration. FUSE and `SYS_ADMIN` are necessary for the
 existing protected-folder implementation and the app-scoped resource controls.
-AppArmor is disabled for this app, matching the earlier Pi FUSE helper; this
-packaging still needs an installation trial, rather than assuming isolation is
-equivalent to an unprivileged app.
+AppArmor is disabled for this app, matching the earlier Pi FUSE helper; the
+authorized native FUSE installation trial passed with the stated resource caps.
 
 Boot must establish an app-private cgroup: 512 MiB RAM including charged file
 cache, zero swap, one CPU equivalent, CPU weight 10, 128 processes, and grouped
@@ -151,8 +152,9 @@ maintenance, not instructions to perform development on production machines.
 Update VPS root/broker configuration to remove Samba ownership and add its Pi
 peer before restarting it. Keep the two VPS vaults under its broker. Import
 SQLite state before starting Pi maintenance, then validate restore and expiry.
-The exported source Trash rows remain on the VPS for rollback; remove those
-exact rows only after acceptance, with a separately reviewed maintenance step.
+After exact target readback, retire the duplicate source Trash metadata in a
+guarded transaction matching IDs, kinds, states and body hashes. Keep the
+archive coordinator and task journals on VPS; never retire file contents here.
 Until then, federation filters source ownership rather than displaying old
 source-owned Trash as a VPS source. Retain handoff metadata only while acceptance
 or rollback is pending and record its exact location/removal condition.
@@ -356,7 +358,7 @@ remain operational while the installed HA app references that image. There are n
 VPS staging archives or migration exports. Shared registers record these purposes.
 
 
-## Archive-preserving continuation — November 27, 2026
+## Archive-preserving continuation — November 27, 2026 (pre-cutover checkpoint)
 
 The owner chose to keep the archive link. Runtime source `a637aff` implements
 server-only authenticated archive federation: the VPS retains encoding, archive
@@ -415,3 +417,97 @@ was removed; registry hosting retains only installed image 0.1.2 (86,706,898 byt
 The loaded, not-running VPS image remains only for the pending authorized cutover;
 remove it after deployment rejection/cancellation or if superseded. Both source
 feature branches remain pushed and unmerged by owner instruction.
+
+
+## Completed ownership cutover — November 27, 2026
+
+The owner explicitly approved UID 1000 ordinary-file ACL access and instructed
+completion. HA `local_filebeans` 0.1.2 is running with maintenance off and boot auto;
+VPS `FileBeans` runs prepared `filebeans-api:a637aff-pi-peer`. Its existing worker
+remains on release 41 because its media protocol is unchanged. The VPS API keeps
+2 GiB/no swap/128 PIDs; Pi startup verifies 512 MiB/no swap/one CPU/128 PIDs.
+No new image or Apple build was necessary. TestFlight 54 was rechecked VALID,
+not expired. Both source feature branches remain unmerged.
+
+The access helper visited 225 ordinary entries (281 ACL updates) and excluded
+ciphertext stores. Three empty protected-folder markers had their journaled
+original 0755/no-ACL permissions restored on their original inodes before import.
+Effective UID 1000 read/write/traverse access was checked, and the private-store
+parent remains non-writable by that UID. The source broker was stopped and all
+five vaults confirmed locked/parked before registry retirement. Three sealed
+Samba registry entries were imported on Pi with native device/inode identities;
+the two VPS entries remain with its broker. Source IDs and sealed locations are
+preserved; peer-facing UI IDs are namespaced by their owner as designed.
+
+All 73 source Trash records and the sealed link/policy were imported into Pi
+SQLite. A separate never-started maintenance registry enabled readback-import
+verification of every existing Trash body; it was then removed. Exact ID, kind,
+state and SHA-256 predicates matched all 73 obsolete VPS Trash copies before a
+single guarded transaction retired those metadata rows. No file contents were
+deleted by this metadata retirement. Unified Trash now has 41 visible entries and
+zero duplicate normalized IDs. The original archive-link ciphertext for
+`785f4a40ec6201758b8f99dec9e131a6` still hashes to its pre-cutover policy revision.
+Its authoritative coordinator/task journals remain on VPS.
+
+VPS API configuration and Compose no longer provide a writable Samba root or
+mount. Its Samba refresh timer is disabled, and the tracked mount helper skips
+Samba when no Samba root is configured. The existing host `/samba` aliases and
+`/mnt/filebrowser` mount remain in place: automatic review rejected unmounting
+without ruling out non-Docker consumers, so these pre-existing mounts were
+preserved. FileBeans no longer uses them. Base Compose was reconciled with its
+existing live namespace/security settings; use both documented overlays.
+
+### Connection values
+
+- Remote server URL: `https://files.coffeybean.com/pi/companion`.
+- Local server URL: `https://192.168.12.246:8095`.
+- Server ID: `filebeans-pi`.
+- Local certificate SHA-256:
+  `1b3b070668d4e829c84532d5c7ade8e3a3010282c4e0003fafbd26f838eeeae5`.
+- API token: the private `token` value in HA
+  `/app_configs/local_filebeans/server.json`; enter it in the connection editor
+  when changing the server URL. The server-only archive key is separate.
+
+The app tries the pinned LAN connection first and uses the remote route when
+local networking is unavailable. The existing VPS connection remains functional
+with unified sources; switch to these Pi values for direct Wi-Fi access.
+Caddy's `/pi/companion/*` route uses the existing Tailscale tunnel, trusts only
+Pi's public certificate at `/opt/vps/caddy/conf/filebeans-pi.crt`, and verifies TLS
+server name `filebeans-pi`. No home-router port forwarding or Pi private-key copy.
+
+Live checks passed pinned tailnet and authenticated LAN identity, public Pi/VPS
+identity, unified source/vault discovery, Drive root listing through Pi/VPS,
+anonymous/invalid-token 401 rejection, and server-only archive RPC 403 rejection
+for an ordinary API token. Caddy/Compose validation passed. API restarts/OOM are
+zero. HA Supervisor remains healthy/supported; Core CPU sampled 0.91%, Core RAM
+850 MB, Pi app RAM about 13–17 MB, and available memory about 2.25 GiB.
+
+Protected folders are cold/locked after restart. An in-app unlock was requested;
+no key was requested in chat or extracted. Root writes correctly return the
+conservative archive-policy guard while the sealed policy is locked, so the
+post-cutover copy/move fixture attempt created no files. The preceding isolated
+real-Pi 64 MiB encrypted copy/checksum/lock/unlock/readback and two-node image
+transfer tests passed, but migrated-folder reads, a production server-copy run,
+queued-original backup completion and physical-device route selection await that
+unlock. Current archive counters show one pending original and a linked-folder
+drift attention record. Preserve the retained VPS original and review the drift
+after unlocking; no automatic unlink or guessed inventory repair was performed.
+The drain marker is removed so queued work can resume when keys are available.
+These are acceptance/activation checks, not another image deployment or app build.
+
+HA recovery must include `local_filebeans` app data (SQLite, TLS identity and
+broker registry/key identifier), its app configuration, and the shared ciphertext
+files. Existing VPS full-root capture includes its private peer configuration,
+remaining broker state, SQL backup policy and Caddy public certificate. Git alone
+does not restore these runtime identities; no backup schedule was changed.
+
+VPS handoff staging `/opt/services/filebeans/.pi-handoff-20261127`, transfer files,
+validation cache and drain marker are absent. VM `.build/cutover-20261127`, its
+emulator/restorer/metadata copies/scripts, and the temporary SSH/control directory
+were removed. Task SSH access was revoked and verified denied; the original key
+remains. Pi verification-only metadata, import files and temporary executables
+were removed. The sole retained task artifact is the private 77,824-byte ACL
+before-state journal `/share/.filebeans-access-62877acfd70fe72e.sqlite`, needed
+until the migrated protected folders/archive checks pass after owner unlock;
+remove then, or after a verified cancellation restores permissions. It is not an
+indefinite rollback archive. Shared register A-025 records this pending check.
