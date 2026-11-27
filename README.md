@@ -2,6 +2,8 @@
 
 A native iPhone and iPad client backed by the fileBeans filesystem API.
 
+Name is the default browser sort. Choose Last Modified for newest first; choose it again for oldest first. Folders stay first, and the selected order is remembered.
+
 The native filesystem API replaces File Browser Quantum and is the accepted production backend. See the [API and validation documentation](docs/FILESYSTEM-API.md) and [release notes](docs/RELEASING.md).
 
 Browse folders in list or grid view, preview server-generated thumbnails, copy, move and rename items, create folders, delete files, and upload from Files or Photos. Videos and audio stream through the native player. Each connection is also available as a read/write location in Apple's Files app and document pickers.

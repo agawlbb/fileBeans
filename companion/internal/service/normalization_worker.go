@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -73,6 +74,9 @@ func (s *Service) normSourceCurrent(ctx context.Context, j *NormalizationJob) er
 		if item.Trashed || item.Version != j.SourceVersion {
 			return ErrConflict
 		}
+		if j.SourceModified == "" {
+			j.SourceModified = item.Modified
+		}
 		return nil
 	}
 	root, _, e := s.normalizationRoot()
@@ -90,7 +94,30 @@ func (s *Service) normSourceCurrent(ctx context.Context, j *NormalizationJob) er
 	if version(st) != j.SourceVersion {
 		return ErrConflict
 	}
+	if j.SourceModified == "" {
+		j.SourceModified = st.ModTime().UTC().Format(time.RFC3339Nano)
+	}
 	return nil
+}
+
+// Set through the opened descriptor, retaining atime and nanosecond precision.
+func normSetModified(root rootFS, path, value string) error {
+	if value == "" {
+		return nil // Older sources without modification metadata retain their date.
+	}
+	modified, e := time.Parse(time.RFC3339Nano, value)
+	if e != nil {
+		return e
+	}
+	f, e := root.Open(path)
+	if e != nil {
+		return e
+	}
+	defer f.Close()
+	if e = unix.UtimesNanoAt(int(f.Fd()), "", []unix.Timespec{{Nsec: unix.UTIME_OMIT}, unix.NsecToTimespec(modified.UnixNano())}, unix.AT_EMPTY_PATH); e != nil {
+		return e
+	}
+	return f.Sync()
 }
 func hashNormFile(root rootFS, path string) (string, error) {
 	if e := safe(root, path); e != nil {
@@ -445,6 +472,25 @@ func (s *Service) normPublish(ctx context.Context, root rootFS, j *Normalization
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
+	if j.SourceModified == "" {
+		// Legacy jobs may already have moved their original before restarting.
+		if st, e := root.Stat(filepath.Join(normWorkspaceFor(j), "original")); e == nil && version(st) == j.SourceVersion {
+			j.SourceModified = st.ModTime().UTC().Format(time.RFC3339Nano)
+		} else if parts := strings.Split(j.SourceVersion, ":"); j.Request.Source != "drive" && len(parts) == 2 {
+			// Local versions already pin the original nanosecond timestamp, even
+			// if a prior publication removed the retained input before a crash.
+			ns, err := strconv.ParseInt(parts[1], 10, 64)
+			if err != nil {
+				return ErrConflict
+			}
+			j.SourceModified = time.Unix(0, ns).UTC().Format(time.RFC3339Nano)
+		} else if e = s.normSourceCurrent(ctx, j); e != nil {
+			return e
+		}
+		if e := s.normSave(j); e != nil {
+			return e
+		}
+	}
 	if _, e := root.Stat(filepath.Join(normWorkspaceFor(j), "original")); e == nil {
 		j.RawMoved = true
 	} else if !errors.Is(e, os.ErrNotExist) {
@@ -460,6 +506,9 @@ func (s *Service) normPublish(ctx context.Context, root rootFS, j *Normalization
 				if j.SourceHash != j.OutputHash {
 					return ErrConflict
 				}
+			}
+			if e := normSetModified(root, j.OutputPath, j.SourceModified); e != nil {
+				return e
 			}
 			j.Published = true
 			st, e := root.Stat(j.OutputPath)
@@ -502,6 +551,9 @@ func (s *Service) normPublish(ctx context.Context, root rootFS, j *Normalization
 	}
 	if ctx.Err() != nil {
 		return ctx.Err()
+	}
+	if e := normSetModified(root, output, j.SourceModified); e != nil {
+		return e
 	}
 	if e := renameExclusive(root, output, j.OutputPath); e != nil {
 		return e

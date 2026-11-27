@@ -392,6 +392,28 @@ were removed; the two performance-probe completion records remain as audit data.
 
 ## VPS media normalization
 
+Encoded and pass-through outputs retain their input's modification timestamp.
+The active archive encoder also preserves that timestamp when publishing an
+encoded copy or backing up its original. The legacy normalizer records local
+filesystem or pinned Drive modification metadata in its job, reapplies it during
+publication recovery, and records the output version afterward. Deploy the
+updated code before restarting a legacy normalizer after timestamp maintenance:
+its discovery scan reconciles changed timestamps against the stored output hash
+instead of encoding identical content again. The independent encoding queue
+likewise retains original timestamps through resumed downloads and delivery.
+
+`ops/media_timestamps.py --inventory ORIGINAL_ROOT` emits a bounded inventory
+of original modification times. Feed that JSON to the same tool with
+`--library LIBRARY_ROOT` for a preview, then `--apply` to restore confidently
+matched file dates. Run repairs inside a constrained container; for protected
+VPS `/pics`, bind the unlocked library and broker runtime and supply
+`--protection RUNTIME`. The tool checks the protection gate and mounted vault,
+matches relative folders and exact filename stems across extension changes,
+skips ambiguous or missing matches, hidden paths, symlinks and hard links, and
+rechecks identities before updating. It changes only regular-file modification
+times, preserving access times and reporting every correction and exception.
+Rerun the preview to verify that no corrections remain.
+
 An optional dedicated worker normalizes media through a bounded pipeline. It
 never mounts or reads Samba. Configure `normalization`
 in private config with `enabled`, local root `source` (for example `VPS`),

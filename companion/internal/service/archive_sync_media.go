@@ -106,7 +106,7 @@ func (s *Service) copyArchiveOriginal(ctx context.Context, src rootFS, from stri
 		if hash != expected {
 			return ErrConflict
 		}
-		return nil
+		return normSetModified(dst, to, info.ModTime().UTC().Format(time.RFC3339Nano))
 	} else if !errors.Is(e, os.ErrNotExist) {
 		return e
 	}
@@ -155,6 +155,9 @@ func (s *Service) copyArchiveOriginal(ctx context.Context, src rootFS, from stri
 	}
 	if hash != expected {
 		return ErrConflict
+	}
+	if e = normSetModified(dst, stage, info.ModTime().UTC().Format(time.RFC3339Nano)); e != nil {
+		return e
 	}
 	if e = renameExclusive(dst, stage, to); e != nil {
 		return e
@@ -653,7 +656,15 @@ func (s *Service) publishArchiveEncoded(root rootFS, j *archiveTask, base, raw s
 	} else if e != nil {
 		return e
 	}
+	original, e := root.Stat(raw)
+	if e != nil {
+		return e
+	}
+	modified := original.ModTime().UTC().Format(time.RFC3339Nano)
 	if _, e := root.Stat(to); errors.Is(e, os.ErrNotExist) {
+		if e = normSetModified(root, output, modified); e != nil {
+			return e
+		}
 		if e = renameExclusive(root, output, to); e != nil {
 			if _, missing := root.Stat(from); errors.Is(missing, os.ErrNotExist) {
 				_ = renameExclusive(root, raw, from)
@@ -672,6 +683,9 @@ func (s *Service) publishArchiveEncoded(root rootFS, j *archiveTask, base, raw s
 		}
 		if hash != j.OutputHash {
 			return ErrConflict
+		}
+		if e = normSetModified(root, to, modified); e != nil {
+			return e
 		}
 	}
 	j.Relative = j.Output

@@ -5,9 +5,27 @@ final class DriveTests: XCTestCase {
     func testFolderOrderingIsConsistentAcrossSources() {
         let folder = BrowserSortValue(id: "folder", name: "Z folder", folder: true, size: 0, modified: .distantPast)
         let file = BrowserSortValue(id: "file", name: "A video", folder: false, size: 100, modified: .distantFuture)
-        for order in ["name", "size", "modified"] {
+        for order in ["name", "size", "modified", "modifiedAscending"] {
             XCTAssertTrue(BrowserOrdering.precedes(folder, file, order: order))
             XCTAssertFalse(BrowserOrdering.precedes(file, folder, order: order))
+        }
+    }
+    func testModifiedOrderingAndToggle() {
+        func item(_ id: String, _ date: Date) -> BrowserSortValue {
+            BrowserSortValue(id: id, name: id, folder: false, size: 0, modified: date)
+        }
+        let older = item("A", Date(timeIntervalSince1970: 1))
+        let newer = item("B", Date(timeIntervalSince1970: 2))
+        let missing = item("C", .distantPast)
+        XCTAssertEqual(BrowserOrdering.selectingModified("name"), "modified")
+        XCTAssertEqual(BrowserOrdering.selectingModified("modified"), "modifiedAscending")
+        XCTAssertEqual(BrowserOrdering.selectingModified("modifiedAscending"), "modified")
+        XCTAssertTrue(BrowserOrdering.precedes(newer, older, order: "modified"))
+        XCTAssertTrue(BrowserOrdering.precedes(older, newer, order: "modifiedAscending"))
+        for order in ["modified", "modifiedAscending"] {
+            XCTAssertTrue(BrowserOrdering.precedes(older, missing, order: order))
+            XCTAssertFalse(BrowserOrdering.precedes(missing, older, order: order))
+            XCTAssertTrue(BrowserOrdering.precedes(older, item("B", older.modified), order: order))
         }
     }
     func testEmptyDriveCollectionsDecodeWhenGoogleOmitsArrays() throws {

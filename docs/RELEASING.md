@@ -1,5 +1,47 @@
 # Signing and TestFlight
 
+## Original media dates and reversible date sorting — November 27, 2026
+
+Source implemented; service deployment and an Apple app build are pending.
+Name remains the default browser sort; selecting Last Modified selects newest
+first, and selecting it again toggles oldest first. The shared filesystem/Drive
+control retains Size and saved preferences, keeps folders first, breaks date
+ties by name and puts missing dates last. Swift syntax checks pass; Apple
+compilation and XCTest execution await the requested app build.
+
+Archive encodings and original-file backups now retain input modification dates.
+The legacy normalizer and independent queue preserve local/Drive dates through
+retries and publication recovery. The legacy discovery scan verifies the stored
+output hash before reconciling a timestamp-only version change, preventing
+unnecessary re-encoding after maintenance. This behavior requires deployment
+before the disabled legacy worker is restarted.
+
+The requested live VPS correction is finished and verified: 742 of 748 files
+matched uniquely and had their dates restored, including 224 MFC files. The
+authoritative original inventory was VM `/mnt/pics`; the VPS-mounted Samba
+archive had recent copy-time dates. A repeat preview found all 742 dates correct,
+zero pending changes, zero ambiguous matches and zero failures. Matched dates
+span November 2, 2012 through November 14, 2026. The running filesystem API
+confirms MFC samples at October 13, 2018 and September 23, 2026. The correction
+changed modification times only and preserved access times; no media bytes or
+folder timestamps were written. No new code was deployed and no service was
+restarted. Six files lacked originals in that inventory and were left unchanged:
+`V/Fake/NLocker.jpg`, `V/Fake/NPool.jpg`, `V/Fake/NReading.mp4`,
+`V/Fake/NRunning.jpg`, `vids/MFC/AdaShine.mp4`, `vids/MFC/Mira_luv.mp4`.
+
+VM service regressions pass with checksum-verified Go 1.26.11 and rclone 1.76.0;
+the initial run with installed rclone 1.60.1 failed two existing rclone tests.
+Focused archive/normalization regressions, nine Python timestamp tests and
+changed Swift/Python syntax checks pass. Service/command vet passes. The broader
+source validator stops at its existing outdated project-target assertion.
+No Apple app or service image build was requested. Maintenance ran from memory
+in a disposable VPS container limited to 128 MiB/no swap, half a CPU and 32 PIDs,
+with the protection gate held. No inventory, script or report was staged on VPS.
+VM `.build/timestamps-work`, its 3 GiB `.ext4` backing file and
+`.build/timestamps-loop` device node were removed after verification, including
+the downloaded tools and test caches. Task bytecode was removed; no disposable
+artifact remains. VM disk free space was 114 GiB after cleanup.
+
 ## Database account cap and capacity waiting — November 26, 2026
 
 Deployed server source `abbcad2` as `filebeans-api:abbcad2-db-cap` and set

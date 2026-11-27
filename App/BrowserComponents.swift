@@ -90,7 +90,12 @@ struct BrowserViewOptions: View {
             Button("Select", action: select).labelStyle(.titleOnly)
             Menu {
             Button(grid ? "List" : "Grid", systemImage: grid ? "list.bullet" : "square.grid.2x2") { grid.toggle() }
-            Picker("Sort", selection: $sortOrder) { Text("Name").tag("name"); Text("Modified").tag("modified"); Text("Size").tag("size") }
+            Button("Name", systemImage: sortOrder == "name" ? "checkmark" : "textformat.abc") { sortOrder = "name" }
+            Button("Last Modified", systemImage: BrowserOrdering.isModified(sortOrder) ? (sortOrder == "modified" ? "arrow.down" : "arrow.up") : "calendar") {
+                sortOrder = BrowserOrdering.selectingModified(sortOrder)
+            }
+            .accessibilityValue(BrowserOrdering.isModified(sortOrder) ? (sortOrder == "modified" ? "Newest first" : "Oldest first") : "")
+            Button("Size", systemImage: sortOrder == "size" ? "checkmark" : "arrow.up.arrow.down") { sortOrder = "size" }
             Button("Refresh", systemImage: "arrow.clockwise", action: refresh)
         } label: { Label("View Options", systemImage: "ellipsis.circle") }
         }

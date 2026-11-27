@@ -9,6 +9,7 @@ import argparse
 import bisect
 import concurrent.futures
 import contextlib
+import datetime
 import fcntl
 import hashlib
 import http.client
@@ -16,6 +17,7 @@ import importlib.util
 import json
 import math
 import os
+import re
 from pathlib import Path, PurePosixPath
 import shlex
 import shutil
@@ -30,6 +32,15 @@ import uuid
 
 VIDEO_EXTENSIONS={'.mp4','.mov','.mkv','.wmv','.avi','.webm','.m4v'}
 RESERVED={'.filebeans-thumbnails','.filebeans-stage','.filebeans-vaults'}
+
+
+def modified_ns(value):
+    date=datetime.datetime.fromisoformat(value.replace('Z','+00:00'))
+    if date.tzinfo is None:raise ValueError('Modification date needs a timezone')
+    delta=date.replace(microsecond=0)-datetime.datetime(1970,1,1,tzinfo=datetime.timezone.utc)
+    fraction=re.search(r'\.(\d+)(?:Z|[+-]\d\d:\d\d)$',value)
+    nanoseconds=int(fraction[1][:9].ljust(9,'0')) if fraction else 0
+    return (delta.days*86400+delta.seconds)*10**9+nanoseconds
 
 
 def relative(value):
@@ -237,6 +248,7 @@ class Worker:
     def probe(self,path):return json.loads(self.command(['ffprobe','-v','error','-show_streams','-show_format','-of','json','/work/'+path.name],True))
 
     def prepare(self,job):
+        self.source_modified(job)
         row=self.row(job);target=self.root/(job['id']+'.input')
         if target.exists() and target.stat().st_size==job['source_size'] and checksum(target,'md5')==job['source_md5']:return target
         row['phase']='preparing';self.save();needed=self.config['min_free_bytes']+job['source_size']*2
@@ -394,9 +406,37 @@ class Worker:
 
     def verify_remote(self,job,row):
         path=str(PurePosixPath('/folder/pics')/relative(job['output_relative']))
-        code="from pathlib import Path;import hashlib,json;p=Path("+repr(path)+");print(json.dumps({'size':p.stat().st_size,'sha256':hashlib.file_digest(p.open('rb'),'sha256').hexdigest()}))"
+        modified=self.source_modified(job)
+        code="\n".join([
+            "import hashlib,json,os",
+            "with os.fdopen(os.open("+repr(path)+",os.O_RDONLY|os.O_NOFOLLOW),'rb') as f:",
+            " s=os.fstat(f.fileno());h=hashlib.file_digest(f,'sha256').hexdigest();a=os.fstat(f.fileno())",
+            " if (s.st_ino,s.st_size,s.st_mtime_ns,s.st_ctime_ns)!=(a.st_ino,a.st_size,a.st_mtime_ns,a.st_ctime_ns) or s.st_size!="+repr(row['output_size'])+" or h!="+repr(row['output_sha256'])+":raise RuntimeError('Published checksum mismatch')",
+            " os.utime(f.fileno(),ns=(s.st_atime_ns,"+repr(modified)+"));os.fsync(f.fileno())",
+            " print(json.dumps({'size':s.st_size,'sha256':h,'modified_ns':os.fstat(f.fileno()).st_mtime_ns}))"])
         result=json.loads(subprocess.check_output(['dev','ssh','-n','vps-admin','sudo python3 -c '+shlex.quote(code)],timeout=60))
         if result['size']!=row['output_size'] or result['sha256']!=row['output_sha256']:raise RuntimeError('Published checksum mismatch')
+        if result['modified_ns']!=modified:raise RuntimeError('Published modification date mismatch')
+
+    def source_modified(self,job):
+        row=self.row(job)
+        if 'source_modified_ns' not in row:
+            if self.role=='vm':
+                root=Path(self.config['source_mount'])
+                if not root.is_mount():raise RuntimeError('Source library mount unavailable')
+                info=(root/relative(job['relative_path'])).stat()
+                if info.st_size!=job['source_size']:raise RuntimeError('Source size changed')
+                row['source_modified_ns']=info.st_mtime_ns
+            else:
+                c=json.loads(Path(self.config['companion_config']).read_text())
+                container=json.loads(subprocess.check_output(['docker','inspect','filebeans-companion']))[0]
+                ip=next(x['IPAddress'] for x in container['NetworkSettings']['Networks'].values() if x['IPAddress'])
+                url='http://'+ip+':'+c['listen'].rsplit(':',1)[-1]+'/v1/drive/files/'+urllib.parse.quote(job['drive_id'],safe='')
+                with urllib.request.urlopen(urllib.request.Request(url,headers={'Authorization':'Bearer '+c['token']}),timeout=60) as response:meta=json.load(response)
+                if str(meta['version'])!=str(job['source_version']) or int(meta['size'])!=job['source_size']:raise RuntimeError('Drive source changed')
+                row['source_modified_ns']=modified_ns(meta['modifiedTime'])
+            self.save()
+        return row['source_modified_ns']
 
     def deliver(self,job,output):
         row=self.row(job);row['phase']='uploading';self.save();start=time.monotonic()
@@ -430,7 +470,14 @@ class Worker:
                 else:
                     os.chown(output,1000,1000);output.chmod(0o660);os.link(output,destination)
                     fd=os.open(destination.parent,os.O_DIRECTORY);os.fsync(fd);os.close(fd)
-                if checksum(destination)!=row['output_sha256']:raise RuntimeError('Published checksum mismatch')
+                modified=self.source_modified(job)
+                with os.fdopen(os.open(destination,os.O_RDONLY|os.O_NOFOLLOW),'rb') as published:
+                    info=os.fstat(published.fileno())
+                    if hashlib.file_digest(published,'sha256').hexdigest()!=row['output_sha256']:raise RuntimeError('Published checksum mismatch')
+                    current=os.fstat(published.fileno())
+                    if (info.st_size,info.st_mtime_ns,info.st_ctime_ns)!=(current.st_size,current.st_mtime_ns,current.st_ctime_ns):raise RuntimeError('Published file changed')
+                    os.utime(published.fileno(),ns=(info.st_atime_ns,modified));os.fsync(published.fileno())
+                    if os.fstat(published.fileno()).st_mtime_ns!=modified:raise RuntimeError('Published modification date mismatch')
             row.update(phase='completed',delivered_at=time.time(),delivery_seconds=time.monotonic()-start);self.save();output.unlink(missing_ok=True)
             (self.root/(job['id']+'.log')).unlink(missing_ok=True)
         except Exception as e:

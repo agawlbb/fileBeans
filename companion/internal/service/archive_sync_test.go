@@ -340,8 +340,16 @@ func testArchiveSyncDatabase(t *testing.T, parent *Service) {
 			t.Fatal(e)
 		}
 		os.Rename(filepath.Join(f.vps, "photo.png"), filepath.Join(base, "original"))
+		modified := time.Unix(1539447530, 123456789)
+		if e = os.Chtimes(filepath.Join(base, "original"), modified, modified); e != nil {
+			t.Fatal(e)
+		}
 		if e = f.s.runArchiveIngest(context.Background(), &j, true); e != nil || j.State != "backup" {
 			t.Fatal("publication did not recover", e, j)
+		}
+		visible, e := os.Stat(filepath.Join(f.vps, "photo.png"))
+		if e != nil || !visible.ModTime().Equal(modified) {
+			t.Fatal("recovery lost original date", e)
 		}
 		f.drain(t)
 	})

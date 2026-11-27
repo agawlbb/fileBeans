@@ -72,6 +72,7 @@ type NormalizationJob struct {
 	Batch             string               `json:"batch,omitempty"`
 	Connection        string               `json:"connection,omitempty"`
 	SourceVersion     string               `json:"sourceVersion,omitempty"`
+	SourceModified    string               `json:"sourceModified,omitempty"`
 	SourceSize        int64                `json:"sourceSize"`
 	ExpectedSHA       string               `json:"expectedSHA,omitempty"`
 	ExpectedMD5       string               `json:"expectedMD5,omitempty"`
@@ -170,6 +171,7 @@ func (s *Service) enqueueNormalization(req NormalizationRequest, batch, connecti
 		j.SourceSize = size
 		j.SourceMIME = meta.Mime
 		j.SourceVersion = meta.Version
+		j.SourceModified = meta.Modified
 		j.ExpectedSHA = meta.SHA256
 		j.ExpectedMD5 = meta.MD5
 	} else {
@@ -200,6 +202,7 @@ func (s *Service) enqueueNormalization(req NormalizationRequest, batch, connecti
 			return j, ErrUnsafe
 		}
 		j.SourceVersion = version(st)
+		j.SourceModified = st.ModTime().UTC().Format(time.RFC3339Nano)
 		j.SourceSize = st.Size()
 	}
 	key := normKey(c.Source, c.Path, req.Source, j.Request.Path, j.Request.RelativePath, j.Connection, j.SourceVersion, j.Profile)
@@ -614,6 +617,20 @@ func (s *Service) scanNormalization() error {
 	known := map[string]bool{}
 	for _, j := range jobs {
 		if j.Published && j.OutputPath != "" {
+			// Timestamp maintenance changes versions without changing media bytes.
+			// Reconcile only proven identical outputs before discovering new work.
+			if st, er := root.Stat(j.OutputPath); er == nil && st.Mode().IsRegular() && st.Size() == j.OutputSize && version(st) != j.OutputVersion && j.OutputHash != "" {
+				if hash, er := hashNormFile(root, j.OutputPath); er == nil && hash == j.OutputHash {
+					after, er := root.Stat(j.OutputPath)
+					if er != nil || !os.SameFile(st, after) || version(st) != version(after) {
+						return ErrConflict
+					}
+					j.OutputVersion = version(st)
+					if er = s.normSave(&j); er != nil {
+						return er
+					}
+				}
+			}
 			known[j.OutputPath+":"+j.OutputVersion] = true
 		}
 	}

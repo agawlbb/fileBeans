@@ -104,6 +104,19 @@ func testNormalizationWorkflow(t *testing.T, s *Service) {
 	t.Run("local-video-and-no-reconversion", func(t *testing.T) {
 		j := writeNormSource(t, s, "pics/movie.mp4", video)
 		run(t, &j)
+		originalModified, e := time.Parse(time.RFC3339Nano, j.SourceModified)
+		if e != nil {
+			t.Fatal(e)
+		}
+		published, e := os.Stat(filepath.Join(base, j.OutputPath))
+		if e != nil || !published.ModTime().Equal(originalModified) {
+			t.Fatal("original date not preserved", e)
+		}
+		// An administrative timestamp correction must not cause re-encoding.
+		corrected := time.Unix(1539447530, 123456789)
+		if e = os.Chtimes(filepath.Join(base, j.OutputPath), corrected, corrected); e != nil {
+			t.Fatal(e)
+		}
 		if !j.Published || j.OutputSize == 0 || j.OutputHash == j.SourceHash {
 			t.Fatal("video not normalized")
 		}
@@ -193,6 +206,7 @@ func testNormalizationWorkflow(t *testing.T, s *Service) {
 				name = "recover-after"
 			}
 			j := writeNormSource(t, s, "pics/"+name+".png", pngBytes)
+			j.SourceModified = "" // Pre-upgrade job; recover from the pinned local version.
 			j.State = "running"
 			j.Phase = "publishing"
 			j.SourceHash = normHash(pngBytes)
@@ -217,6 +231,10 @@ func testNormalizationWorkflow(t *testing.T, s *Service) {
 			run(t, &j)
 			if j.OutputVersion == "" {
 				t.Fatal("publication not recovered")
+			}
+			st, e := os.Stat(filepath.Join(base, j.OutputPath))
+			if e != nil || j.OutputVersion != version(st) || st.ModTime().UTC().Format(time.RFC3339Nano) != j.SourceModified {
+				t.Fatal("recovery lost source date", e)
 			}
 		}
 	})
@@ -391,6 +409,7 @@ func testNormalizationWorkflow(t *testing.T, s *Service) {
 	t.Run("legacy-extensionless-picture-classification", func(t *testing.T) {
 		f.add("extensionless-image", "no-extension", "image/png", false)
 		item := f.items["extensionless-image"]
+		item.Modified = "2018-10-13T16:18:50.123456789Z"
 		item.Size = fmtInt(len(pngBytes))
 		item.SHA256 = normHash(pngBytes)
 		f.items[item.ID] = item
@@ -414,6 +433,10 @@ func testNormalizationWorkflow(t *testing.T, s *Service) {
 			t.Fatal(e)
 		}
 		run(t, &j)
+		st, e := os.Stat(filepath.Join(base, j.OutputPath))
+		if e != nil || st.ModTime().UTC().Format(time.RFC3339Nano) != item.Modified {
+			t.Fatal("Drive date not preserved", e)
+		}
 	})
 	t.Run("inventory-is-metadata-only-and-cancellable", func(t *testing.T) {
 		f.add("album", "Album", "application/vnd.google-apps.folder", false)

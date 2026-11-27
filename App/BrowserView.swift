@@ -49,7 +49,7 @@ struct BrowserView: View {
                     (!hideTrash || $0.file.path != "/Trash") && (query.isEmpty || $0.file.name.localizedStandardContains(query))
                 }.map { item in
                     (item, BrowserSortValue(id: item.id, name: item.file.name, folder: item.file.isDirectory,
-                        size: item.file.size ?? 0, modified: order == "modified" ? item.file.date ?? .distantPast : .distantPast))
+                        size: item.file.size ?? 0, modified: BrowserOrdering.isModified(order) ? item.file.date ?? .distantPast : .distantPast))
                 }.sorted { BrowserOrdering.precedes($0.1, $1.1, order: order) }.map { $0.0 }
             }.value
             guard !Task.isCancelled else { return }
