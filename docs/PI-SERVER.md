@@ -303,7 +303,7 @@ prepared deliverables remain for explicit deployment/upload or rejection of this
 trial. No registry publication, production deployment, TestFlight upload or merge
 was performed.
 
-## Authorized rollout — November 27, 2026
+## Initial authorized rollout — November 27, 2026 (historical checkpoint)
 
 The subsequent instruction authorized deployment and app release, retaining the
 unmerged feature branch. Signed build 54 was uploaded without rebuilding through
@@ -354,3 +354,64 @@ Only the prepared AMD64 image and small manifest/checksum metadata remain in
 verified deployment or cancellation. The VPS current read-only registry files
 remain operational while the installed HA app references that image. There are no
 VPS staging archives or migration exports. Shared registers record these purposes.
+
+
+## Archive-preserving continuation — November 27, 2026
+
+The owner chose to keep the archive link. Runtime source `a637aff` implements
+server-only authenticated archive federation: the VPS retains encoding, archive
+coordination, sealed links and task journals; Pi owns the originals and paired
+Trash. Live policy mirroring preserves write guards and legacy vault identities.
+The exact encrypted link remains unchanged; no unlink or user-file move occurred.
+The pre-existing linked-folder drift attention task is not automatically repaired.
+Two historical failed, uncommitted Samba-to-Drive moves were cancelled only after
+confirming their source/quarantine and private destination staging were absent;
+their already-trashed published Drive files were preserved. Terminal failed/missing
+Trash history is now accepted by the sealed handoff exporter.
+
+Prepared ARM64 HA image 0.1.2 was published, pulled and installed successfully.
+Manifest: `569f21a9c2837827d76f809caa92690b34d914b68ecf4234aa9fa81c4419ebdf`.
+Explicit initialize/permissions modes operated only on a disposable probe root.
+The actual broker created an encrypted folder through native ext4/FUSE, copied
+64 MiB entirely on Pi, verified SHA-256
+`43628cf4c307b03bbcddff0cb7d4e81fe5cb4c100f2d95d4b5181e5009a97331`,
+then locked, unlocked, re-read and re-locked successfully. Copy plus initial
+readback took 50 seconds with conservative pacing. This is small-fixture acceptance,
+not a sustained throughput claim. During checks Core memory was about 902 MB,
+CPU samples 1.08–4.85%, available memory about 2.2 GiB, and Supervisor remained
+healthy/supported. The child cgroup caps were 512 MiB/no swap/one CPU/128 PIDs;
+host swap and Core configuration were unchanged. This test caught and fixed
+inherited default ACLs on new private stores before production data was touched.
+
+The prepared VPS image `filebeans-api:a637aff-pi-peer` was transferred with verified
+archive SHA-256 `6e11be209a37cd0c9d9555120d309d9f4853251155a4f3c552161e42ef2730ff`
+and loaded, but not started. Manifest:
+`80da8a1a847becfc91100477024a881946475b097567d82411e4f3808e9d1509`.
+Full Go service tests passed in that exact packaged runtime, with source fixtures
+and pinned rclone supplied by the VM test harness. No iOS source changed;
+TestFlight 54 remains released, with no new Apple build/upload required.
+
+Production cutover is pending explicit approval to grant API UID 1000 ordinary-file
+read/write ACLs under `/share/fileBeans`. Automatic approval review required
+separate authorization for that persistent access change. The helper excludes
+private vault stores, preserves other principals' effective permissions, limits
+traversal and writes a bounded before-state journal supporting reversal.
+The isolated probe permission step passed after an exact root/count guard proved
+it could not reach the real share. No real-share permissions were changed.
+After approval: configure production peers, initialize/import sealed metadata,
+retire the VPS Samba registry ownership, remove its writable Samba root, start
+Pi/VPS services and enable `/pi/companion` with the exact Pi public TLS certificate.
+Then verify ordinary/Drive/server transfers, real protected folders after owner
+unlock, and LAN/remote device routing. No recovery keys should be sent in chat.
+
+The Pi app is stopped/manual with no probe/production config installed. The VPS
+continues its unchanged release-41 API/broker and Samba ownership. No migration
+exports, registry retirement or public Pi API route exist yet. The test root,
+synthetic recovery key, ACL journal, temporary SSH authorization/control directory,
+VM tools/containers/images, 8 GiB bounded scratch, old held image deliverables and
+all image transfer archives/scripts were removed and exact paths checked absent.
+The VM builder is stopped with its original shared mount restored. VPS staging
+was removed; registry hosting retains only installed image 0.1.2 (86,706,898 bytes).
+The loaded, not-running VPS image remains only for the pending authorized cutover;
+remove it after deployment rejection/cancellation or if superseded. Both source
+feature branches remain pushed and unmerged by owner instruction.
