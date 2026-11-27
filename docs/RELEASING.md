@@ -1907,3 +1907,22 @@ Task test containers, `.build/media-worker-test`,
 associations were removed after verification. Toolchains, copied media libraries,
 test binaries, caches and synthetic media lived only on those bounded filesystems.
 No task artifacts or VPS staging remain.
+
+
+## Reboot recovery: stable Samba parent — November 27, 2026
+
+The owner-requested VPS reboot exposed a boot-helper idempotency bug: the
+unmounted `/samba` parent retains its own empty `share` placeholder, which setup
+previously rejected as unexpected contents. Current service recovered by removing
+only that verified empty placeholder and starting roots, broker and protected
+stack; API returned at 14:21:54 UTC. No user files, credentials or vault data changed.
+
+Owner explicitly approved deploying source `a5e6f61` after automatic deployment
+review requested separate approval. The helper now accepts only the expected
+empty directory while rejecting other entries, nonempty contents, symlinks and
+existing child mounts. Three VM regression tests passed; installed helper SHA-256
+`dd5693b3e054b63d2944b045e90d43cb1998f241d1c3fe485570f94b7ed9f1e2`
+matched prepared source and live idempotent execution passed. No second reboot
+was performed after the fix. Broker/protected stack active, Samba child is CIFS,
+API anonymous capability endpoint 401, isolated media worker running, no failed
+systemd units. No image/mobile build, release, data migration or task staging.
