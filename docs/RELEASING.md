@@ -1,5 +1,42 @@
 # Signing and TestFlight
 
+## Client thumbnail reuse and video streaming — November 27, 2026
+
+Client source `a5ef6fb` is implemented and simulator-verified; an explicitly
+requested Apple app build/release and device acceptance remain pending. No
+server API, server memory policy or deployed application was changed.
+
+Filesystem and Drive cells reuse decoded thumbnails synchronously from a shared
+128 MiB image cache, without clearing images when scrolling offscreen. The
+existing 200 MiB disk cache, revision/expiry rules and protection checks remain.
+Concurrent cells share fetch/decode work; decoding runs away from the main actor.
+The large-folder regression retains the first decoded image after 210 entries.
+
+Authenticated media sessions now deliver response data progressively, validate
+range headers before delivery and reject truncated responses. Playback requests
+up to 1 MiB per range without a separate 64 KiB opening round trip. Each movie
+has a 128 MiB LRU range cache sharing overlapping reads and active transfers.
+Paging away cancels transfers but retains completed ranges for a cached neighbor;
+viewer eviction, dismissal and protection changes clear them. Buffer recovery
+observes player state instead of polling once per second and requires playback
+intent, preserving intentional pauses and the existing full-screen player.
+
+[Simulator validation 46002293143](https://github.com/agawlbb/fileBeans/actions/runs/46002293143)
+passed 156 unit tests and all four viewer UI scenarios on their first attempts.
+The H.264/HEVC repeated-seek fixture reached decoded motion and half a second of
+playback progress in 0.68–0.85 seconds. Filesystem/Drive progressive first delivery
+was 1.7/3.6 ms in the synthetic transport test while response completion was held
+for at least 205/209 ms; these are fixture measurements, not device/network claims.
+Cached-range revisits require zero new requests. The initial run 46001317905 had
+one HEVC paused-seek timeout that passed on retry and the previously intermittent
+photo-control UI failure; neither recurred in final validation. No unrelated
+photo gesture code was changed. Source syntax and whitespace checks pass.
+
+Both runs used `tests_only=true`; device archives and releases were skipped.
+Disposable simulator artifacts were removed after reviewing the results. No VM
+or VPS staging, media downloads or task build artifacts were created. Earlier
+server deployments and app delivery recorded in the shared register remain pending.
+
 ## Original media dates and reversible date sorting — November 27, 2026
 
 Source implemented; service deployment and an Apple app build are pending.

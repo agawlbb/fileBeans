@@ -20,6 +20,11 @@
   video ranges. No persistent movie download is created.
 - Source changes require a requested Apple app build/release before device acceptance.
   No server API or memory-limit changes belong to this client correction.
+- Final source `a5ef6fb` passed [simulator validation 46002293143](https://github.com/agawlbb/fileBeans/actions/runs/46002293143):
+  156 unit and four viewer UI tests, all first attempts. Repeated H.264/HEVC seeks
+  reached decoded frames with 0.5 seconds of playback progress in 0.68–0.85 seconds.
+  Synthetic first-byte delivery preceded held response completion by over 200 ms.
+  This validates client behavior; VPS/Samba/Drive device acceptance remains pending.
 
 ## Folder viewer swipes
 
