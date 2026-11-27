@@ -1784,3 +1784,36 @@ This server deployment also includes the previously verified representative
 video-thumbnail selection and additive per-file archive-status API. The broker
 auto-lock correction and pending Apple UI changes require their separate
 deliveries; no broker deployment or Apple build was performed here.
+
+## Isolated archive media worker — November 27, 2026 (deployment pending)
+
+Archive probing, encoding and full-decode validation now support a separate
+`-media-worker` container. The API retains archive coordination, copying,
+publication and progress. A private Unix socket passes open file descriptors;
+the worker needs no configuration credentials, database, storage mounts or
+network. A configured worker never falls back to API-local encoding.
+
+The requested policy is uncapped CPU, CPU shares 128, 1 GiB memory/no swap and
+128 PIDs. A 640 MiB subprocess data/admission budget and worker-local pressure
+monitor replace the embedded encoder's incompatible 1.5 GiB admission budget
+only for this role. Host safeguards, codec quality, CPU niceness and idle I/O
+remain. The API's existing limits and the legacy normalizer remain unchanged.
+
+`companion/deploy/Dockerfile.media-worker` and `compose.media-worker.yaml` prepare
+the runtime and service definition. The companion README documents private socket
+configuration, the file-boundary drain marker, safe cutover and rollback. Finish
+the current file's validation, publication and original backup before switching.
+Older running binaries do not recognize the new drain marker: establish an idle
+boundary rather than assume that creating it pauses the old worker.
+
+Full service/database/real-media tests, focused race tests, all-package vet and
+Compose validation pass; TESTING.md records the separate-container 1 GiB check.
+Source only: no application/image build, deployment or production job interruption
+was performed. Requested image preparation, cutover and live latency verification
+remain pending. Earlier pending Apple changes still require their app build.
+
+Task test containers, `.build/media-worker-test`,
+`.build/media-worker-fixtures`, both 3 GiB `.ext4` backing files and their loop
+associations were removed after verification. Toolchains, copied media libraries,
+test binaries, caches and synthetic media lived only on those bounded filesystems.
+No task artifacts or VPS staging remain.

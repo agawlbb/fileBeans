@@ -17,9 +17,18 @@ func main() {
 	syscall.Umask(0007) // New copied files/dirs are group writable without a chmod pass.
 	path := flag.String("config", "/etc/filebeans/config.json", "private configuration path")
 	normalizer := flag.Bool("normalize-worker", false, "run the serial media normalization worker")
+	mediaSocket := flag.String("media-worker", "", "run isolated archive media worker on this Unix socket")
 	migrate := flag.Bool("migrate", false, "apply schema and exit")
 	printSchema := flag.Bool("schema", false, "print migration SQL and exit without connecting")
 	flag.Parse()
+	if *mediaSocket != "" {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := service.RunMediaWorker(ctx, *mediaSocket); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if *printSchema {
 		fmt.Print(service.Schema)
 		return

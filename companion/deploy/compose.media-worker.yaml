@@ -1,0 +1,37 @@
+# Merge with the existing API stack only for an explicitly requested deployment.
+# MEDIA_WORKER_RUNTIME must be a private disk-backed directory owned by UID 1000.
+# Set archiveMediaSocket=/media-runtime/media.sock and
+# archiveDrainFile=/media-runtime/drain in the API's private configuration.
+services:
+  companion:
+    volumes:
+      - type: bind
+        source: ${MEDIA_WORKER_RUNTIME:?set private worker runtime directory}
+        target: /media-runtime
+        read_only: true
+        bind: {create_host_path: false}
+  media-worker:
+    image: ${FILEBEANS_MEDIA_IMAGE:?set verified prebuilt media worker image}
+    entrypoint: [/filebeans]
+    command: [-media-worker, /media-runtime/media.sock]
+    user: "1000:1000"
+    init: true
+    restart: unless-stopped
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 1g
+    memswap_limit: 1g
+    cpus: 0
+    cpu_quota: 0
+    cpu_shares: 128
+    pids_limit: 128
+    volumes:
+      - type: bind
+        source: ${MEDIA_WORKER_RUNTIME:?set private worker runtime directory}
+        target: /media-runtime
+        bind: {create_host_path: false}
+    logging:
+      driver: local
+      options: {max-size: "5m", max-file: "2"}

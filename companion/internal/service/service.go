@@ -13,6 +13,7 @@ import (
 )
 
 type Service struct {
+	mediaWorker      bool
 	archiveEpoch     atomic.Uint64
 	archiveStatusMu  sync.Mutex
 	archiveActive    map[string]*archiveActivity

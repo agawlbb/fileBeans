@@ -814,3 +814,30 @@ lifecycle, archive read-only/alias, protected-record and status/concurrency chec
 pass with the race detector, along with service vet, in a two-CPU, 2 GiB/no-swap
 development-image container with bounded disk scratch. The fix changes only the
 server; the existing app can use it after refreshing/reopening the folder.
+
+### Isolated archive media container — November 27, 2026
+
+The new media protocol tests cover descriptor-based access after a rename,
+invalid operations/descriptors/extensions, bounded output and partial cleanup,
+one active operation, disconnect cancellation and child termination, unavailable
+worker without local fallback, memory deferral/cooldown, duplicate-worker
+exclusion, stale socket/restart recovery and the fail-closed drain marker.
+Focused tests pass with the race detector in a 1 GiB/no-swap development-image
+container; all-package vet and other companion package tests pass.
+
+Real HEVC encoding and full decode validation pass between separate containers.
+The worker has no input/storage mount, network or credentials; the caller mounts
+the socket directory read-only. Its actual Docker settings are 1,073,741,824-byte
+memory and memory-plus-swap caps, zero CPU quota/NanoCPUs, CPU shares 128 and
+128 PIDs. Final-source peak memory was 320,487,424 bytes (about 306 MiB), with no
+OOM termination. The test uses a synthetic 720x1280 video; this is not a promise
+that every media file fits the 1 GiB budget. Oversized work retains the original
+and fails or defers without changing codec quality or lifting the cap.
+
+The complete service suite also passes, including VM-only database workflows,
+archive publication/backup, moves, Trash, protection and real-media integrations,
+using pinned rclone 1.76.0. That broader API test container uses the unchanged
+2 GiB API budget because legacy embedded-worker tests require 1.5 GiB admission
+headroom; the isolated media container was separately verified at exactly 1 GiB.
+Privileged FUSE and external compatibility tests retain their opt-in gates.
+The Compose overlay validates. No production jobs, settings or services changed.

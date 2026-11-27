@@ -78,6 +78,9 @@ func (s *Service) probeMedia(ctx context.Context, input *os.File, count bool) (m
 	}
 	args = append(args, "-show_entries", "format=format_name,duration,bit_rate:stream=index,codec_type,codec_name,profile,width,height,pix_fmt,nb_frames,nb_read_frames,avg_frame_rate,field_order,sample_aspect_ratio,channels,bit_rate,color_transfer,color_primaries,color_space:stream_disposition=attached_pic:stream_side_data=rotation", "-of", "json", "/proc/self/fd/3")
 	command := exec.CommandContext(ctx, c.FFprobe, args...)
+	if s.mediaWorker {
+		command = s.archiveMediaCommand(ctx, c.FFprobe, args...)
+	}
 	command.ExtraFiles = []*os.File{input}
 	command.Stderr = io.Discard
 	var output limitedBuffer

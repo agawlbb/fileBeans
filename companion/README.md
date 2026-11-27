@@ -414,6 +414,58 @@ rechecks identities before updating. It changes only regular-file modification
 times, preserving access times and reporting every correction and exception.
 Rerun the preview to verify that no corrections remain.
 
+### Isolated archive media worker
+
+Archive-linked media can run probing, encoding and full-decode validation in a
+separate container. The API retains the archive queue, progress, copying,
+publication and all protection checks. This worker is distinct from the legacy
+`-normalize-worker` pipeline below; it does not change its settings or queues.
+
+Merge `deploy/compose.media-worker.yaml` into the API stack for an explicitly
+requested deployment. Set `FILEBEANS_MEDIA_IMAGE` to a verified VM-prepared
+image from `deploy/Dockerfile.media-worker` (the existing filesystem runtime also
+includes the required FFmpeg, ffprobe and util-linux tools). Set `MEDIA_WORKER_RUNTIME` to a
+private disk-backed directory, UID/GID 1000, mode 0700. Configure the API with
+`"archiveMediaSocket":"/media-runtime/media.sock"` and
+`"archiveDrainFile":"/media-runtime/drain"`. Keep its existing resource limits.
+
+The media container runs `/filebeans -media-worker /media-runtime/media.sock`
+without loading configuration or opening a database. Its only writable mount is
+the socket directory. It has no media mounts, credentials, network, or public
+port. The API passes already-open input and output-directory descriptors over a
+mode-0600 Unix socket; the worker never accepts storage paths or commands. Use the
+same UID in both containers. One operation runs at a time, with bounded requests
+and diagnostics; disconnects, deadlines and shutdown terminate its child. Once a
+socket is configured, an unavailable worker defers/retries jobs without falling
+back to API-local encoding. An omitted socket preserves embedded operation for
+compatibility and rollback.
+
+Use **uncapped CPU, CPU shares 128, 1 GiB memory, no swap and 128 PIDs**. Encoder
+children retain niceness 10 and idle I/O priority, with a 640 MiB data limit,
+2 GiB virtual-address limit and no core dumps. Virtual address space is not the
+resident memory budget: the container remains capped at 1 GiB. Admission requires
+640 MiB of container headroom and 2.5 GiB host availability. The worker checks
+pressure every second, cancels above 75% container working set or below 1 GiB host
+availability, and retains the 30-second healthy recovery period. Unknown metrics
+defer safely. Quality and codec settings remain unchanged; oversized files may
+fail or defer within these limits. Output staging retains its existing disk-space
+and size checks and is removed after failed operations.
+
+For a requested cutover, finish the active file's encoding, validation,
+publication and verified original backup before replacing its executor. In a
+version supporting `archiveDrainFile`, creating that marker blocks new ingests
+without interrupting active work; publication, backup and cleanup continue.
+Errors reading the marker fail closed. Verify that the active task has reached
+its completed state and has no retained original or unfinished backup before
+switching. Older deployed binaries do not support this marker: do not assume
+creating it pauses them. Observe a fully idle boundary before replacing an older
+binary; if one cannot be established, leave cutover pending rather than stop the
+active file. Start the separate worker, enable the API socket configuration, then
+remove the marker to resume. Do not run old and new API coordinators concurrently.
+For rollback, drain first, stop the media worker, and restore embedded API
+configuration. Verify output, progress, limits and request latency under encoding
+load after deployment. Image builds and deployment require explicit requests.
+
 An optional dedicated worker normalizes media through a bounded pipeline. It
 never mounts or reads Samba. Configure `normalization`
 in private config with `enabled`, local root `source` (for example `VPS`),

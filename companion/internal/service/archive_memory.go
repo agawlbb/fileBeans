@@ -25,6 +25,7 @@ type archiveMemorySample struct {
 }
 
 type archiveMemoryGuard struct {
+	required    uint64 // zero preserves the embedded worker budget
 	mu          sync.Mutex
 	initialized bool
 	blocked     bool
@@ -85,7 +86,11 @@ func (g *archiveMemoryGuard) canStart(now time.Time, recovering bool) bool {
 		g.initialized, g.blocked = true, recovering
 	}
 	sample, err := g.sample()
-	if err != nil || sample.available < archiveHostStartMemory || sample.limit <= sample.used || sample.limit-sample.used < archiveEncoderDataLimit {
+	required := g.required
+	if required == 0 {
+		required = archiveEncoderDataLimit
+	}
+	if err != nil || sample.available < archiveHostStartMemory || sample.limit <= sample.used || sample.limit-sample.used < required {
 		g.blocked, g.healthy = true, time.Time{}
 		return false
 	}

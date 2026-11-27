@@ -1,0 +1,7 @@
+# Runtime-only context prepared on VM-laptop; build only on explicit request.
+FROM debian:trixie-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg util-linux && rm -rf /var/lib/apt/lists/*
+COPY filebeans /filebeans
+USER 1000:1000
+ENTRYPOINT ["/filebeans"]
+CMD ["-media-worker", "/media-runtime/media.sock"]

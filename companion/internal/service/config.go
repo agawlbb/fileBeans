@@ -15,6 +15,8 @@ type Root struct {
 	MountSource string `json:"mountSource,omitempty"`
 }
 type Config struct {
+	ArchiveMediaSocket string              `json:"archiveMediaSocket,omitempty"`
+	ArchiveDrainFile   string              `json:"archiveDrainFile,omitempty"`
 	Filesystem         FilesystemConfig    `json:"filesystem,omitempty"`
 	ProtectedRuntime   string              `json:"protectedRuntime,omitempty"`
 	Vaults             []VaultConfig       `json:"vaults,omitempty"`
@@ -39,6 +41,11 @@ func Load(path string) (Config, error) {
 	e = json.Unmarshal(b, &c)
 	if e != nil {
 		return c, e
+	}
+	for _, path := range []string{c.ArchiveMediaSocket, c.ArchiveDrainFile} {
+		if path != "" && (!filepath.IsAbs(path) || filepath.Clean(path) != path) {
+			return c, errors.New("archive worker paths must be absolute and clean")
+		}
 	}
 	if c.Rclone == "" {
 		c.Rclone = "/rclone"

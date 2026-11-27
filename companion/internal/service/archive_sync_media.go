@@ -166,6 +166,10 @@ func (s *Service) copyArchiveOriginal(ctx context.Context, src rootFS, from stri
 }
 
 func (s *Service) encodeArchiveMedia(ctx context.Context, input, directory *os.File, plan mediaPlan, limit int64) error {
+	if s.config.ArchiveMediaSocket != "" {
+		_, err := s.mediaCall(ctx, mediaRequest{Operation: "encode", Plan: plan, Limit: limit}, input, directory)
+		return err
+	}
 	name := "output" + plan.Extension
 	if _, e := input.Seek(0, 0); e != nil {
 		return e
@@ -206,7 +210,7 @@ func (s *Service) encodeArchiveMedia(ctx context.Context, input, directory *os.F
 	args = append(args, encoding...)
 	args = append(args, "-threads", "1")
 	args = append(args, "-fs", fmt.Sprint(limit), "/proc/self/fd/4/"+name)
-	cmd := archiveCommand(ctx, s.config.Normalization.defaults().FFmpeg, args...)
+	cmd := s.archiveMediaCommand(ctx, s.config.Normalization.defaults().FFmpeg, args...)
 	cmd.ExtraFiles = []*os.File{input, directory}
 	cmd.Dir = fmt.Sprintf("/proc/self/fd/%d", directory.Fd())
 	cmd.Env = []string{"PATH=/usr/bin:/bin", "TMPDIR=/proc/self/fd/4", "HOME=/proc/self/fd/4"}
@@ -262,11 +266,19 @@ func (s *Service) validateArchiveMedia(ctx context.Context, root rootFS, path st
 		return e
 	}
 	defer f.Close()
+	return s.validateArchiveFile(ctx, f, plan)
+}
+
+func (s *Service) validateArchiveFile(ctx context.Context, f *os.File, plan mediaPlan) error {
+	if s.config.ArchiveMediaSocket != "" {
+		_, err := s.mediaCall(ctx, mediaRequest{Operation: "validate", Plan: plan}, f)
+		return err
+	}
 	info, e := s.probeMedia(ctx, f, false)
 	if e != nil {
 		return e
 	}
-	out, e := makeMediaPlan(info, path)
+	out, e := makeMediaPlan(info, "output"+plan.Extension)
 	if e != nil {
 		return e
 	}
@@ -292,17 +304,28 @@ func (s *Service) validateArchiveMedia(ctx context.Context, root rootFS, path st
 	args := []string{"-v", "error", "-nostdin", "-xerror", "-threads", "1"}
 	args = append(args, mediaInputArgs()...)
 	args = append(args, "-i", "/proc/self/fd/3", "-map", "0:v:0", "-map", "0:a:0?", "-f", "null", "-")
-	cmd := archiveCommand(ctx, s.config.Normalization.defaults().FFmpeg, args...)
+	cmd := s.archiveMediaCommand(ctx, s.config.Normalization.defaults().FFmpeg, args...)
 	cmd.ExtraFiles = []*os.File{f}
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
 	return cmd.Run()
 }
 func archiveCommand(ctx context.Context, tool string, args ...string) *exec.Cmd {
+	return archiveLimitedCommand(ctx, archiveEncoderDataLimit, tool, args...)
+}
+
+func (s *Service) archiveMediaCommand(ctx context.Context, tool string, args ...string) *exec.Cmd {
+	if s.mediaWorker {
+		return archiveLimitedCommand(ctx, mediaWorkerDataLimit, tool, args...)
+	}
+	return archiveCommand(ctx, tool, args...)
+}
+
+func archiveLimitedCommand(ctx context.Context, dataLimit uint64, tool string, args ...string) *exec.Cmd {
 	// Prefer this restartable child over the API/mail/database if a sudden
 	// spike reaches the kernel OOM killer before the one-second monitor reacts.
 	priority := `read score < /proc/self/oom_score_adj || exit 1; if [ "$score" -lt 500 ]; then echo 500 > /proc/self/oom_score_adj || exit 1; fi; exec /usr/bin/nice -n 10 /usr/bin/ionice -c 3 "$@"`
-	command := exec.CommandContext(ctx, "/usr/bin/prlimit", append([]string{"--as=2147483648", fmt.Sprintf("--data=%d", archiveEncoderDataLimit), "--core=0", "--", "/bin/sh", "-c", priority, "archive-worker", tool}, args...)...)
+	command := exec.CommandContext(ctx, "/usr/bin/prlimit", append([]string{"--as=2147483648", fmt.Sprintf("--data=%d", dataLimit), "--core=0", "--", "/bin/sh", "-c", priority, "archive-worker", tool}, args...)...)
 	command.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL}
 	return command
 }
@@ -311,8 +334,8 @@ func (s *Service) runArchiveIngest(ctx context.Context, j *archiveTask, encodeOn
 		return e
 	}
 	if j.State == "waiting" {
-		if !s.archiveMemory.canStart(time.Now(), j.WaitingForMemory) {
-			return errArchiveMemory
+		if err := s.archiveAdmission(ctx, j.WaitingForMemory); err != nil {
+			return err
 		}
 		j.WaitingForMemory = false
 	}
@@ -448,7 +471,7 @@ func (s *Service) runArchiveIngest(ctx context.Context, j *archiveTask, encodeOn
 		stopActivity := s.startArchiveActivity(j.ID, "transcoding")
 		defer stopActivity()
 		probe, stop := context.WithTimeout(ctx, time.Minute)
-		info, e := s.probeMedia(probe, input, false)
+		info, e := s.probeArchiveMedia(probe, input, false)
 		stop()
 		if e != nil {
 			return e
@@ -459,7 +482,7 @@ func (s *Service) runArchiveIngest(ctx context.Context, j *archiveTask, encodeOn
 		}
 		if plan.Image && (info.Format.Name == "png_pipe" || info.Format.Name == "webp_pipe") {
 			probe, stop := context.WithTimeout(ctx, 2*time.Minute)
-			counted, err := s.probeMedia(probe, input, true)
+			counted, err := s.probeArchiveMedia(probe, input, true)
 			stop()
 			if err != nil {
 				return err
@@ -493,7 +516,7 @@ func (s *Service) runArchiveIngest(ctx context.Context, j *archiveTask, encodeOn
 				case <-encode.Done():
 					return
 				case <-ticker.C:
-					if s.archiveMemory.cancelIfPressure(cancel) {
+					if s.config.ArchiveMediaSocket == "" && s.archiveMemory.cancelIfPressure(cancel) {
 						return
 					}
 					latest, err := r.Stat(path)

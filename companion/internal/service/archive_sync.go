@@ -558,10 +558,13 @@ func (s *Service) archiveEncodeLoop(ctx context.Context) {
 			for _, task := range tasks {
 				recovering = recovering || task.WaitingForMemory
 			}
-			s.archiveMemory.canStart(time.Now(), recovering)
+			s.archiveCanStart(ctx, recovering)
 			for _, j := range tasks {
 				if ctx.Err() != nil {
 					return
+				}
+				if j.State == "waiting" && s.archiveDraining() {
+					continue
 				}
 				if j.Kind != "ingest" || j.Next > time.Now().Unix() || (j.State != "waiting" && j.State != "publishing" && j.State != "cleanup") {
 					continue
@@ -574,6 +577,14 @@ func (s *Service) archiveEncodeLoop(ctx context.Context) {
 		}
 		wait(ctx, 5*time.Second)
 	}
+}
+
+func (s *Service) archiveDraining() bool {
+	if s.config.ArchiveDrainFile == "" {
+		return false
+	}
+	_, err := os.Stat(s.config.ArchiveDrainFile)
+	return !errors.Is(err, os.ErrNotExist)
 }
 func (s *Service) discoverArchiveMedia(ctx context.Context) {
 	links, e := s.archivePolicyLinks()
