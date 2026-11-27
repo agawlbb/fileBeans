@@ -6,7 +6,7 @@ arch: [aarch64]
 startup: services
 boot: auto
 init: false
-image: ghcr.io/agawlbb/filebeans-pi-{arch}
+image: files.coffeybean.com/filebeans-pi-{arch}
 ports:
   8095/tcp: 8095
 ports_description:

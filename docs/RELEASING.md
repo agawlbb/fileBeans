@@ -1,5 +1,24 @@
 # Signing and TestFlight
 
+## Pi trial TestFlight 54 — November 27, 2026
+
+Released **0.1.0 (54)**, built from isolated runtime source `ee576bd`, through
+[upload run 46055923673](https://github.com/agawlbb/fileBeans/actions/runs/46055923673).
+This reused the existing signed artifact from run 46044466696 without compiling
+again. SHA-256 `01e5a882e51dfb6ef976a6c0ebe5c5b5bdbbf95814f76a961a1a8a78041bd3bb`,
+bundle ID and build number were verified before upload. Apple build
+`7ddc3b48-519c-4a0a-b1b6-cc3f590a548b` is **VALID / IN_BETA_TESTING** with
+automatic notification enabled. Existing internal group Joe retains access to
+all builds; no audience changes were made. Runner credential cleanup passed.
+The app supplies local-first pinned HTTPS routing; Pi ownership cutover is still
+pending the archive-link decision described in [PI-SERVER.md](PI-SERVER.md).
+Feature source remains unmerged. Physical-device acceptance remains manual.
+
+For future retained-build releases, supply `operation=upload`, the explicit
+`build_number`, `signed_artifact_run` and `signed_artifact_sha256` to TestFlight.
+Selection validation rejects missing checksums and ambiguous build numbers; the
+upload fails if the downloaded IPA's hash, app identifier or build differ.
+
 ## Requested server deployment and TestFlight 41 — November 27, 2026
 
 Released **0.1.0 (41)** from `fe8ef98`, tagged `testflight/0.1.0-41`.

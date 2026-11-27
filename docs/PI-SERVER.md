@@ -258,3 +258,45 @@ The builder is stopped and its original shared state is restored. Only the six
 prepared deliverables remain for explicit deployment/upload or rejection of this
 trial. No registry publication, production deployment, TestFlight upload or merge
 was performed.
+
+## Authorized rollout — November 27, 2026
+
+The subsequent instruction authorized deployment and app release, retaining the
+unmerged feature branch. Signed build 54 was uploaded without rebuilding through
+[release run 46055923673](https://github.com/agawlbb/fileBeans/actions/runs/46055923673).
+The workflow verified its exact IPA checksum, bundle ID and build number before
+upload. Apple build `7ddc3b48-519c-4a0a-b1b6-cc3f590a548b` is VALID and
+IN_BETA_TESTING, with autoNotifyEnabled true. The existing internal group Joe
+retains access to all builds. No testers were added or removed.
+
+The Pi image is published as
+`files.coffeybean.com/filebeans-pi-aarch64:0.1.0` using read-only OCI distribution
+through the existing Caddy server, with manifest `72fe3205c1ebe4580b09db9acd14b94bd79678209db2eb8c84caa9dd454f2870`.
+`prepare-pi-image-registry.py` verifies blob sizes/digests with a 96 MiB aggregate
+write limit. No separate registry daemon or Pi build toolchain was installed.
+Supervisor successfully pulled and installed `local_filebeans` on HAOS 18.5,
+Pi 4 / ARM64. Actual startup established 512 MiB/no swap, one CPU and 128-process
+limits. With no production configuration installed, the broker correctly refused
+startup. The app was stopped and its boot mode set to manual; this is an installed
+image, not a functioning storage server. Core was not restarted. Supervisor stayed
+healthy; available memory was 2.22 GiB before and after this bounded startup check.
+This does not establish FUSE, transfer-load or HA responsiveness acceptance.
+
+Production ownership has not changed. The VPS remains on its existing release-41
+image and Samba connection. Raw operation inventory found a sealed archive link
+between Samba vault `639f8ece321e9342de4c57ba78ddea28` and VPS vault
+`73b9b29e822abb8476c4ababf7de0043`, with an attention task reporting linked-folder
+changes outside FileBeans. This implementation does not federate archive sync.
+The owner was asked to choose between retaining that relationship and extending
+cross-server archive support, or unlinking while preserving all files. No unlink,
+data move, registry retirement, source-state export or API/broker cutover occurred.
+Failed source transfers and unresolved Trash records also require reconciliation
+before the existing exporter permits handoff. Their records remain intact.
+
+Remaining rollout: resolve the archive decision and relevant failed operations;
+prepare explicit SQLite initialization and sealed registry/Trash import through
+the supported HA app maintenance path; configure private tokens and ownership;
+deploy the VPS peer image and Pi HTTPS route; verify FUSE, Drive, server-side moves
+and HA load acceptance. The existing Tailscale path is active, but no public Pi
+API route has been enabled yet. Physical-device LAN/remote acceptance remains
+manual after the service is ready.
