@@ -185,6 +185,12 @@ their current process's zero-swap limit. Ordinary files and symlinks cannot fake
 that proof. The cgroup control files remain root-writable; the API can read them.
 Python is a runtime maintenance dependency only; no compiler is installed on Pi.
 
+The isolated Pi probe found that an ordinary share's default ACL can otherwise
+reach a newly created opaque vault store. App 0.1.2 creates that store privately,
+strips inherited access/default ACLs on creation, and still refuses unsafe existing
+stores. Native filesystem consumers use the same forced reader UID/group as CIFS
+consumers, so migrated ciphertext remains readable through the broker's FUSE mount.
+
 The archive peer protocol streams at most 256 KiB at a time with an exact source
 length/disk-space ceiling and full checksum readback before exclusive publication.
 Original cleanup follows successful publication and cached-thumbnail delivery.

@@ -398,7 +398,7 @@ func (b *mountBroker) vaultConfig(e brokerEntry) VaultConfig {
 		Mount: filepath.Join(b.config.Runtime, "mounts", e.ID), Gocryptfs: b.config.Gocryptfs,
 		Fusermount: b.config.Fusermount, BackingMount: r.Mount, BackingSource: r.MountSource,
 		StartClient: "/bin/true", StopClient: "/bin/true"}
-	if r.Mount != "" {
+	if r.Mount != "" || b.config.FilesystemConsumer {
 		v.forceOwner = fmt.Sprintf("%d:%d", b.config.ReaderUID, b.config.GID)
 	}
 	return v
@@ -703,30 +703,11 @@ func (b *mountBroker) installLockedMount(entry brokerEntry) error {
 }
 
 func (b *mountBroker) prepare(entry brokerEntry) error {
-	r, e := b.root(entry.Source)
-	if e != nil {
-		return e
-	}
-	root, e := os.OpenRoot(r.Path)
-	if e != nil {
-		return e
-	}
-	defer root.Close()
-	if e = safe(root, brokerStore); e != nil {
-		return e
-	}
-	if e = root.MkdirAll(brokerStore, 0700); e != nil {
-		return e
-	}
-	dir, e := brokerOpenDir(r.Path, brokerStore)
+	dir, e := b.openPrivateStore(entry.Source)
 	if e != nil {
 		return e
 	}
 	defer dir.Close()
-	var st unix.Stat_t
-	if unix.Fstat(int(dir.Fd()), &st) != nil || r.Mount == "" && (st.Uid != uint32(os.Geteuid()) || st.Mode&0022 != 0) {
-		return ErrUnsafe
-	}
 	if e = unix.Mkdirat(int(dir.Fd()), entry.ID, 0700); e != nil && !errors.Is(e, os.ErrExist) {
 		return e
 	}

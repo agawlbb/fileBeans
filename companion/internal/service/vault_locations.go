@@ -232,7 +232,13 @@ func (b *mountBroker) renameMarker(e brokerEntry, from, to string) error {
 	if err = safe(base, filepath.Dir(to)); err != nil {
 		return err
 	}
-	if err = base.MkdirAll(filepath.Dir(to), 0770); err != nil {
+	if filepath.Dir(to) == brokerStore {
+		store, storeErr := b.openPrivateStore(e.Source)
+		if storeErr != nil {
+			return storeErr
+		}
+		store.Close()
+	} else if err = base.MkdirAll(filepath.Dir(to), 0770); err != nil {
 		return err
 	}
 	old, err := brokerOpenDir(root.Path, filepath.Clean(filepath.Dir(from)))
