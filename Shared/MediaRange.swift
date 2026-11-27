@@ -6,8 +6,22 @@ struct MediaChunk {
     let mimeType: String?
 
     static func decode(_ data: Data, response: HTTPURLResponse, offset: Int64, length: Int) throws -> MediaChunk {
-        guard response.statusCode == 206,
-              let header = response.value(forHTTPHeaderField: "Content-Range"), header.hasPrefix("bytes ") else {
+        let range = try MediaRangeResponse(response, offset: offset, length: length)
+        guard data.count == range.length else { throw URLError(.badServerResponse) }
+        return MediaChunk(data: data, totalLength: range.total, mimeType: range.mimeType)
+    }
+}
+
+/// Check headers before any response bytes are supplied to AVPlayer.
+struct MediaRangeResponse {
+    let length: Int
+    let total: Int64
+    let mimeType: String?
+
+    init(_ response: HTTPURLResponse, offset: Int64, length: Int) throws {
+        guard response.statusCode == 206, offset >= 0, length > 0,
+              let header = response.value(forHTTPHeaderField: "Content-Range"), header.hasPrefix("bytes "),
+              response.value(forHTTPHeaderField: "Content-Encoding").map({ $0.lowercased() == "identity" }) ?? true else {
             throw URLError(.badServerResponse)
         }
         let parts = header.dropFirst(6).split(separator: "/", omittingEmptySubsequences: false)
@@ -15,10 +29,12 @@ struct MediaChunk {
         let bounds = parts[0].split(separator: "-", omittingEmptySubsequences: false)
         guard bounds.count == 2, let start = Int64(bounds[0]), let end = Int64(bounds[1]),
               start == offset, start >= 0, end >= start, end < total,
-              end - start + 1 == Int64(data.count), !data.isEmpty, data.count <= length else {
+              end - start + 1 <= Int64(length) else {
             throw URLError(.badServerResponse)
         }
-        return MediaChunk(data: data, totalLength: total, mimeType: response.mimeType)
+        self.length = Int(end - start + 1)
+        self.total = total
+        mimeType = response.mimeType
     }
 }
 

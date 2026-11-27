@@ -465,11 +465,13 @@ struct ImportedMedia: Transferable {
 
 /// The cached movie owns playback; presentation views only display it.
 @MainActor
-final class Movie: Identifiable {
+final class Movie: ObservableObject, Identifiable {
     let id = UUID()
     let name: String
     let stream: MediaStream
     let player: AVPlayer
+    @Published private(set) var playbackError: NSError?
+    private var playbackObservers: [NSKeyValueObservation] = []
 
     init(name: String, stream: MediaStream, player: AVPlayer = AVPlayer()) {
         self.name = name; self.stream = stream; self.player = player
@@ -478,9 +480,26 @@ final class Movie: Identifiable {
     func playIfNeeded() async throws {
         guard player.currentItem == nil else { return }
         try await stream.play(on: player)
+        guard let item = player.currentItem else { return }
+        let changed: () -> Void = { [weak self, weak item] in
+            Task { @MainActor in
+                guard let self, let item, self.player.currentItem === item else { return }
+                if item.status == .failed { self.playbackError = item.error as NSError? ?? NSError(domain: "fileBeans.Playback", code: 1) }
+                self.resumeBufferedPlayback()
+            }
+        }
+        playbackObservers = [
+            player.observe(\.timeControlStatus, options: [.initial, .new]) { _, _ in changed() },
+            player.observe(\.rate, options: [.new]) { _, _ in changed() },
+            item.observe(\.status, options: [.initial, .new]) { _, _ in changed() },
+            item.observe(\.isPlaybackBufferEmpty, options: [.new]) { _, _ in changed() },
+            item.observe(\.isPlaybackLikelyToKeepUp, options: [.new]) { _, _ in changed() }
+        ]
     }
 
     func stop() {
+        playbackObservers.removeAll()
+        playbackError = nil
         player.pause()
         player.replaceCurrentItem(with: nil)
         stream.cancel()
@@ -489,12 +508,12 @@ final class Movie: Identifiable {
     func resumeBufferedPlayback() {
         guard player.timeControlStatus == .waitingToPlayAtSpecifiedRate,
               let item = player.currentItem, item.status == .readyToPlay,
-              item.isPlaybackLikelyToKeepUp, !item.isPlaybackBufferEmpty else { return }
+              !item.isPlaybackBufferEmpty else { return }
         player.playImmediately(atRate: player.rate > 0 ? player.rate : 1)
     }
 }
 struct MovieView: View {
-    let movie: Movie
+    @ObservedObject var movie: Movie
     var fullScreen = false
     @Environment(\.dismiss) private var dismiss
     private var player: AVPlayer { movie.player }
@@ -518,13 +537,8 @@ struct MovieView: View {
                 guard let item = notification.object as? AVPlayerItem, item === player.currentItem else { return }
                 showFailure(item, error: notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? NSError)
             }
-            .task {
-                // Initial loading failures arrive through status, without an end-of-playback notification.
-                while !Task.isCancelled {
-                    if let item = player.currentItem, item.status == .failed { showFailure(item); break }
-                    movie.resumeBufferedPlayback()
-                    do { try await Task.sleep(for: .seconds(1)) } catch { return }
-                }
+            .onReceive(movie.$playbackError) { error in
+                if let error, let item = player.currentItem { showFailure(item, error: error) }
             }
             .alert("Unable to Play", isPresented: $error) { Button("OK") { dismiss() } } message: {
                 Text("Playback failed.\n\n\(failureDetails)")

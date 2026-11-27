@@ -5,41 +5,57 @@ import UniformTypeIdentifiers
 /// The delegate and loading-request state are confined to the main queue.
 @MainActor
 final class MediaStream: NSObject, @preconcurrency AVAssetResourceLoaderDelegate {
-    private let fetch: (URLRequest, Int64, Int) async throws -> MediaChunk
+    private let fetch: (URLRequest, Int64, Int) -> AsyncThrowingStream<MediaChunk, Error>
     private let request: URLRequest
     private let name: String
     private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
     private(set) var loadingRequestCount = 0
     private(set) var completedRequestCount = 0
     private(set) var suppliedByteCount: Int64 = 0
-    private var prefetched: MediaChunk?
+    private let ranges = MediaRangeCache()
 
-    // At most 256 KiB per adjacent video, retained only by its viewer entry.
+    // Warm only the opening bytes of an adjacent video; playback fills the range cache.
     func prefetch() async throws {
-        guard prefetched == nil else { return }
-        let chunk = try await fetch(request, 0, 256 * 1024)
-        try Task.checkCancellation()
-        prefetched = chunk
+        _ = try await readChunk(offset: 0, length: 256 * 1024)
     }
 
-    func clearPrefetch() { prefetched = nil }
+    func clearCache() { ranges.clear() }
 
     func readChunk(offset: Int64, length: Int) async throws -> MediaChunk {
         try Task.checkCancellation()
-        if let prefetched, offset >= 0, offset < Int64(prefetched.data.count), length > 0 {
-            let start = Int(offset)
-            let end = start + min(length, prefetched.data.count - start)
-            return MediaChunk(data: prefetched.data.subdata(in: start..<end), totalLength: prefetched.totalLength, mimeType: prefetched.mimeType)
+        var data = Data()
+        var metadata: MediaChunk?
+        try await read(offset: offset, length: Int64(length)) { chunk in
+            data.append(chunk.data); metadata = chunk
         }
-        return try await fetch(request, offset, length)
+        guard let metadata else { throw URLError(.badServerResponse) }
+        return MediaChunk(data: data, totalLength: metadata.totalLength, mimeType: metadata.mimeType)
+    }
+
+    func read(offset: Int64, length: Int64?, receive: (MediaChunk) throws -> Void) async throws {
+        guard offset >= 0, length.map({ $0 > 0 && $0 <= Int64.max - offset }) ?? true else { throw URLError(.badURL) }
+        var cursor = offset
+        var end = length.map { offset + $0 } ?? Int64.max
+        while cursor < end {
+            try Task.checkCancellation()
+            let before = cursor
+            let count = Int(min(Int64(MediaRange.chunkSize), end - cursor))
+            try await ranges.read(offset: cursor, length: count, fetch: { offset, length in
+                self.fetch(self.request, offset, length)
+            }) { chunk in
+                try receive(chunk)
+                cursor += Int64(chunk.data.count); end = min(end, chunk.totalLength)
+            }
+            guard cursor > before else { throw URLError(.badServerResponse) }
+        }
     }
 
     init(client: FilesystemClient, request: URLRequest, name: String) {
-        self.fetch = { try await client.streamChunk($0, offset: $1, length: $2) }; self.request = request; self.name = name
+        self.fetch = { client.streamChunks($0, offset: $1, length: $2) }; self.request = request; self.name = name
     }
 
     init(client: CompanionClient, request: URLRequest, name: String) {
-        self.fetch = { try await client.streamChunk($0, offset: $1, length: $2) }; self.request = request; self.name = name
+        self.fetch = { client.streamChunks($0, offset: $1, length: $2) }; self.request = request; self.name = name
     }
 
     func asset() -> AVURLAsset {
@@ -60,6 +76,7 @@ final class MediaStream: NSObject, @preconcurrency AVAssetResourceLoaderDelegate
         }
         try Task.checkCancellation()
         guard playable else { throw AVError(.fileFormatNotRecognized) }
+        player.automaticallyWaitsToMinimizeStalling = false
         player.replaceCurrentItem(with: AVPlayerItem(asset: asset))
         player.play()
     }
@@ -67,6 +84,7 @@ final class MediaStream: NSObject, @preconcurrency AVAssetResourceLoaderDelegate
     func cancel() {
         for task in tasks.values { task.cancel() }
         tasks.removeAll()
+        ranges.cancel()
     }
 
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader,
@@ -89,9 +107,7 @@ final class MediaStream: NSObject, @preconcurrency AVAssetResourceLoaderDelegate
                     if !loading.isCancelled { loading.finishLoading() }
                     return
                 }
-                try await MediaRange.read(offset: offset, length: length, firstChunkSize: 64 * 1024, fetch: { offset, count in
-                    try await self.readChunk(offset: offset, length: count)
-                }, receive: { chunk in
+                try await self.read(offset: offset, length: length, receive: { chunk in
                     try Task.checkCancellation()
                     guard !loading.isCancelled else { throw CancellationError() }
                     if let info = loading.contentInformationRequest {
@@ -100,7 +116,7 @@ final class MediaStream: NSObject, @preconcurrency AVAssetResourceLoaderDelegate
                             ?? UTType(filenameExtension: (self.name as NSString).pathExtension)?.identifier
                             ?? UTType.data.identifier
                         info.isByteRangeAccessSupported = true
-                        // These bytes arrive over HTTPS, not from a complete local cache.
+                        // Only recently fetched ranges are cached, not the complete movie.
                         info.isEntireLengthAvailableOnDemand = false
                     }
                     self.suppliedByteCount += Int64(chunk.data.count)

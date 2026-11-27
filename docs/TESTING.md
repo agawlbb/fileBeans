@@ -1,3 +1,26 @@
+## Thumbnail and streaming performance — November 27, 2026
+
+- Thumbnail regressions cover synchronous decoded-image reuse, shared fetch/decode,
+  disk fallback after memory warnings, revision/expiry invalidation and connection
+  removal during an outstanding load. Scroll away and back in filesystem and Drive
+  grids/lists: unchanged cached thumbnails should appear immediately. Lock protected
+  folders and verify cached images cannot appear until unlocked.
+- Video regressions cover progressive delivery before HTTP completion, strict range
+  headers/truncation checks, overlapping cached/in-flight reads, cancellation,
+  least-recently-used eviction, and zero extra requests when revisiting a cached range.
+  The controlled transport fixture holds completion for 200 ms after first delivery
+  and prints first-byte time against the whole-response baseline. H.264/HEVC tests
+  print seek-to-moving-frame latency and require under four seconds on delayed,
+  capped responses; physical-device latency still requires acceptance below.
+- On iPhone/iPad, compare repeated forward/backward seeks on VPS, Samba and Drive,
+  including a larger high-bitrate video. Confirm quick motion after scrubbing,
+  automatic recovery after throttling, intentional pause preserved during recovery,
+  and no new stream/player when toggling full screen. Paging away stops requests;
+  returning to a retained neighbor reuses fetched ranges. Closing/eviction releases
+  video ranges. No persistent movie download is created.
+- Source changes require a requested Apple app build/release before device acceptance.
+  No server API or memory-limit changes belong to this client correction.
+
 ## Folder viewer swipes
 
 - TestFlight 38 regression correction: the video UI fixture streams the animated

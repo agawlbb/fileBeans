@@ -73,7 +73,7 @@ final class MediaStreamTests: XCTestCase {
         defer { client.close() }
         let request = try client.request("content", query: ["path": "/probe.mp4", "source": "disk"])
         let stream = MediaStream(client: client, request: request, name: "probe.mp4")
-        defer { stream.cancel(); stream.clearPrefetch() }
+        defer { stream.cancel(); stream.clearCache() }
         try await stream.prefetch()
         try await stream.prefetch()
         XCTAssertEqual(stream.loadingRequestCount, 0, "Prefetch must not create a player or begin playback")
@@ -86,7 +86,10 @@ final class MediaStreamTests: XCTestCase {
         XCTAssertEqual(ranges.count, 1, "Player probes must reuse the prefetched opening bytes")
         _ = try await stream.readChunk(offset: 262144, length: 65536)
         XCTAssertEqual(ranges.count, 2, "Playback beyond the head must continue using bounded requests")
-        stream.clearPrefetch()
+        stream.cancel()
+        _ = try await stream.readChunk(offset: 270000, length: 32000)
+        XCTAssertEqual(ranges.count, 2, "A backward seek must reuse non-opening ranges after paging away")
+        stream.clearCache()
         _ = try await stream.readChunk(offset: 0, length: 2)
         XCTAssertEqual(ranges.count, 3, "Eviction must release the prefetched bytes")
     }
@@ -169,6 +172,7 @@ final class MediaStreamTests: XCTestCase {
         // failure. Seek while playing, without a pause/play workaround.
         let originalItem = player.currentItem
         for target in [2.0, 5.0, 1.0, 4.0, 2.0] {
+            let seekStarted = Date()
             let seek = expectation(description: "Repeated seek to \(target)")
             player.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { finished in
                 XCTAssertTrue(finished)
@@ -187,6 +191,9 @@ final class MediaStreamTests: XCTestCase {
                 try await Task.sleep(for: .milliseconds(100))
             }
             XCTAssertTrue(decoded, "Video must decode and advance after repeated seeks without manual resume")
+            let seekLatency = Date().timeIntervalSince(seekStarted)
+            print("Seek-to-moving-frame \(fixtureName) target=\(target)s latency=\(seekLatency)s")
+            XCTAssertLessThan(seekLatency, 4, "Delayed-fixture seeks must resume promptly")
             XCTAssertTrue(player.currentItem === originalItem)
         }
 

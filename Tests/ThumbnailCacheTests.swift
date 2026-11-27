@@ -29,6 +29,47 @@ private actor ThumbnailFetchGate {
 
 @MainActor
 final class ThumbnailCacheTests: XCTestCase {
+    func testDecodedThumbnailIsAvailableImmediatelyAndSharedAcrossConsumers() async throws {
+        let root = temporaryRoot(); defer { try? FileManager.default.removeItem(at: root) }
+        let cache = ThumbnailCache(root: root), key = makeKey(), data = png()
+        let counter = ThumbnailFetchCounter()
+        async let first = cache.image(for: key) { try await counter.fetch(data) }
+        async let second = cache.image(for: key) { try await counter.fetch(data) }
+        let (a, b) = try await (first, second)
+        XCTAssertTrue(a === b, "Concurrent cells must share one decoded image")
+        XCTAssertTrue(cache.cachedImage(for: key) === a, "A revisited cell must have a synchronous hit")
+        let revisit = try await cache.image(for: key) { XCTFail("Revisit must not fetch"); return data }
+        XCTAssertTrue(revisit === a, "Revisit must not decode again")
+        let count = await counter.count
+        XCTAssertEqual(count, 1)
+        XCTAssertNil(cache.cachedImage(for: makeKey(connection: key.connection, revision: "2")))
+        await cache.clearMemory()
+        XCTAssertNil(cache.cachedImage(for: key))
+        let disk = try await cache.image(for: key) { XCTFail("Memory warning must preserve disk cache"); return data }
+        XCTAssertFalse(disk === a)
+        await cache.clear(connection: key.connection)
+        XCTAssertNil(cache.cachedImage(for: key))
+    }
+
+    func testDecodedUnversionedThumbnailExpires() async throws {
+        let root = temporaryRoot(); defer { try? FileManager.default.removeItem(at: root) }
+        let cache = ThumbnailCache(root: root, lifetime: 0), key = makeKey(revision: ""), data = png()
+        _ = try await cache.image(for: key) { data }
+        XCTAssertNil(cache.cachedImage(for: key))
+    }
+
+    func testConnectionRemovalRejectsPendingImageDecode() async throws {
+        let root = temporaryRoot(); defer { try? FileManager.default.removeItem(at: root) }
+        let cache = ThumbnailCache(root: root), key = makeKey(), data = png(), gate = ThumbnailFetchGate()
+        let task = Task { try await cache.image(for: key) { await gate.fetch(data) } }
+        await gate.waitUntilEntered()
+        await cache.clear(connection: key.connection)
+        await gate.finish()
+        do { _ = try await task.value; XCTFail("Invalidated image must not return") }
+        catch is CancellationError { }
+        XCTAssertNil(cache.cachedImage(for: key))
+    }
+
     func testLargeThumbnailIsDownsampledBeforeDisplay() async throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }

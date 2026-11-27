@@ -78,19 +78,13 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
         config.timeoutIntervalForRequest = 30
         return URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }()
-    private lazy var mediaSession: URLSession = {
-        let config = configuration.copy() as! URLSessionConfiguration
-        config.httpCookieStorage = nil; config.urlCache = nil
-        config.httpMaximumConnectionsPerHost = 8
-        config.timeoutIntervalForRequest = 30
-        return URLSession(configuration: config, delegate: self, delegateQueue: nil)
-    }()
+    private lazy var mediaSession = MediaRangeTransport(configuration: configuration)
     init(connection: Connection, credential: String? = nil, configuration: URLSessionConfiguration = .ephemeral,
          store: SharedStore? = nil) {
         self.connection = connection.unified; self.credential = credential; self.configuration = configuration
         self.store = store
     }
-    func close() { session.invalidateAndCancel(); mediaSession.invalidateAndCancel() }
+    func close() { session.invalidateAndCancel(); mediaSession.close() }
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
     func authorizedRequest(_ route: String, method: String = "GET", body: Data? = nil,
@@ -128,14 +122,10 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
         return data
     }
     func streamChunk(_ request: URLRequest, offset: Int64, length: Int) async throws -> MediaChunk {
-        guard offset >= 0, length > 0, length <= MediaRange.chunkSize, offset <= Int64.max - Int64(length) else { throw URLError(.badURL) }
-        var r = request
-        r.cachePolicy = .reloadIgnoringLocalCacheData
-        r.setValue("bytes=\(offset)-\(offset + Int64(length) - 1)", forHTTPHeaderField: "Range")
-        r.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-        let (bytes, response) = try await mediaSession.data(for: r)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 206 else { throw URLError(.badServerResponse) }
-        return try MediaChunk.decode(bytes, response: http, offset: offset, length: length)
+        try await mediaSession.chunk(request, offset: offset, length: length)
+    }
+    func streamChunks(_ request: URLRequest, offset: Int64, length: Int) -> AsyncThrowingStream<MediaChunk, Error> {
+        mediaSession.chunks(request, offset: offset, length: length)
     }
     func download(_ route: String) async throws -> URL {
         let (file, response) = try await session.download(for: authorizedRequest(route))

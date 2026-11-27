@@ -22,6 +22,31 @@ private final class ThumbnailMemoryEntry {
     init(_ data: Data, created: Date) { self.data = data; self.created = created }
 }
 
+/// NSCache is thread safe, so a SwiftUI cell can display a hit without an actor hop.
+private final class ThumbnailImages: @unchecked Sendable {
+    final class Entry {
+        let image: UIImage
+        let created = Date()
+        init(_ image: UIImage) { self.image = image }
+    }
+    private let cache = NSCache<NSString, Entry>()
+    private let lifetime: TimeInterval
+    init(limit: Int, lifetime: TimeInterval) {
+        self.lifetime = lifetime
+        cache.totalCostLimit = limit
+    }
+    func image(for key: ThumbnailKey) -> UIImage? {
+        guard let entry = cache.object(forKey: key.digest as NSString),
+              !key.revision.isEmpty || Date().timeIntervalSince(entry.created) < lifetime else { return nil }
+        return entry.image
+    }
+    func insert(_ image: UIImage, for key: ThumbnailKey) {
+        guard let cg = image.cgImage else { return }
+        cache.setObject(Entry(image), forKey: key.digest as NSString, cost: cg.bytesPerRow * cg.height)
+    }
+    func clear() { cache.removeAllObjects() }
+}
+
 /// Disk work is serialized off the main actor. Only thumbnail subdirectories are evicted.
 actor ThumbnailCache {
     static let shared = ThumbnailCache()
@@ -31,6 +56,9 @@ actor ThumbnailCache {
     private var lastPrune = Date.distantPast
     private var diskBytesSincePrune = 0
     private let memory = NSCache<NSString, ThumbnailMemoryEntry>()
+    private nonisolated let images: ThumbnailImages
+    private var imageTasks: [ThumbnailKey: Task<UIImage, Error>] = [:]
+    private var memoryGeneration = 0
     private final class Flight {
         let id = UUID()
         let task: Task<Data, Error>
@@ -50,8 +78,10 @@ actor ThumbnailCache {
         else { waiters.removeFirst().resume() }
     }
 
-    init(root: URL? = nil, limit: Int = 200 * 1024 * 1024, lifetime: TimeInterval = 86400) {
+    init(root: URL? = nil, limit: Int = 200 * 1024 * 1024, lifetime: TimeInterval = 86400,
+         imageLimit: Int = 128 * 1024 * 1024) {
         self.root = root; self.limit = limit; self.lifetime = lifetime
+        images = ThumbnailImages(limit: imageLimit, lifetime: lifetime)
         memory.countLimit = 200; memory.totalCostLimit = 32 * 1024 * 1024
     }
     private func directory(_ connection: UUID) throws -> URL {
@@ -121,9 +151,9 @@ actor ThumbnailCache {
         flight.consumers.remove(consumer)
         if flight.consumers.isEmpty { flight.task.cancel(); pending[key] = nil }
     }
-    func image(for key: ThumbnailKey, fetch: @escaping () async throws -> Data) async throws -> UIImage {
-        let data = try await data(for: key, fetch: fetch)
-        try Task.checkCancellation()
+    nonisolated func cachedImage(for key: ThumbnailKey) -> UIImage? { images.image(for: key) }
+
+    private nonisolated static func decode(_ data: Data) throws -> UIImage {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -133,13 +163,44 @@ actor ThumbnailCache {
               ] as CFDictionary) else { throw CocoaError(.fileReadCorruptFile) }
         return UIImage(cgImage: image)
     }
+
+    func image(for key: ThumbnailKey, fetch: @escaping () async throws -> Data) async throws -> UIImage {
+        try Task.checkCancellation()
+        if let image = cachedImage(for: key) { return image }
+        let generation = generations[key.connection, default: 0]
+        let memoryGeneration = self.memoryGeneration
+        let task: Task<UIImage, Error>
+        if let existing = imageTasks[key] { task = existing }
+        else {
+            task = Task {
+                let data = try await self.data(for: key, fetch: fetch)
+                let image = try await Task.detached(priority: .userInitiated) { try Self.decode(data) }.value
+                try Task.checkCancellation()
+                guard self.generations[key.connection, default: 0] == generation else { throw CancellationError() }
+                if self.memoryGeneration == memoryGeneration { self.images.insert(image, for: key) }
+                return image
+            }
+            imageTasks[key] = task
+            // Own cleanup independently of any cell that happens to await this task.
+            Task {
+                _ = await task.result
+                if self.generations[key.connection, default: 0] == generation { self.imageTasks[key] = nil }
+            }
+        }
+        let image = try await task.value
+        try Task.checkCancellation()
+        guard generations[key.connection, default: 0] == generation else { throw CancellationError() }
+        return image
+    }
     func clear(connection: UUID) {
         generations[connection, default: 0] += 1
         for key in Array(pending.keys) where key.connection == connection { pending.removeValue(forKey: key)?.task.cancel() }
+        for key in Array(imageTasks.keys) where key.connection == connection { imageTasks.removeValue(forKey: key)?.cancel() }
         memory.removeAllObjects()
+        images.clear()
         if let directory = try? directory(connection) { try? FileManager.default.removeItem(at: directory) }
     }
-    func clearMemory() { memory.removeAllObjects() }
+    func clearMemory() { memoryGeneration += 1; memory.removeAllObjects(); images.clear() }
     private func prune() throws {
         let base: URL
         if let root { base = root }

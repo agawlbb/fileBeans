@@ -24,7 +24,7 @@ enum FolderViewerContent {
         switch self {
         case .document(let url), .image(let url, _):
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
-        case .movie(let movie): movie.stop(); movie.stream.clearPrefetch()
+        case .movie(let movie): movie.stop(); movie.stream.clearCache()
         }
     }
 

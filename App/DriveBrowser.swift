@@ -442,20 +442,25 @@ struct DriveThumbnailView: View {
     let item: DriveFile
     let enabled: Bool
     @State private var image: UIImage?
+    @State private var imageKey: ThumbnailKey?
+    private var canPreview: Bool { enabled && !item.folder && item.hasThumbnail == true }
+    private var displayedImage: UIImage? {
+        guard canPreview else { return nil }
+        return (imageKey == key ? image : nil) ?? ThumbnailCache.shared.cachedImage(for: key)
+    }
     private var key: ThumbnailKey {
         ThumbnailKey(connection: connection.id, provider: "drive", source: item.driveId ?? "",
                      file: item.id, revision: item.version ?? item.modifiedTime ?? "")
     }
     var body: some View {
         Group {
-            if !item.folder, let image { Image(uiImage: image).resizable().scaledToFit().clipShape(RoundedRectangle(cornerRadius: 6)) }
+            if let image = displayedImage { Image(uiImage: image).resizable().scaledToFit().clipShape(RoundedRectangle(cornerRadius: 6)) }
             else { Image(systemName: item.folder ? "folder.fill" : item.media ? "play.rectangle" : "doc").resizable().scaledToFit().padding(8).foregroundStyle(item.folder ? Color.accentColor : .secondary) }
         }
         .accessibilityHidden(true)
-        .onDisappear { image = nil }
-        .task(id: key) {
-            image = nil
-            guard enabled, !item.folder, item.hasThumbnail == true else { return }
+        .task(id: ThumbnailLoadID(key: key, enabled: canPreview)) {
+            guard canPreview else { image = nil; imageKey = nil; return }
+            if imageKey == key, image != nil { return }
             do {
                 let thumbnail = try await ThumbnailCache.shared.image(for: key) {
                     let client = CompanionClient(connection: connection); defer { client.close() }
@@ -463,6 +468,7 @@ struct DriveThumbnailView: View {
                 }
                 try Task.checkCancellation()
                 image = thumbnail
+                imageKey = key
             } catch { /* Keep the file-type icon. */ }
         }
     }

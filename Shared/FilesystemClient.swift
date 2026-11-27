@@ -12,17 +12,11 @@ final class FilesystemClient: NSObject, URLSessionTaskDelegate {
         config.timeoutIntervalForRequest = 60
         return URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }()
-    private lazy var mediaSession: URLSession = {
-        let config = configuration.copy() as! URLSessionConfiguration
-        config.httpCookieStorage = nil; config.urlCache = nil
-        config.httpMaximumConnectionsPerHost = 8
-        config.timeoutIntervalForRequest = 30
-        return URLSession(configuration: config, delegate: self, delegateQueue: nil)
-    }()
+    private lazy var mediaSession = MediaRangeTransport(configuration: configuration)
     init(connection: Connection, token: String? = nil, configuration: URLSessionConfiguration = .ephemeral) {
         self.connection = connection; self.token = token; self.configuration = configuration
     }
-    func close() { session.invalidateAndCancel(); mediaSession.invalidateAndCancel() }
+    func close() { session.invalidateAndCancel(); mediaSession.close() }
     func urlSession(_ session: URLSession, task: URLSessionTask,
                     willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest,
@@ -120,17 +114,10 @@ final class FilesystemClient: NSObject, URLSessionTaskDelegate {
     }
 
     func streamChunk(_ request: URLRequest, offset: Int64, length: Int) async throws -> MediaChunk {
-        guard offset >= 0, length > 0, length <= MediaRange.chunkSize,
-              offset <= Int64.max - Int64(length) else { throw URLError(.badURL) }
-        try Task.checkCancellation()
-        var bounded = request
-        bounded.cachePolicy = .reloadIgnoringLocalCacheData
-        bounded.setValue("bytes=\(offset)-\(offset + Int64(length) - 1)", forHTTPHeaderField: "Range")
-        bounded.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-        let (bytes, response) = try await mediaSession.data(for: bounded)
-        try check(response)
-        guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
-        return try MediaChunk.decode(bytes, response: http, offset: offset, length: length)
+        try await mediaSession.chunk(request, offset: offset, length: length)
+    }
+    func streamChunks(_ request: URLRequest, offset: Int64, length: Int) -> AsyncThrowingStream<MediaChunk, Error> {
+        mediaSession.chunks(request, offset: offset, length: length)
     }
     func download(source: String, path: String) async throws -> URL {
         let (url, response) = try await session.download(for: request("content", query: ["source": source, "path": path]))
