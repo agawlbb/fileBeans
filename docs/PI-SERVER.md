@@ -300,3 +300,13 @@ deploy the VPS peer image and Pi HTTPS route; verify FUSE, Drive, server-side mo
 and HA load acceptance. The existing Tailscale path is active, but no public Pi
 API route has been enabled yet. Physical-device LAN/remote acceptance remains
 manual after the service is ready.
+
+After Apple processing and Pi image delivery, the local IPA and Pi image archive,
+the signed GitHub artifact, duplicate registry preparation, extracted maintenance
+binary, transfer script and temporary SSH key/directory were removed. SSH options
+were read back with the original authorized key preserved and the task key absent.
+Only the prepared AMD64 image and small manifest/checksum metadata remain in
+`.build/prepared-pi-ee576bd/` for the pending VPS deployment. Remove them after
+verified deployment or cancellation. The VPS current read-only registry files
+remain operational while the installed HA app references that image. There are no
+VPS staging archives or migration exports. Shared registers record these purposes.
