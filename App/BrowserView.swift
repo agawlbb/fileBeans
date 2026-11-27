@@ -506,10 +506,10 @@ final class Movie: ObservableObject, Identifiable {
     }
 
     func resumeBufferedPlayback() {
-        guard player.timeControlStatus == .waitingToPlayAtSpecifiedRate,
+        guard player.rate > 0, player.timeControlStatus == .waitingToPlayAtSpecifiedRate,
               let item = player.currentItem, item.status == .readyToPlay,
               !item.isPlaybackBufferEmpty else { return }
-        player.playImmediately(atRate: player.rate > 0 ? player.rate : 1)
+        player.playImmediately(atRate: player.rate)
     }
 }
 struct MovieView: View {
