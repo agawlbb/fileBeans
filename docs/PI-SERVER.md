@@ -226,7 +226,10 @@ skipped and runner signing-credential cleanup succeeded. The retained IPA has
 both File Provider and Share extensions and build number 54. GitHub artifact
 `myFiles-signed-54` expires December 4, 2026; the verified VM copy is held for the
 later requested upload. [Simulator validation](https://github.com/agawlbb/fileBeans/actions/runs/46044470531)
-is recorded separately below when it completes.
+completed successfully. All four new routing tests passed on the first attempt;
+the playback seek and photo/fullscreen gesture tests each passed after a retry.
+This clears Apple SDK compilation and simulator validation; physical-device
+media/permission checks and real Pi/FUSE/Drive/HA-load acceptance remain pending.
 
 Both image archives were built using the canonical VM-local builder. The helper
 now supports explicit ARM64 selection and a bounded task cache under its existing
