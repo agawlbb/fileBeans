@@ -180,6 +180,10 @@ func (s *Service) discover(ctx context.Context, j *Job) error {
 	return nil
 }
 func (s *Service) runJob(ctx context.Context, j *Job) {
+	if s.config.Profile == "pi" {
+		s.piBulk.Lock()
+		defer s.piBulk.Unlock()
+	}
 	var preparationErr error
 	if j.Request.Operation == "move" && (j.Move == nil || !j.Move.Committed) {
 		j.State = "preparing"

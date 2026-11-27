@@ -1,7 +1,7 @@
 name: FileBeans
 slug: filebeans
 description: FileBeans storage server
-version: 0.1.0
+version: 0.1.1
 arch: [aarch64]
 startup: services
 boot: auto
@@ -26,5 +26,7 @@ full_access: false
 hassio_api: false
 homeassistant_api: false
 docker_api: false
-options: {}
-schema: {}
+options:
+  maintenance: "off"
+schema:
+  maintenance: list(off|initialize|permissions|import)

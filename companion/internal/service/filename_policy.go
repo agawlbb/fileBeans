@@ -26,7 +26,10 @@ func filenameKey(name string) string {
 	}
 	return cases.Fold().String(norm.NFC.String(name))
 }
-func filenameConflict(root rootFS, target, exclude string, directory bool) error {
+func filenameConflict(root rootFS, target, exclude string, directory bool, limits ...int) error {
+	if p, ok := root.(*archivePeerRoot); ok {
+		return p.call(archivePeerRequest{Operation: "filename", Path: target, Other: exclude, Directory: directory}, nil)
+	}
 	if protected(target) || target == "." {
 		return nil
 	}
@@ -35,7 +38,12 @@ func filenameConflict(root rootFS, target, exclude string, directory bool) error
 		return err
 	}
 	defer parent.Close()
-	entries, err := parent.ReadDir(-1)
+	var entries []os.DirEntry
+	if len(limits) > 0 {
+		entries, err = boundedReadDir(parent, limits[0])
+	} else {
+		entries, err = parent.ReadDir(-1)
+	}
 	if err != nil {
 		return err
 	}

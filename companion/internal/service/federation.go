@@ -46,7 +46,14 @@ func peerRequest(ctx context.Context, p PeerConfig, method, path string, q url.V
 	}
 	r.Header.Set("Authorization", "Bearer "+p.Token)
 	r.Header.Set("X-FileBeans-Peer", "1")
-	return peerClient(p).Do(r)
+	if p.ArchiveKey != "" {
+		r.Header.Set("X-FileBeans-Archive-Key", p.ArchiveKey)
+	}
+	client := peerClient(p)
+	if path == "/v1/peer/archive" || path == "/v1/peer/archive-content" {
+		client = archivePeerClient(p)
+	}
+	return client.Do(r)
 }
 func peerJSON(ctx context.Context, p PeerConfig, path string, in, out any) error {
 	b, e := json.Marshal(in)
@@ -138,6 +145,16 @@ func (s *Service) proxyPeer(p PeerConfig, w http.ResponseWriter, r *http.Request
 }
 
 func (s *Service) federated(local http.Handler, w http.ResponseWriter, r *http.Request) {
+	if s.config.Profile == "pi" && strings.HasPrefix(r.URL.Path, "/v1/archive-") && s.config.ArchiveCoordinator != "" {
+		for _, p := range s.config.Peers {
+			if p.ID == s.config.ArchiveCoordinator {
+				s.proxyPeer(p, w, r)
+				return
+			}
+		}
+		fail(w, ErrMount)
+		return
+	}
 	if s.config.Profile == "pi" && (strings.HasPrefix(r.URL.Path, "/v1/archive-") || strings.HasPrefix(r.URL.Path, "/v1/datasets/") || strings.HasPrefix(r.URL.Path, "/v1/normalization")) {
 		fail(w, ErrUnsupported)
 		return

@@ -32,10 +32,11 @@ HA responsiveness guarantee. Foreground streaming and Tailscale's separate
 process also need observation during the trial.
 
 Pi thumbnails use existing adjacent caches only. No thumbnail backfill, archive
-sync, dataset processing or media normalization runs on the Pi. Filesystem and
-protected-folder operations remain available. Archive relationships involving
-Pi storage must be explicitly unlinked before cutover; this version does not
-federate the archive worker. VPS-only processing remains on the VPS.
+coordinator, dataset processing or media normalization runs on the Pi. Archive
+links retain their coordinator and media processing on the VPS; bounded storage
+operations and verified original publication run on the Pi owner. A separate
+server-only archive credential protects these maintenance operations from normal
+client tokens. Filesystem and protected-folder operations remain available.
 
 Keep the existing `Samba` source identifier during migration, even though the Pi
 uses a local directory. This preserves stored paths and vault identities. Source
@@ -115,7 +116,7 @@ that identity before normal API startup. Boot does not migrate schemas.
 
 For migration, first inventory actual mounts, host RAM/swap, permissions and
 existing archive/public-link relationships. Drain affected transfers, finish
-Trash recovery, explicitly resolve relationships the exporter refuses, lock
+incomplete Trash transitions, preserve terminal failed/missing history, lock
 the three Pi-backed vaults, and stop the VPS API and broker. Keep both stopped
 through the source handoff. Do not restart the old broker with the old registry
 or retain a competing writable Samba path after import.
@@ -126,7 +127,7 @@ The offline metadata tools are:
 python3 scripts/migrate-pi-vaults.py export --config SOURCE_BROKER_CONFIG \
   --source Samba --output PRIVATE_BUNDLE
 filebeans -config SOURCE_API_CONFIG -handoff-bundle PRIVATE_BUNDLE \
-  -export-source-state PRIVATE_OPERATIONS
+  -export-source-state PRIVATE_OPERATIONS -preserve-archive-links
 python3 scripts/migrate-pi-vaults.py retire --config SOURCE_BROKER_CONFIG \
   --bundle PRIVATE_BUNDLE --receipt PRIVATE_RECEIPT
 # Review the dry run, then repeat retire with --apply.
@@ -134,7 +135,7 @@ python3 scripts/migrate-pi-vaults.py import --config PI_BROKER_CONFIG \
   --bundle PRIVATE_BUNDLE --receipt PRIVATE_RECEIPT
 # Review the dry run, then repeat import with --apply.
 filebeans -config PI_API_CONFIG -handoff-bundle PRIVATE_BUNDLE \
-  -import-source-state PRIVATE_OPERATIONS
+  -import-source-state PRIVATE_OPERATIONS -preserve-archive-links
 ```
 
 Stage these small mode-0600 files at an exact private, disk-backed location
@@ -155,6 +156,36 @@ exact rows only after acceptance, with a separately reviewed maintenance step.
 Until then, federation filters source ownership rather than displaying old
 source-owned Trash as a VPS source. Retain handoff metadata only while acceptance
 or rollback is pending and record its exact location/removal condition.
+
+Archive link/policy rows are mirrored byte-for-byte to Pi SQLite; authoritative
+records and task journals stay on the VPS. Import refuses missing or stale policy
+revisions. Configure each peer's `vaultSources` map from the existing public vault
+IDs so legacy ciphertext keeps its original AAD across the ownership change.
+Both brokers must use the same recovery-key fingerprint. Protected records still
+require their local and remote vaults unlocked; handoff never exports the key.
+
+HA app 0.1.1 has explicit `maintenance` modes. `initialize` creates SQLite/TLS
+identity without starting the broker. `permissions` grants UID 1000 ordinary-file
+access, excludes `.filebeans-vaults`, preserves other ACL principals' effective
+permissions, rejects hardlinks/symlink traversal and yields under HA pressure.
+`import` consumes `/config/sealed-vaults.json`, `/config/retirement-receipt.json`
+and `/config/source-operations.json` while the broker remains stopped. Successful
+maintenance logs completion and sleeps; stop the app, select `off` and start only
+after its configuration and handoff are ready. Normal boot never migrates.
+
+Host swap can stay enabled: the broker/API require a kernel cgroupfs proof of
+their current process's zero-swap limit. Ordinary files and symlinks cannot fake
+that proof. The cgroup control files remain root-writable; the API can read them.
+Python is a runtime maintenance dependency only; no compiler is installed on Pi.
+
+The archive peer protocol streams at most 256 KiB at a time with an exact source
+length/disk-space ceiling and full checksum readback before exclusive publication.
+Original cleanup follows successful publication and cached-thumbnail delivery.
+The original's length, rather than the encoded-output limit, bounds raw staging.
+All Pi bulk source reads, archive writes and hash verification share the 12 MiB/s
+budget and HA pressure gates. Trash pairing, restore and expiry use destination-
+owned idempotent receipts. Coordinator link changes synchronize durable read-only
+policies before success; periodic synchronization repairs interrupted delivery.
 
 Rollback must stop Pi writers first, reconcile any trial changes and new Trash
 state, then restore sole VPS ownership. Reinstalling the old registry alone is

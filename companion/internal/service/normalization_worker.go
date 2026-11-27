@@ -102,6 +102,9 @@ func (s *Service) normSourceCurrent(ctx context.Context, j *NormalizationJob) er
 
 // Set through the opened descriptor, retaining atime and nanosecond precision.
 func normSetModified(root rootFS, path, value string) error {
+	if p, ok := root.(*archivePeerRoot); ok {
+		return p.call(archivePeerRequest{Operation: "modified", Path: path, Other: value}, nil)
+	}
 	if value == "" {
 		return nil // Older sources without modification metadata retain their date.
 	}

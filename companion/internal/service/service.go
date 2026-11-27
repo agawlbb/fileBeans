@@ -13,6 +13,8 @@ import (
 )
 
 type Service struct {
+	piBulk           sync.Mutex
+	piRate           sync.Mutex
 	mediaWorker      bool
 	archiveEpoch     atomic.Uint64
 	archiveStatusMu  sync.Mutex
@@ -71,6 +73,26 @@ func (s *Service) Migrate() error {
 		schema = sqliteSchema
 	}
 	_, e := s.db.Exec(schema)
+	return e
+}
+
+// Explicit schema maintenance does not start a broker or any filesystem worker.
+// This permits initializing a new HA app before importing its sealed registry.
+func MigrateConfig(c Config) error {
+	var d *sql.DB
+	var e error
+	schema := Schema
+	if c.SQLite != "" {
+		d, e = openSQLite(c.SQLite)
+		schema = sqliteSchema
+	} else {
+		d, e = openDB(c.DSN)
+	}
+	if e != nil {
+		return e
+	}
+	defer d.Close()
+	_, e = d.Exec(schema)
 	return e
 }
 func (s *Service) Run(ctx context.Context) {

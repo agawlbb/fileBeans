@@ -23,6 +23,7 @@ func main() {
 	exportState := flag.String("export-source-state", "", "export source Trash metadata to a new private file")
 	importState := flag.String("import-source-state", "", "import exported Trash metadata into Pi SQLite")
 	handoff := flag.String("handoff-bundle", "", "sealed vault handoff bundle for source ownership")
+	preserveArchives := flag.Bool("preserve-archive-links", false, "mirror sealed archive policy while retaining its original coordinator")
 	flag.Parse()
 	if *mediaSocket != "" {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -49,7 +50,7 @@ func main() {
 		if importing {
 			output = *importState
 		}
-		if err := service.MigrationOperations(c, *handoff, output, importing); err != nil {
+		if err := service.MigrationOperations(c, *handoff, output, importing, *preserveArchives); err != nil {
 			log.Fatal("Source metadata handoff failed: ", err)
 		}
 		return
@@ -61,17 +62,17 @@ func main() {
 	if fingerprint != "" {
 		log.Printf("Server ID: %s; certificate SHA-256: %s", c.ServerID, fingerprint)
 	}
+	if *migrate {
+		if e = service.MigrateConfig(c); e != nil {
+			log.Fatal("Schema migration failed")
+		}
+		return
+	}
 	s, e := service.New(c)
 	if e != nil {
 		log.Fatal("Database or state directory unavailable")
 	}
 	defer s.Close()
-	if *migrate {
-		if e = s.Migrate(); e != nil {
-			log.Fatal("Schema migration failed")
-		}
-		return
-	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if *normalizer {

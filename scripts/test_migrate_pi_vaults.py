@@ -59,6 +59,10 @@ class VaultHandoffTests(unittest.TestCase):
         self.assertEqual(imported["location"], self.entry["location"])
         self.assertNotEqual(imported["device"], 999)
         self.assertEqual((self.target / "vault-key-id").read_text(), "d" * 64)
+        self.run_action("import", config=str(self.destination), apply=True)
+        changed = json.loads((self.target / "registry.json").read_text())
+        changed["entries"][0]["inode"] += 1
+        (self.target / "registry.json").write_text(json.dumps(changed))
         with self.assertRaises(ValueError):
             self.run_action("import", config=str(self.destination), apply=True)
 

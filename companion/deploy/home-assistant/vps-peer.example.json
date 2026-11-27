@@ -4,6 +4,7 @@
     "id": "filebeans-pi",
     "url": "https://100.98.4.101:8095",
     "token": "REPLACE_WITH_THE_PI_TOKEN_PRIVATELY",
+	"archiveKey": "REPLACE_WITH_THE_SAME_SERVER_ONLY_ARCHIVE_KEY_AS_THE_PI",
     "fingerprint": "REPLACE_WITH_THE_PI_CERTIFICATE_SHA256_HEX",
     "sources": ["Samba"]
   }]

@@ -160,8 +160,7 @@ def run(args):
         receipt = json.loads(read_regular(Path(args.receipt)))
         if receipt.get("bundleHash") != digest(bundle_raw):
             raise ValueError("Retirement receipt does not match bundle")
-        if registry_path.exists():
-            raise ValueError("Destination broker state must be new")
+        existing_registry = read_regular(registry_path) if registry_path.exists() else None
         key_path = state / "vault-key-id"
         if key_path.exists() and read_regular(key_path, 64).decode() != bundle["keyId"]:
             raise ValueError("Destination key identifier differs")
@@ -172,12 +171,18 @@ def run(args):
             if config_hash != bundle["cipherConfigs"][entry["id"]]:
                 raise ValueError("Local ciphertext does not match exported identity")
             entry["device"], entry["inode"] = info.st_dev, info.st_ino
+        expected_registry = encoded({"version": 2, "entries": entries})
+        if existing_registry is not None:
+            if existing_registry != expected_registry or not key_path.exists():
+                raise ValueError("Destination registry differs from this handoff")
+            print("Matching sealed records already imported; source metadata import can resume")
+            return
         if not args.apply:
             print(f"Would import {len(entries)} vaults with local filesystem identities; no changes")
             return
         if not key_path.exists():
             atomic(key_path, bundle["keyId"].encode())
-        atomic(registry_path, encoded({"version": 2, "entries": entries}))
+        atomic(registry_path, expected_registry)
         print(f"Imported {len(entries)} sealed records; vault IDs and locations preserved")
     finally:
         os.close(lock)

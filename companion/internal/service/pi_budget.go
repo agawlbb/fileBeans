@@ -95,11 +95,14 @@ func (s *Service) piWait(ctx context.Context) error {
 
 // Each Pi stream yields between 256 KiB chunks; aggregate bulk concurrency is one.
 func (s *Service) piPace(ctx context.Context, bytes int) error {
-	if e := s.piWait(ctx); e != nil {
-		return e
-	}
 	if s.config.Profile != "pi" {
 		return nil
+	}
+	// Source reads, archive publication and verification share one I/O budget.
+	s.piRate.Lock()
+	defer s.piRate.Unlock()
+	if e := s.piWait(ctx); e != nil {
+		return e
 	}
 	timer := time.NewTimer(time.Duration(bytes) * time.Second / (12 << 20))
 	defer timer.Stop()

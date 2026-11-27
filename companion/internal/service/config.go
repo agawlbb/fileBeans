@@ -15,6 +15,8 @@ type Root struct {
 	MountSource string `json:"mountSource,omitempty"`
 }
 type Config struct {
+	ArchivePeerKey     string              `json:"archivePeerKey,omitempty"`
+	ArchiveCoordinator string              `json:"archiveCoordinator,omitempty"`
 	Profile            string              `json:"profile,omitempty"`
 	SQLite             string              `json:"sqlite,omitempty"`
 	ServerID           string              `json:"serverId,omitempty"`

@@ -22,6 +22,11 @@ const archiveStage = ".filebeans-stage/archive-sync"
 const archiveOutputLimit = int64(16 << 30)
 
 func archiveSpace(root rootFS, path string, extra int64) (int64, error) {
+	if p, ok := root.(*archivePeerRoot); ok {
+		var out int64
+		e := p.call(archivePeerRequest{Operation: "space", Path: path, Size: extra}, &out)
+		return out, e
+	}
 	f, e := root.Open(path)
 	if e != nil {
 		return 0, e
@@ -46,6 +51,11 @@ func archiveHash(root rootFS, path string) (string, error) {
 	return archiveHashContext(context.Background(), root, path)
 }
 func archiveHashContext(ctx context.Context, root rootFS, path string) (string, error) {
+	if p, ok := root.(*archivePeerRoot); ok {
+		var out string
+		e := p.callContext(ctx, archivePeerRequest{Operation: "hash", Path: path}, &out)
+		return out, e
+	}
 	var err error
 	path, err = clean(path)
 	if err != nil {
@@ -70,12 +80,27 @@ func (r archiveReader) Read(p []byte) (int, error) {
 	if e := r.ctx.Err(); e != nil {
 		return 0, e
 	}
+	if pace, ok := r.ctx.Value(piPaceKey{}).(func(context.Context, int) error); ok {
+		if len(p) > 256<<10 {
+			p = p[:256<<10]
+		}
+		n, e := r.r.Read(p)
+		if n > 0 {
+			if err := pace(r.ctx, n); err != nil {
+				return n, err
+			}
+		}
+		return n, e
+	}
 	return r.r.Read(p)
 }
 
 // A temporary original is bounded to the exact source length. Publication is
 // no-overwrite, with a full checksum readback before the VPS retention is released.
 func (s *Service) copyArchiveOriginal(ctx context.Context, src rootFS, from string, dst rootFS, to, expected, stage string) error {
+	if p, ok := dst.(*archivePeerRoot); ok {
+		return p.copyOriginal(ctx, src, from, to, expected, stage)
+	}
 	input, e := filesystemOpenFile(src, from)
 	if e != nil {
 		return e

@@ -7,6 +7,8 @@ mkdir -p /run/filebeans-limits
 mount -t cgroup2 -o nosuid,nodev,noexec cgroup2 /run/filebeans-limits
 root=/run/filebeans-limits
 mkdir "$root/work"
+# The API may read its kernel limits; only root can change their control files.
+chmod 0755 "$root" "$root/work"
 while read -r process; do
  printf '%s\n' "$process" > "$root/work/cgroup.procs"
 done < "$root/cgroup.procs"

@@ -30,6 +30,11 @@ func validName(name string) bool {
 	return name != "" && name != "." && name != ".." && !strings.ContainsAny(name, "/\\\x00")
 }
 func (s *Service) root(name string) (rootFS, error) {
+	if s.archiveTrusted {
+		if p := s.peerFor(name); p != nil && p.ArchiveKey != "" {
+			return &archivePeerRoot{peer: *p, source: name}, nil
+		}
+	}
 	if s.vaults != nil {
 		if e := s.vaults.checkRoot(name); e != nil {
 			return nil, e
@@ -133,6 +138,9 @@ func mkdir(r rootFS, path string) error {
 	return r.MkdirAll(path, 0700)
 }
 func syncDir(r rootFS, path string) error {
+	if p, ok := r.(*archivePeerRoot); ok {
+		return p.call(archivePeerRequest{Operation: "sync", Path: path}, nil)
+	}
 	f, e := r.Open(path)
 	if e != nil {
 		return e
@@ -141,6 +149,9 @@ func syncDir(r rootFS, path string) error {
 	return f.Sync()
 }
 func renameExclusive(r rootFS, from, to string, datasetCaptions ...bool) error {
+	if p, ok := r.(*archivePeerRoot); ok {
+		return p.call(archivePeerRequest{Operation: "rename", Path: from, Other: to}, nil)
+	}
 	if guarded, ok := r.(*guardedRoot); ok {
 		active, done, e := guarded.operation()
 		if e != nil {

@@ -1,4 +1,7 @@
 #!/bin/sh
 set -eu
 export GOMAXPROCS=1
+if [ "$(jq -r '.maintenance // "off"' /data/options.json)" != off ]; then
+ exec sleep infinity
+fi
 exec /usr/local/bin/filebeans-vault-broker -config /config/vault-broker.json

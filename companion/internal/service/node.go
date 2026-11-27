@@ -27,16 +27,21 @@ type TLSConfig struct {
 	Key         string `json:"key,omitempty"`
 }
 type PeerConfig struct {
-	ID          string   `json:"id"`
-	URL         string   `json:"url"`
-	Token       string   `json:"token"`
-	Fingerprint string   `json:"fingerprint,omitempty"`
-	Sources     []string `json:"sources"`
+	ArchiveKey   string            `json:"archiveKey,omitempty"`
+	VaultSources map[string]string `json:"vaultSources,omitempty"`
+	ID           string            `json:"id"`
+	URL          string            `json:"url"`
+	Token        string            `json:"token"`
+	Fingerprint  string            `json:"fingerprint,omitempty"`
+	Sources      []string          `json:"sources"`
 }
 
 var nodeIDPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`)
 
 func (c Config) validateNode() error {
+	if c.ArchivePeerKey != "" && (len(c.ArchivePeerKey) < 32 || c.ArchivePeerKey == c.Token) {
+		return errors.New("archive peer key must be separate from the client token")
+	}
 	if c.Profile != "" && c.Profile != "pi" {
 		return errors.New("unknown server profile")
 	}
@@ -58,11 +63,25 @@ func (c Config) validateNode() error {
 		return errors.New("configure a stable serverId")
 	}
 	names := map[string]bool{}
+	if c.ArchiveCoordinator != "" {
+		found := false
+		for _, p := range c.Peers {
+			if p.ID == c.ArchiveCoordinator {
+				found = true
+			}
+		}
+		if c.Profile != "pi" || !found || len(c.ArchivePeerKey) < 32 {
+			return errors.New("archive coordinator requires a Pi peer and private archive key")
+		}
+	}
 	ids := map[string]bool{c.ServerID: true}
 	for _, r := range c.Roots {
 		names[r.Name] = true
 	}
 	for _, p := range c.Peers {
+		if p.ArchiveKey != "" && (len(p.ArchiveKey) < 32 || p.ArchiveKey == p.Token) {
+			return errors.New("archive peer key must be separate from the client token")
+		}
 		u, e := url.Parse(p.URL)
 		if e != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || !nodeIDPattern.MatchString(p.ID) || ids[p.ID] || len(p.Token) < 32 || len(p.Sources) == 0 {
 			return errors.New("invalid peer configuration")
@@ -74,6 +93,23 @@ func (c Config) validateNode() error {
 			}
 		}
 		ids[p.ID] = true
+		for id, source := range p.VaultSources {
+			if len(id) != 32 {
+				return errors.New("invalid peer vault identity")
+			}
+			if _, err := hex.DecodeString(id); err != nil {
+				return errors.New("invalid peer vault identity")
+			}
+			found := false
+			for _, n := range p.Sources {
+				if n == source {
+					found = true
+				}
+			}
+			if !found {
+				return errors.New("peer vault must belong to its source owner")
+			}
+		}
 		for _, n := range p.Sources {
 			if n == "" || n == "upload" || names[n] {
 				return errors.New("sources must have exactly one owner")

@@ -1,6 +1,8 @@
 {
   "profile": "pi",
   "serverId": "filebeans-pi",
+	"archiveCoordinator": "filebeans-vps",
+	"archivePeerKey": "REPLACE_WITH_A_SEPARATE_RANDOM_SERVER_ONLY_ARCHIVE_KEY",
   "listen": "0.0.0.0:8095",
   "state": "/data/api",
   "sqlite": "/data/api/operations.sqlite",

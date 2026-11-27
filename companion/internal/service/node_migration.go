@@ -3,7 +3,9 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -20,16 +22,18 @@ type migrationOperation struct {
 	Body  json.RawMessage `json:"body"`
 }
 type migrationOperations struct {
-	Version int                  `json:"version"`
-	Source  string               `json:"source"`
-	Vaults  []string             `json:"vaults"`
-	Records []migrationOperation `json:"records"`
+	ArchiveMirrors bool                 `json:"archiveMirrors,omitempty"`
+	Version        int                  `json:"version"`
+	Source         string               `json:"source"`
+	Vaults         []string             `json:"vaults"`
+	Records        []migrationOperation `json:"records"`
 }
 
 // Export only existing stored ciphertext for protected records, never decrypting
 // or exporting recovery keys. Active transfers and archive relationships must
 // be resolved before ownership changes. Trash stays on the existing disk.
-func MigrationOperations(c Config, bundlePath, path string, importing bool) error {
+func MigrationOperations(c Config, bundlePath, path string, importing bool, preserveArchives ...bool) error {
+	preserve := len(preserveArchives) == 1 && preserveArchives[0]
 	raw, e := os.ReadFile(bundlePath)
 	if e != nil {
 		return e
@@ -83,13 +87,20 @@ func MigrationOperations(c Config, bundlePath, path string, importing bool) erro
 				return ErrUnsafe
 			}
 		}
+		if input.ArchiveMirrors && !preserve {
+			return errors.New("archive mirrors require explicit preservation")
+		}
+		if e = validateArchiveMirrors(input.Records); e != nil {
+			return e
+		}
 		tx, e := d.BeginTx(ctx, nil)
 		if e != nil {
 			return e
 		}
 		defer tx.Rollback()
 		for _, r := range input.Records {
-			if r.Kind != "trash" || r.ID == "" || !json.Valid(r.Body) || !migrationTouches(r.Body, bundle.Source, ids) {
+			mirror := input.ArchiveMirrors && (r.Kind == "archiveLink" || r.Kind == "archivePolicy")
+			if (r.Kind != "trash" && !mirror) || r.ID == "" || !json.Valid(r.Body) || (!mirror && !migrationTouches(r.Body, bundle.Source, ids)) {
 				return ErrUnsafe
 			}
 			var old []byte
@@ -118,10 +129,32 @@ func MigrationOperations(c Config, bundlePath, path string, importing bool) erro
 		return e
 	}
 	defer rows.Close()
+	var records []migrationOperation
 	for rows.Next() {
 		var r migrationOperation
 		if e = rows.Scan(&r.ID, &r.Kind, &r.State, &r.Key, &r.Body); e != nil {
 			return e
+		}
+		records = append(records, r)
+	}
+	if e = rows.Err(); e != nil {
+		return e
+	}
+	rows.Close()
+	mirrors := map[string]bool{}
+	if preserve {
+		for _, r := range records {
+			if r.Kind == "archiveLink" && migrationTouches(r.Body, bundle.Source, ids) {
+				mirrors[r.ID] = true
+				mirrors["policy-"+r.ID] = true
+			}
+		}
+	}
+	for _, r := range records {
+		if mirrors[r.ID] && (r.Kind == "archiveLink" || r.Kind == "archivePolicy") {
+			out.Records = append(out.Records, r)
+			out.ArchiveMirrors = true
+			continue
 		}
 		if !migrationTouches(r.Body, bundle.Source, ids) {
 			continue
@@ -136,13 +169,15 @@ func MigrationOperations(c Config, bundlePath, path string, importing bool) erro
 			return errors.New("revoke source public links before migration")
 		}
 		if r.Kind == "trash" {
-			if r.State != "retained" && r.State != "restored" && r.State != "purged" {
+			// Terminal failed/missing history has no automatic expiry or cleanup
+			// intent. Preserve it verbatim rather than deleting history or files.
+			if r.State != "retained" && r.State != "restored" && r.State != "purged" && r.State != "failed" && r.State != "missing" {
 				return errors.New("finish trash recovery before migration")
 			}
 			out.Records = append(out.Records, r)
 		}
 	}
-	if e = rows.Err(); e != nil {
+	if e = validateArchiveMirrors(out.Records); e != nil {
 		return e
 	}
 	raw, e = json.Marshal(out)
@@ -162,6 +197,37 @@ func MigrationOperations(c Config, bundlePath, path string, importing bool) erro
 		return e
 	}
 	return closeErr
+}
+
+// Mirrors keep ciphertext byte-for-byte and carry a policy whose revision binds
+// it to the same link. The coordinator's authoritative rows are never retired.
+func validateArchiveMirrors(records []migrationOperation) error {
+	links := map[string][]byte{}
+	policies := map[string][]byte{}
+	for _, r := range records {
+		switch r.Kind {
+		case "archiveLink":
+			links[r.ID] = r.Body
+		case "archivePolicy":
+			policies[r.ID] = r.Body
+		}
+	}
+	for id, raw := range links {
+		var envelope struct {
+			Boundary *archivePolicy `json:"archiveBoundary"`
+		}
+		policy, ok := policies["policy-"+id]
+		h := sha256.Sum256(raw)
+		if !ok || json.Unmarshal(policy, &envelope) != nil || envelope.Boundary == nil || envelope.Boundary.Link != id || envelope.Boundary.Revision != hex.EncodeToString(h[:]) {
+			return errors.New("archive policy mirror is missing or stale")
+		}
+	}
+	for id := range policies {
+		if _, ok := links[strings.TrimPrefix(id, "policy-")]; !ok {
+			return ErrUnsafe
+		}
+	}
+	return nil
 }
 
 func migrationTouches(raw []byte, source string, ids map[string]bool) bool {

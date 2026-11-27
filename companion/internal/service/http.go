@@ -71,6 +71,7 @@ func (s *Service) existing(key, kind string, v any) error {
 func (s *Service) Handler() http.Handler {
 	mux := http.NewServeMux()
 	s.peerRoutes(mux)
+	s.archivePeerRoutes(mux)
 	mux.HandleFunc("GET /v1/capabilities", func(w http.ResponseWriter, r *http.Request) {
 		roots := make([]map[string]string, 0)
 		for _, root := range s.config.Roots {
@@ -84,6 +85,9 @@ func (s *Service) Handler() http.Handler {
 		}
 		if s.config.Profile == "pi" {
 			features = []string{"filesystemV1", "resumableUploadsV1", "filenameStemsV1", "protectedFolderMoves", "crossDriveMoves", "driveWrite", "driveDestinations", "driveUploads", "driveThumbnails", "driveMedia", "peerTransfersV1"}
+			if s.config.ArchiveCoordinator != "" {
+				features = append(features, "archiveSyncV1", "archiveLinksV1", "archiveReadOnlyV1", "archiveCachedThumbnailsV1")
+			}
 		}
 		if s.vaults != nil && s.vaults.remote != nil && s.vaults.remote.ready() {
 			features = append(features, "protectedFoldersCreate")
@@ -572,7 +576,7 @@ func (s *Service) Handler() http.Handler {
 			s.vaultGate.RLock()
 			defer s.vaultGate.RUnlock()
 		}
-		s.federated(mux, w, r)
+		s.federated(s.archiveMirrorHandler(mux), w, r)
 	})
 }
 func hasDrive(r CopyRequest) bool {

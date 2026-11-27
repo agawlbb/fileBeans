@@ -17,11 +17,18 @@ import (
 func (s *Service) nodeRecordCipher(sources []string, requireRemote bool) (cipher.AEAD, error) {
 	local := []string{}
 	for _, label := range sources {
+		// Legacy archive ciphertext keeps its original AAD and public vault IDs.
+		// Ownership changes must not decrypt/re-encrypt records during handoff.
+		if strings.HasPrefix(label, "vault:") {
+			for _, p := range s.config.Peers {
+				if source, ok := p.VaultSources[strings.TrimPrefix(label, "vault:")]; ok {
+					label = "peer-vault:" + source + "~" + strings.TrimPrefix(label, "vault:")
+					break
+				}
+			}
+		}
 		if !strings.HasPrefix(label, "peer-vault:") {
 			local = append(local, label)
-			continue
-		}
-		if !requireRemote {
 			continue
 		}
 		parts := strings.SplitN(strings.TrimPrefix(label, "peer-vault:"), "~", 2)
@@ -30,7 +37,27 @@ func (s *Service) nodeRecordCipher(sources []string, requireRemote bool) (cipher
 		}
 		peer := s.peerFor(parts[0])
 		if peer == nil {
-			return nil, ErrVaultLocked
+			found := false
+			if s.vaults != nil {
+				for _, v := range s.vaults.configs() {
+					if v.Source == parts[0] && v.ID == parts[1] {
+						if s.vaults.remote != nil {
+							local = append(local, "vault:"+v.ID)
+						} else {
+							local = append(local, v.Source)
+						}
+						found = true
+						break
+					}
+				}
+			}
+			if !found {
+				return nil, ErrVaultLocked
+			}
+			continue
+		}
+		if !requireRemote {
+			continue
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		resp, e := peerRequest(ctx, *peer, "GET", "/v1/vaults", nil, nil)

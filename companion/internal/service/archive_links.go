@@ -72,6 +72,11 @@ func endpointOverlap(a, b ArchiveEndpoint) bool {
 	return a.Source == b.Source && (within(archivePath(a.Path), archivePath(b.Path)) || within(archivePath(b.Path), archivePath(a.Path)))
 }
 func (s *Service) endpointAt(source, path string) (ArchiveEndpoint, error) {
+	if p := s.peerFor(source); p != nil {
+		var out ArchiveEndpoint
+		e := (&archivePeerRoot{peer: *p, source: source}).call(archivePeerRequest{Operation: "endpoint", Path: path}, &out)
+		return out, e
+	}
 	p, err := filesystemPath(path)
 	if err != nil || p == "." || protected(p) {
 		return ArchiveEndpoint{}, ErrUnsafe
@@ -91,7 +96,12 @@ func (s *Service) endpointAt(source, path string) (ArchiveEndpoint, error) {
 	if !st.IsDir() {
 		return ArchiveEndpoint{}, ErrUnsafe
 	}
-	if err = validateFilenameTree(root, p); err != nil {
+	if s.config.Profile == "pi" {
+		err = validateArchivePeerTree(root, p)
+	} else {
+		err = validateFilenameTree(root, p)
+	}
+	if err != nil {
 		return ArchiveEndpoint{}, err
 	}
 	endpoint := ArchiveEndpoint{Source: source, Path: archivePath(p), Identity: moveIdentity(st), Available: true}
@@ -106,6 +116,15 @@ func (s *Service) endpointAt(source, path string) (ArchiveEndpoint, error) {
 	return endpoint, err
 }
 func (s *Service) resolveEndpoint(e ArchiveEndpoint) ArchiveEndpoint {
+	if p := s.peerFor(e.Source); p != nil {
+		var out ArchiveEndpoint
+		err := (&archivePeerRoot{peer: *p, source: e.Source}).call(archivePeerRequest{Operation: "resolve", Endpoint: e}, &out)
+		if err != nil {
+			e.Available = false
+			return e
+		}
+		return out
+	}
 	e.Available = false
 	if e.Vault != "" {
 		found := false

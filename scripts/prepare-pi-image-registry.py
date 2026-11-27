@@ -1,13 +1,20 @@
 """Prepare bounded, read-only OCI distribution files from the VM-built image."""
 import hashlib
+import argparse
 import json
 from pathlib import Path
 import shutil
-import sys
 import tarfile
+import re
 
-source, destination = map(Path, sys.argv[1:])
-limit = 96 * 1024 * 1024
+parser=argparse.ArgumentParser(description=__doc__)
+parser.add_argument('source',type=Path)
+parser.add_argument('destination',type=Path)
+parser.add_argument('--tag',required=True)
+args=parser.parse_args()
+if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+',args.tag):parser.error('Expected a version tag')
+source,destination=args.source,args.destination
+limit = 128 * 1024 * 1024
 written = 0
 destination.mkdir(mode=0o700)
 try:
@@ -40,12 +47,12 @@ try:
                     out.write(chunk)
             if count != size or 'sha256:' + h.hexdigest() != name:
                 raise ValueError('Blob digest mismatch')
-        for tag in ['0.1.0', digest]:
+        for tag in [args.tag, digest]:
             target = destination / 'manifests' / tag
             target.parent.mkdir(exist_ok=True)
             target.write_bytes(manifest)
     destination.chmod(0o755)
-    print(f'Prepared verified image {digest}, {written} blob bytes (96 MiB limit)')
+    print(f'Prepared verified image {digest}, {written} blob bytes (128 MiB limit)')
 except BaseException:
     shutil.rmtree(destination)
     raise

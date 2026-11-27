@@ -176,8 +176,8 @@ func newVaultManager(c Config) (*vaultManager, error) {
 		return nil, e
 	}
 	// With managed Go heaps and gocryptfs child processes, mlock of one buffer
-	// cannot guarantee that all secret copies are unswappable. Fail closed unless
-	// swap is disabled for the host, and disable core dumps before receiving keys.
+	// cannot guarantee that all secret copies are unswappable. Require host-wide
+	// or kernel-proven process swap exclusion, and disable core dumps before keys.
 	if e := vaultMemoryPolicy(); e != nil {
 		return nil, e
 	}
@@ -217,8 +217,8 @@ func vaultMemoryPolicy() error {
 	if e != nil {
 		return e
 	}
-	if len(strings.Fields(string(b))) != 5 {
-		return errors.New("protected folders require host swap disabled")
+	if len(strings.Fields(string(b))) != 5 && !processSwapDisabled() {
+		return errors.New("protected folders require process swap disabled")
 	}
 	if e = syscall.Setrlimit(syscall.RLIMIT_CORE, &syscall.Rlimit{}); e != nil {
 		return e
