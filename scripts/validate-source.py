@@ -81,3 +81,9 @@ assert '$(KEYCHAIN_GROUP)' in share_entitlements['keychain-access-groups']
 assert 'App' not in share['sources']
 assert any(dep.get('target') == 'FileBeansShare' for dep in project['targets']['myFiles']['dependencies'])
 print('Passed Share extension embedding and vault-key isolation checks.')
+
+# Native Google account credentials belong to App/Share, not File Provider.
+assert app_info['GoogleKeychainGroup'] in app_entitlements['keychain-access-groups']
+assert app_info['GoogleKeychainGroup'] in share_entitlements['keychain-access-groups']
+assert app_info['GoogleKeychainGroup'] not in provider_entitlements['keychain-access-groups']
+print('Passed native Google credential / File Provider Keychain isolation checks.')

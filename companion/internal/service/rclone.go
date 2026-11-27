@@ -119,7 +119,7 @@ func (s *Service) executeRclone(ctx context.Context, j *Job) error {
 			}
 			if item.Source == "drive" {
 				if j.Connection == "" {
-					grant, err := s.google()
+					grant, err := s.googleForConnection(j.Connection)
 					if err != nil {
 						return err
 					}
@@ -322,7 +322,12 @@ func (s *Service) runRclone(ctx context.Context, j *Job, f File, dst rootFS, sta
 		}
 		token, _ := json.Marshal(map[string]any{"access_token": grant.Access, "refresh_token": grant.Refresh, "token_type": "Bearer", "expiry": time.Unix(grant.Expires, 0).UTC().Format(time.RFC3339)})
 		secrets = append(secrets, grant.Access, grant.Refresh, s.config.GoogleClientSecret)
-		env = append(env, "RCLONE_CONFIG_FROM_TYPE=drive", "RCLONE_CONFIG_FROM_CLIENT_ID="+s.config.GoogleClientID, "RCLONE_CONFIG_FROM_CLIENT_SECRET="+s.config.GoogleClientSecret, "RCLONE_CONFIG_FROM_TOKEN="+string(token), "RCLONE_CONFIG_FROM_SHOW_ALL_GDOCS=true")
+		clientID, clientSecret := s.config.GoogleClientID, s.config.GoogleClientSecret
+		if grant.ClientID != "" {
+			clientID = grant.ClientID
+			clientSecret = ""
+		}
+		env = append(env, "RCLONE_CONFIG_FROM_TYPE=drive", "RCLONE_CONFIG_FROM_CLIENT_ID="+clientID, "RCLONE_CONFIG_FROM_CLIENT_SECRET="+clientSecret, "RCLONE_CONFIG_FROM_TOKEN="+string(token), "RCLONE_CONFIG_FROM_SHOW_ALL_GDOCS=true")
 		if f.DriveID != "" {
 			env = append(env, "RCLONE_CONFIG_FROM_TEAM_DRIVE="+f.DriveID)
 		}
@@ -419,7 +424,7 @@ func (s *Service) runRclone(ctx context.Context, j *Job, f File, dst rootFS, sta
 			}
 			if time.Since(last) >= time.Second && reportErr == nil {
 				if f.Source == "drive" {
-					grant, err := s.google()
+					grant, err := s.googleForConnection(j.Connection)
 					if err != nil {
 						reportErr = err
 					} else if grant.Connection != j.Connection {
@@ -451,7 +456,7 @@ func (s *Service) runRclone(ctx context.Context, j *Job, f File, dst rootFS, sta
 		return &copyEngineError{"rclone progress stream was interrupted"}
 	}
 	if f.Source == "drive" {
-		grant, err := s.google()
+		grant, err := s.googleForConnection(j.Connection)
 		if err != nil {
 			return err
 		}

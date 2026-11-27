@@ -21,6 +21,8 @@ export function validateProfile(summary, config, bundleID, certificateSHA256) {
       !summary.keychainGroups.some(value => value === `${config.teamID}.*` || value === `${config.teamID}.${config.bundleID}`) ||
       (bundleID === config.bundleID && !summary.keychainGroups.some(value =>
         value === `${config.teamID}.*` || value === `${config.teamID}.${config.bundleID}.vaults`)) ||
+      ((bundleID === config.bundleID || bundleID === `${config.bundleID}.Share`) && !summary.keychainGroups.some(value =>
+        value === `${config.teamID}.*` || value === `${config.teamID}.${config.bundleID}.google`)) ||
       !Number.isFinite(expires) || expires < Date.now() + 86400000) {
     throw new Error('Profile must match the app, App Group, shared Keychain, distribution certificate, and App Store distribution type');
   }

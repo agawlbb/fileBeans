@@ -12,6 +12,10 @@ enum BrowserDestination: Identifiable {
         BrowserSortValue(id: id, name: name, folder: isFolder, size: 0, modified: .distantPast)
     }
 }
+struct SourceSelection {
+    let connection: Connection
+    let destination: BrowserDestination
+}
 enum DestinationMode {
     case copy
     case archive
@@ -31,8 +35,10 @@ struct SourceDestinationPicker: View {
     let excludedLocal: [StoredItem]
     let excludedDrive: Set<String>
     var folder: BrowserDestination? = nil
-    var protectedFolderSheet: ((StoredItem) -> AnyView)? = nil
-    let choose: (BrowserDestination) -> Void
+    var showSources = true
+    var originConnection: UUID? = nil
+    var protectedFolderSheet: ((Connection, StoredItem) -> AnyView)? = nil
+    let choose: (SourceSelection) -> Void
     @State private var folders: [BrowserDestination] = []
     @State private var resolvedDrive: DriveFile?
     @State private var newProtectedFolder = false
@@ -53,10 +59,20 @@ struct SourceDestinationPicker: View {
     var body: some View {
         List {
             if let error { Text(error).foregroundStyle(.red) }
+            if showSources && folder == nil {
+                ForEach(availableSources) { source in
+                    NavigationLink(source.name) {
+                        SourceDestinationPicker(connection: source, mode: mode, excludedLocal: excludedLocal,
+                            excludedDrive: excludedDrive, showSources: false, originConnection: originConnection ?? connection.id,
+                            protectedFolderSheet: protectedFolderSheet, choose: choose)
+                    }
+                }
+            }
             ForEach(folders) { child in
                 if child.isFolder { NavigationLink {
                     SourceDestinationPicker(connection: connection, mode: mode, excludedLocal: excludedLocal,
-                                            excludedDrive: excludedDrive, folder: child, protectedFolderSheet: protectedFolderSheet, choose: choose)
+                                            excludedDrive: excludedDrive, folder: child, showSources: false, originConnection: originConnection ?? connection.id,
+                                            protectedFolderSheet: protectedFolderSheet, choose: choose)
                 } label: { Label(child.name, systemImage: "folder") }
                 } else { Label(child.name, systemImage: "doc").foregroundStyle(.secondary) }
             }
@@ -65,7 +81,7 @@ struct SourceDestinationPicker: View {
         .navigationTitle(folder?.name ?? mode.title)
         .safeAreaInset(edge: .bottom) {
             if let target {
-                Button(mode.action) { choose(target) }
+                Button(mode.action) { choose(SourceSelection(connection: connection, destination: target)) }
                     .buttonStyle(.borderedProminent).padding().disabled(!canChoose || loading || error != nil)
             }
         }
@@ -75,13 +91,21 @@ struct SourceDestinationPicker: View {
             }
         }
         .sheet(isPresented: $newProtectedFolder, onDismiss: { Task { await load() } }) {
-            if case .local(let parent) = folder, let protectedFolderSheet { protectedFolderSheet(parent) }
+            if case .local(let parent) = folder, let protectedFolderSheet { protectedFolderSheet(connection, parent) }
         }
         .overlay { if loading { ProgressView() } }
         .task { await load() }
     }
+    private var availableSources: [Connection] {
+        ((try? SharedStore().connections()) ?? []).filter { source in
+            if source.isGoogleDrive { return mode.allowsDrive }
+            if case .localMove(let restricted) = mode, restricted != nil { return source.id == connection.id }
+            return mode.allowsLocal
+        }
+    }
     private func load(page: String = "") async {
         loading = true; defer { loading = false }
+        if showSources && folder == nil { folders = []; error = nil; return }
         do {
             var result: [BrowserDestination] = []
             switch folder {
@@ -103,11 +127,11 @@ struct SourceDestinationPicker: View {
                 let repository = try Repository(connection: connection, store: SharedStore())
                 result = try await repository.children(item).filter(allowedLocal).map(BrowserDestination.local)
             case nil:
-                if mode.allowsLocal {
+                if mode.allowsLocal, !connection.isGoogleDrive {
                     let repository = try Repository(connection: connection, store: SharedStore())
                     result = try await repository.roots().filter(allowedLocal).map(BrowserDestination.local)
                 }
-                if mode.allowsDrive, connection.companionURL != nil {
+                if mode.allowsDrive, connection.isGoogleDrive {
                     let client = CompanionClient(connection: connection); defer { client.close() }
                     if (try? await client.capabilities().driveWriteAccess) == true {
                         result.append(.drive(DriveFile(id: "root", name: "Google Drive", mimeType: "application/vnd.google-apps.folder", sourceRoot: true)))
@@ -123,6 +147,7 @@ struct SourceDestinationPicker: View {
         guard item.protection?.unlocked != false else { return false }
         if case .localMove(let source) = mode, let source, item.source != source { return false }
         if connection.companionURL != nil && CompanionClient.protected(item.file.path) { return false }
+        if let originConnection, originConnection != connection.id { return true }
         return !excludedLocal.contains { selected in
             selected.source == item.source && selected.file.isDirectory && FilePath.contains(item.file.path, in: selected.file.path)
         }

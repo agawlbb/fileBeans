@@ -16,15 +16,18 @@ import (
 var Schema string
 
 type Item struct {
-	Source string `json:"source"`
-	Path   string `json:"path"`
-	Name   string `json:"name,omitempty"`
+	ServerID string `json:"server,omitempty"`
+	Source   string `json:"source"`
+	Path     string `json:"path"`
+	Name     string `json:"name,omitempty"`
 }
 type CopyRequest struct {
-	Operation       string `json:"operation,omitempty"`
-	DestinationName string `json:"destinationName,omitempty"`
-	Items           []Item `json:"items"`
-	Destination     Item   `json:"destination"`
+	DriveAccount    string            `json:"driveAccount,omitempty"`
+	DriveGrant      *SealedDriveGrant `json:"driveGrant,omitempty"`
+	Operation       string            `json:"operation,omitempty"`
+	DestinationName string            `json:"destinationName,omitempty"`
+	Items           []Item            `json:"items"`
+	Destination     Item              `json:"destination"`
 }
 type File struct {
 	Vault     string `json:"vault,omitempty"`

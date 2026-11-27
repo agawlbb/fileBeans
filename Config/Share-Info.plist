@@ -5,7 +5,10 @@
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to your FileBeans server on your local network.</string>
 	<key>NSAppTransportSecurity</key>
-	<dict><key>NSAllowsLocalNetworking</key><true/></dict>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>AppGroup</key>
 	<string>$(APP_GROUP)</string>
 	<key>CFBundleDisplayName</key>
@@ -43,5 +46,7 @@
 		<key>NSExtensionPrincipalClass</key>
 		<string>$(PRODUCT_MODULE_NAME).ShareViewController</string>
 	</dict>
+	<key>GoogleKeychainGroup</key>
+	<string>$(AppIdentifierPrefix)$(BUNDLE_ID_PREFIX).google</string>
 </dict>
 </plist>

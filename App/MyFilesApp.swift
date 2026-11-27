@@ -43,8 +43,9 @@ final class ConnectionsModel: ObservableObject {
                 throw NSError(domain: "fileBeans.Upload", code: 1, userInfo: [NSLocalizedDescriptionKey: "Cancel this connection’s uploads first."])
             }
             let domain = NSFileProviderDomain(identifier: .init(connection.id.uuidString), displayName: connection.name)
-            try await NSFileProviderManager.remove(domain)
-            try TokenStore.remove(connection.id)
+            if !connection.isGoogleDrive { try await NSFileProviderManager.remove(domain) }
+            if connection.isGoogleDrive { try GoogleTokenStore.remove(connection.id) }
+            else { try TokenStore.remove(connection.id) }
             if let id = connection.companionTokenID { try TokenStore.remove(id) }
             await ThumbnailCache.shared.clear(connection: connection.id)
             try SharedStore().remove(connection.id)
@@ -61,17 +62,17 @@ struct ConnectionsSettingsView: View {
     @State private var removing: Connection?
     var body: some View {
         List {
-            ForEach(model.connections.filter { $0.companionURL != nil }) { connection in
+            ForEach(model.connections.filter { !$0.isGoogleDrive }) { connection in
                 VaultsView(connection: connection, embedded: true)
             }
             VaultKeyControls()
             Section("Public Hosting") {
-                ForEach(model.connections.filter { $0.companionURL != nil }) { connection in
+                ForEach(model.connections.filter { !$0.isGoogleDrive }) { connection in
                     NavigationLink(connection.name) { HostingSettingsView(connection: connection) }
                 }
             }
             Section("Google Drive") {
-                ForEach(model.connections.filter { $0.companionURL != nil }) { connection in
+                ForEach(model.connections.filter { $0.isGoogleDrive }) { connection in
                     NavigationLink(connection.name) { DriveConnectionSettings(connection: connection) }
                 }
             }
@@ -90,7 +91,7 @@ struct ConnectionsSettingsView: View {
                         Button("Remove Connection", systemImage: "trash", role: .destructive) { removing = connection }
                     }
                 }
-                Button("Add Connection", systemImage: "plus") { adding = true }
+                Button("Add Source", systemImage: "plus") { adding = true }
             }
         }
         .navigationTitle("Settings")
@@ -113,6 +114,7 @@ struct ConnectionEditor: View {
     let connection: Connection?
     let saved: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var kind: SourceKind = .server
     @State private var name = ""
     @State private var address = ""
     @State private var token = ""
@@ -124,7 +126,18 @@ struct ConnectionEditor: View {
     var body: some View {
         NavigationStack {
             Form {
+                if connection == nil {
+                    Picker("Source", selection: $kind) {
+                        Text("FileBeans server").tag(SourceKind.server)
+                        Text("Google Drive").tag(SourceKind.googleDrive)
+                    }
+                }
                 TextField("Name", text: $name)
+                if kind == .googleDrive {
+                    Button(connection == nil ? "Sign in with Google" : "Reconnect Google Drive") {
+                        Task { await connectGoogle() }
+                    }.disabled(busy)
+                } else {
                 TextField("https://files.example.com", text: $address)
                     .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                     .accessibilityLabel("Server URL")
@@ -137,23 +150,41 @@ struct ConnectionEditor: View {
                     TextField("Server ID", text: $serverID).textInputAutocapitalization(.never).autocorrectionDisabled()
                     TextField("Certificate SHA-256", text: $fingerprint).textInputAutocapitalization(.never).autocorrectionDisabled()
                 }
+                }
                 if let error { Text(error).foregroundStyle(.red) }
                 if busy { ProgressView("Connecting…") }
             }
-            .navigationTitle(connection == nil ? "Add Connection" : "Edit Connection")
+            .navigationTitle(connection == nil ? "Add Source" : "Edit Source")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(busy) }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { Task { await save() } }
-                        .disabled(busy || name.trimmingCharacters(in: .whitespaces).isEmpty || address.isEmpty || (connection == nil && token.isEmpty))
+                        .disabled(busy || name.trimmingCharacters(in: .whitespaces).isEmpty ||
+                            (kind == .googleDrive ? connection == nil : address.isEmpty || (connection == nil && token.isEmpty)))
                 }
             }
-            .onAppear { name = connection?.name ?? ""; address = connection?.filesystemURL.absoluteString ?? ""; localAddress = connection?.localURL?.absoluteString ?? ""; fingerprint = connection?.localFingerprint ?? ""; serverID = connection?.serverID ?? "" }
+            .onAppear { kind = connection?.kind ?? .server; name = connection?.name ?? ""; address = connection?.filesystemURL.absoluteString ?? ""; localAddress = connection?.localURL?.absoluteString ?? ""; fingerprint = connection?.localFingerprint ?? ""; serverID = connection?.serverID ?? "" }
         }.interactiveDismissDisabled(busy)
+    }
+    private func connectGoogle() async {
+        busy = true; defer { busy = false }
+        do {
+            var value = try await GoogleDriveSignIn.shared.connect(existing: connection)
+            if !name.trimmingCharacters(in: .whitespaces).isEmpty { value.name = name.trimmingCharacters(in: .whitespaces) }
+            try SharedStore().save(value)
+            saved(); NotificationCenter.default.post(name: .fileBeansConnectionChanged, object: nil); dismiss()
+        } catch { self.error = error.localizedDescription }
     }
     private func save() async {
         busy = true; defer { busy = false }
         do {
+            if kind == .googleDrive {
+                guard var value = connection else { throw APIError.authentication }
+                value.name = name.trimmingCharacters(in: .whitespaces)
+                try SharedStore().save(value)
+                saved(); NotificationCenter.default.post(name: .fileBeansConnectionChanged, object: nil); dismiss()
+                return
+            }
             let url = try FilesystemClient.validateURL(address)
             let credentialID = connection?.filesystemTokenID ?? connection?.id ?? UUID()
             var c = Connection(id: connection?.id ?? credentialID,
@@ -178,6 +209,7 @@ struct ConnectionEditor: View {
             let capabilities = try await companion.capabilities()
             guard capabilities.features?.contains("filesystemV1") == true else { throw APIError.incompatible }
             if let expected = c.serverID, capabilities.serverId != expected { throw APIError.incompatible }
+            c.serverID = capabilities.serverId
             let previousToken = try? TokenStore.read(credentialID)
             try TokenStore.save(credential, for: credentialID)
             let domain = NSFileProviderDomain(identifier: .init(c.id.uuidString), displayName: c.name)

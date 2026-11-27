@@ -9,6 +9,7 @@ final class Repository {
     let fileProvider: Bool
     private var protectionAvailable = false
     init(connection: Connection, store: SharedStore, token: String? = nil, fileProvider: Bool = false) throws {
+        guard !connection.isGoogleDrive else { throw APIError.incompatible }
         let connection = connection.unified
         self.fileProvider = fileProvider
         self.connection = connection; self.store = store

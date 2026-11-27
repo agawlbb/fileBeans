@@ -4,6 +4,7 @@ struct ArchiveEndpoint: Codable, Hashable {
     let source: String
     let path: String
     let available: Bool
+    var server: String? = nil
 }
 struct ArchiveLink: Codable, Identifiable, Hashable {
     let id: String
@@ -49,9 +50,16 @@ extension CompanionClient {
     func archiveLinks() async throws -> [ArchiveLink] {
         try JSONDecoder().decode([ArchiveLink].self, from: await request("archive-links"))
     }
-    func linkArchive(library: StoredItem, archive: StoredItem) async throws -> ArchiveLink {
+    func linkArchive(library: StoredItem, archive: StoredItem, archiveConnection: Connection? = nil) async throws -> ArchiveLink {
         let a = try sourceLocation(CopyLocation(source: library.source, path: library.file.path))
-        let b = try sourceLocation(CopyLocation(source: archive.source, path: archive.file.path))
+        var b = try sourceLocation(CopyLocation(source: archive.source, path: archive.file.path))
+        if let archiveConnection, archiveConnection.id != connection.id {
+            let client = CompanionClient(connection: archiveConnection); defer { client.close() }
+            let capabilities = try await client.capabilities()
+            guard let owner = capabilities.serverId, !owner.isEmpty else { throw APIError.incompatible }
+            let scope = try SharedStore().sourceScope(archiveConnection.id, source: archive.source)
+            b = CopyLocation(source: archive.source, path: try FilePath.inSource(archive.file.path, scope: scope), server: owner)
+        }
         let body = try JSONEncoder().encode(["library": a, "archive": b])
         return try JSONDecoder().decode(ArchiveLink.self, from: await request("archive-links", method: "POST", body: body))
     }

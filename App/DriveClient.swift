@@ -120,7 +120,7 @@ final class DriveClient {
             try? FileManager.default.removeItem(at: pending)
         } catch {
             let failure = error as NSError
-            if failure.domain == "fileBeans.Companion", [400, 401, 403, 404, 409].contains(failure.code) { try? FileManager.default.removeItem(at: pending) }
+            if ["fileBeans.Companion", "fileBeans.Google"].contains(failure.domain), [400, 401, 403, 404, 409].contains(failure.code) { try? FileManager.default.removeItem(at: pending) }
             throw error
         }
     }

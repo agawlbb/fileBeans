@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 func reply(w http.ResponseWriter, status int, v any) {
@@ -77,14 +78,19 @@ func (s *Service) Handler() http.Handler {
 		for _, root := range s.config.Roots {
 			roots = append(roots, map[string]string{"source": root.Name, "trash": "/Trash"})
 		}
-		g, e := s.google()
-		features := []string{"publicHostingV1", "protectedFolderMoves", "crossDriveMoves", "driveWrite", "driveDestinations", "driveUploads", "driveThumbnails", "driveMedia", "normalization"}
+        g,e:=s.google()
+        transferKey, keyError := s.transferPublicKey()
+		if keyError != nil {
+			fail(w, keyError)
+			return
+		}
+		features := []string{"publicHostingV1", "protectedFolderMoves", "crossDriveMoves", "driveWrite", "driveDestinations", "driveUploads", "driveThumbnails", "driveMedia", "nativeDriveTransfersV1", "normalization"}
 		if s.config.Filesystem.Enabled {
 			features = append(features, "archiveSyncV1")
 			features = append(features, "archiveLinksV1", "archiveReadOnlyV1", "archiveCachedThumbnailsV1", "filenameStemsV1", "filesystemV1", "resumableUploadsV1", "datasetMediaV1", "datasetOriginalsV1")
 		}
 		if s.config.Profile == "pi" {
-			features = []string{"filesystemV1", "resumableUploadsV1", "filenameStemsV1", "protectedFolderMoves", "crossDriveMoves", "driveWrite", "driveDestinations", "driveUploads", "driveThumbnails", "driveMedia", "peerTransfersV1"}
+			features = []string{"filesystemV1", "resumableUploadsV1", "filenameStemsV1", "protectedFolderMoves", "crossDriveMoves", "driveWrite", "driveDestinations", "driveUploads", "driveThumbnails", "driveMedia", "nativeDriveTransfersV1", "peerTransfersV1"}
 			if s.config.ArchiveCoordinator != "" {
 				features = append(features, "archiveSyncV1", "archiveLinksV1", "archiveReadOnlyV1", "archiveCachedThumbnailsV1")
 			}
@@ -92,12 +98,43 @@ func (s *Service) Handler() http.Handler {
 		if s.vaults != nil && s.vaults.remote != nil && s.vaults.remote.ready() {
 			features = append(features, "protectedFoldersCreate")
 		}
-		reply(w, 200, map[string]any{"version": 1, "roots": roots, "driveConnected": e == nil, "driveWriteAccess": e == nil && g.writable(), "normalizationEnabled": s.config.Normalization.Enabled, "features": features, "serverId": s.config.ServerID})
+		reply(w, 200, map[string]any{"version": 1, "roots": roots, "driveConnected": e == nil, "driveWriteAccess": e == nil && g.writable(), "normalizationEnabled": s.config.Normalization.Enabled, "features": features, "serverId": s.config.ServerID, "driveTransferKey": transferKey})
 	})
 	mux.HandleFunc("POST /v1/jobs", func(w http.ResponseWriter, r *http.Request) {
 		var req CopyRequest
 		if e := body(r, &req); e != nil {
 			fail(w, e)
+			return
+		}
+		destination, normalError := s.normalizeTransferLocation(req.Destination)
+		if normalError != nil {
+			fail(w, normalError)
+			return
+		}
+		req.Destination = destination
+		for i := range req.Items {
+			item, err := s.normalizeTransferLocation(req.Items[i])
+			if err != nil {
+				fail(w, err)
+				return
+			}
+			req.Items[i] = item
+		}
+		var nativeGrant *Google
+		if req.DriveGrant != nil {
+			if !hasDrive(req) || req.DriveAccount == "" {
+				fail(w, ErrUnsafe)
+				return
+			}
+			grant, err := s.openNativeDriveGrant(*req.DriveGrant)
+			if err != nil || grant.Account != req.DriveAccount {
+				fail(w, ErrAuthorization)
+				return
+			}
+			nativeGrant = &grant
+			req.DriveGrant = nil
+		} else if req.DriveAccount != "" {
+			fail(w, ErrAuthorization)
 			return
 		}
 		if e := s.guardArchiveJob(req); e != nil {
@@ -113,9 +150,11 @@ func (s *Service) Handler() http.Handler {
 				fail(w, ErrUnsafe)
 				return
 			}
-			if e := s.requireDriveWrite(""); e != nil {
-				fail(w, e)
-				return
+			if nativeGrant == nil {
+				if e := s.requireDriveWrite(""); e != nil {
+					fail(w, e)
+					return
+				}
 			}
 		} else {
 			destination, err := clean(req.Destination.Path)
@@ -208,7 +247,20 @@ func (s *Service) Handler() http.Handler {
 			}
 		}
 		j := Job{ID: ID(), State: "queued", Request: req}
-		if hasDrive(req) && s.peerFor("drive") == nil {
+		submitted := false
+		if nativeGrant != nil {
+			j.Connection = "native:" + j.ID
+			if err := s.saveNativeGoogle(j.Connection, *nativeGrant, time.Now().Add(24*time.Hour).Unix()); err != nil {
+				fail(w, err)
+				return
+			}
+			defer func() {
+				if !submitted {
+					s.removeNativeGoogle(j.Connection)
+				}
+			}()
+		}
+		if nativeGrant == nil && hasDrive(req) && s.peerFor("drive") == nil {
 			g, e := s.google()
 			if e != nil {
 				fail(w, e)
@@ -236,6 +288,7 @@ func (s *Service) Handler() http.Handler {
 			fail(w, e)
 			return
 		}
+		submitted = true
 		reply(w, 202, publicJob(j))
 	})
 	mux.HandleFunc("GET /v1/jobs", func(w http.ResponseWriter, r *http.Request) {
@@ -273,6 +326,10 @@ func (s *Service) Handler() http.Handler {
 			fail(w, e)
 			return
 		}
+		if err := s.renewNativeGoogle(r, &j); err != nil {
+			fail(w, err)
+			return
+		}
 		if j.State == "completed" || j.State == "cancelled" {
 			reply(w, 200, publicJob(j))
 			return
@@ -300,6 +357,7 @@ func (s *Service) Handler() http.Handler {
 			stop() // Interrupt in-flight Drive HTTP reads immediately.
 		}
 		if j.State == "cancelled" {
+			s.removeNativeGoogle(j.Connection)
 			s.cleanupJobUploads(&j)
 		}
 		j.Manifest = nil
@@ -315,6 +373,10 @@ func (s *Service) Handler() http.Handler {
 		}
 		if j.State != "failed" || (len(j.Published) != 0 && j.Move == nil) {
 			fail(w, ErrConflict)
+			return
+		}
+		if err := s.renewNativeGoogle(r, &j); err != nil {
+			fail(w, err)
 			return
 		}
 		if j.Request.Destination.Source == "drive" {
@@ -576,7 +638,11 @@ func (s *Service) Handler() http.Handler {
 			s.vaultGate.RLock()
 			defer s.vaultGate.RUnlock()
 		}
-		s.federated(s.archiveMirrorHandler(mux), w, r)
+		if strings.HasPrefix(r.URL.Path, "/v1/drive/") {
+			fail(w, ErrUnsupported)
+			return
+		}
+		s.routeExplicitPeerOperations(s.archiveMirrorHandler(mux), w, r)
 	})
 }
 func hasDrive(r CopyRequest) bool {
@@ -592,6 +658,15 @@ func hasDrive(r CopyRequest) bool {
 }
 
 func publicJob(j Job) Job {
+	j.Request.DriveGrant = nil
+	j.Request.Items = append([]Item(nil), j.Request.Items...)
+	j.Request.Destination = publicTransferLocation(j.Request.Destination)
+	for i := range j.Request.Items {
+		j.Request.Items[i] = publicTransferLocation(j.Request.Items[i])
+	}
+	if strings.HasPrefix(j.Connection, "native:") {
+		j.Connection = ""
+	}
 	if j.Move != nil {
 		allowed := !j.Move.Committed
 		j.CanCancel = &allowed

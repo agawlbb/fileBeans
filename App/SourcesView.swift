@@ -1,11 +1,12 @@
 import SwiftUI
 
 struct SourceDestination: Identifiable, Hashable {
-    enum Kind: Hashable { case local(StoredItem), drive, driveFolder(String, String), transfers, protection, trash(String), driveTrash }
+    enum Kind: Hashable { case server, local(StoredItem), drive, driveFolder(String, String), transfers, protection, trash(String), driveTrash }
     let connection: Connection
     let kind: Kind
     var id: String {
         switch kind {
+        case .server: return connection.id.uuidString + ":server"
         case .local(let item): return connection.id.uuidString + ":local:" + item.id
         case .drive: return connection.id.uuidString + ":drive"
         case .driveFolder(let id, _): return connection.id.uuidString + ":drive:" + id
@@ -17,8 +18,9 @@ struct SourceDestination: Identifiable, Hashable {
     }
     var name: String {
         switch kind {
+        case .server: return connection.name
         case .local(let item): return item.file.name
-        case .drive: return "Google Drive"
+        case .drive: return connection.isGoogleDrive ? connection.name : "Google Drive"
         case .driveFolder(_, let name): return name
         case .transfers: return "Transfers"
         case .protection: return "Protected folders"
@@ -27,6 +29,7 @@ struct SourceDestination: Identifiable, Hashable {
     }
     @MainActor @ViewBuilder var destination: some View {
         switch kind {
+        case .server: BrowserView(connection: connection)
         case .local(let item): BrowserView(connection: connection, parent: item)
         case .drive: DriveBrowser(connection: connection)
         case .driveFolder(let id, let name): DriveBrowser(connection: connection, folder: id, title: name)
@@ -46,11 +49,8 @@ final class SourcesModel: ObservableObject {
     private var generation = UUID()
 
     static func entries(connections: [Connection], roots: [UUID: [StoredItem]]) -> [SourceDestination] {
-        connections.flatMap { connection in
-            var entries = (roots[connection.id] ?? []).map { SourceDestination(connection: connection, kind: .local($0)) }
-            // Preserve Drive's existing setup entry, even before companion authorization.
-            entries.append(SourceDestination(connection: connection, kind: .drive))
-            return entries
+        connections.map { connection in
+            SourceDestination(connection: connection, kind: connection.isGoogleDrive ? .drive : .server)
         }.sorted {
             let order = $0.name.localizedStandardCompare($1.name)
             return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
@@ -64,6 +64,10 @@ final class SourcesModel: ObservableObject {
             for connection in connections {
                 group.addTask {
                     do {
+                        if connection.isGoogleDrive {
+                            _ = try await GoogleDriveAuthorization.shared.accessToken(connection)
+                            return (connection.id, [], nil)
+                        }
                         let repository = try Repository(connection: connection, store: SharedStore())
                         return (connection.id, try await repository.roots(), nil)
                     } catch { return (connection.id, nil, error.localizedDescription) }
@@ -170,7 +174,7 @@ struct SourcesView: View {
     @ViewBuilder private var transfersButton: some View {
         let destination = sizeClass == .compact ? sourcePath.last : routeState.path.last ?? selected
         let active = destination?.connection
-        let available = active.map { [$0] } ?? connections.connections.filter { $0.companionURL != nil }
+        let available = active.map { [$0] } ?? connections.connections
         if available.count == 1, let connection = available.first {
             if sizeClass != .compact && selected == nil {
                 Button { selected = SourceDestination(connection: connection, kind: .transfers) } label: {

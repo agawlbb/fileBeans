@@ -18,6 +18,7 @@ import (
 )
 
 type Google struct {
+	ClientID   string   `json:"client_id,omitempty"`
 	Access     string   `json:"access_token"`
 	Refresh    string   `json:"refresh_token"`
 	Expires    int64    `json:"expires"`
@@ -69,7 +70,7 @@ func (g Google) writable() bool {
 	return false
 }
 func (s *Service) requireDriveWrite(connection string) error {
-	g, e := s.google()
+	g, e := s.googleForConnection(connection)
 	if e != nil {
 		return e
 	}
@@ -143,7 +144,7 @@ func (s *Service) token(ctx context.Context, connection string) (Google, error) 
 		return Google{}, lockError
 	}
 	defer unlock()
-	g, e := s.google()
+	g, e := s.googleForConnection(connection)
 	if e != nil {
 		return g, e
 	}
@@ -153,7 +154,29 @@ func (s *Service) token(ctx context.Context, connection string) (Google, error) 
 	if g.Expires > time.Now().Unix()+60 {
 		return g, nil
 	}
-	reply, e := s.tokenRequest(ctx, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {g.Refresh}})
+	var reply tokenReply
+	if strings.HasPrefix(connection, "native:") {
+		values := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {g.Refresh}, "client_id": {g.ClientID}}
+		request, err := http.NewRequestWithContext(ctx, "POST", "https://oauth2.googleapis.com/token", strings.NewReader(values.Encode()))
+		if err != nil {
+			return g, err
+		}
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		response, err := googleHTTP.Do(request)
+		if err != nil {
+			return g, err
+		}
+		defer response.Body.Close()
+		if response.StatusCode != 200 {
+			return g, ErrAuthorization
+		}
+		e = json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&reply)
+		if reply.Access == "" {
+			e = ErrAuthorization
+		}
+	} else {
+		reply, e = s.tokenRequest(ctx, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {g.Refresh}})
+	}
 	if e != nil {
 		return g, e
 	}
@@ -164,6 +187,13 @@ func (s *Service) token(ctx context.Context, connection string) (Google, error) 
 	g.Expires = time.Now().Unix() + reply.Lifetime
 	if reply.Scope != "" {
 		g.Scopes = strings.Fields(reply.Scope)
+	}
+	if strings.HasPrefix(connection, "native:") {
+		_, deadline, err := s.nativeGoogle(connection)
+		if err != nil {
+			return g, err
+		}
+		return g, s.saveNativeGoogle(connection, g, deadline)
 	}
 	return g, privateJSON(filepath.Join(s.config.State, "google.json"), g)
 }

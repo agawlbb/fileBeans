@@ -35,7 +35,7 @@ struct ShareUploadView: View {
                     ForEach(connections) { connection in
                         NavigationLink(connection.name) {
                             SourceDestinationPicker(connection: connection, mode: .upload,
-                                excludedLocal: [], excludedDrive: []) { destination in
+                                excludedLocal: [], excludedDrive: [], showSources: false) { destination in
                                 upload(connection, destination: destination)
                             }
                         }.disabled(files.isEmpty)
@@ -103,12 +103,13 @@ struct ShareUploadView: View {
         } catch { files = []; self.error = error.localizedDescription; cleanup() }
         loading = false
     }
-    private func upload(_ connection: Connection, destination: BrowserDestination) {
+    private func upload(_ connection: Connection, destination: SourceSelection) {
         guard !submitting else { return }
         submitting = true
         Task {
             do {
-                switch destination {
+                let connection = destination.connection
+                switch destination.destination {
                 case .local(let folder):
                     guard folder.permissions.create, folder.protection?.unlocked != false else { throw APIError.forbidden }
                     try await UploadQueue.shared.enqueue(files, connection: connection, source: folder.source, parent: folder.file.path, scoped: false)

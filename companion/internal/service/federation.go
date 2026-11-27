@@ -1,7 +1,7 @@
 package service
 
-// Federation routes the existing API to the owner of a source. It does not
-// mount remote storage or permit a request to select an arbitrary upstream URL.
+// Explicit server-to-server jobs use configured, authenticated peers. Ordinary
+// client browsing and server management always stay within the addressed server.
 import (
 	"bytes"
 	"context"
@@ -12,18 +12,88 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
-	"time"
 )
 
+func splitPeerSource(source string) (string, string, bool) {
+	parts := strings.SplitN(source, ":", 3)
+	if len(parts) == 3 && parts[0] == "peer" && parts[1] != "" && parts[2] != "" {
+		return parts[1], parts[2], true
+	}
+	return "", source, false
+}
+func peerSourceFor(source, owner string) string {
+	id, root, ok := splitPeerSource(source)
+	if ok && id == owner {
+		return root
+	}
+	return source
+}
 func (s *Service) peerFor(source string) *PeerConfig {
-	for i := range s.config.Peers {
-		for _, n := range s.config.Peers[i].Sources {
-			if source == n {
-				return &s.config.Peers[i]
+	if source == "drive" {
+		return nil
+	}
+	owner, root, qualified := splitPeerSource(source)
+	if !qualified {
+		for _, r := range s.config.Roots {
+			if r.Name == source {
+				return nil
 			}
 		}
 	}
-	return nil
+	var found *PeerConfig
+	for i := range s.config.Peers {
+		p := &s.config.Peers[i]
+		if qualified && p.ID != owner {
+			continue
+		}
+		for _, name := range p.Sources {
+			if name == root {
+				if found != nil {
+					return nil
+				}
+				found = p
+			}
+		}
+	}
+	return found
+}
+func (s *Service) normalizeTransferLocation(item Item) (Item, error) {
+	if item.ServerID == "" || item.ServerID == s.config.ServerID {
+		item.ServerID = ""
+		return item, nil
+	}
+	source := "peer:" + item.ServerID + ":" + item.Source
+	if s.peerFor(source) == nil {
+		return item, ErrUnsupported
+	}
+	item.Source = source
+	item.ServerID = ""
+	return item, nil
+}
+func publicTransferLocation(item Item) Item {
+	if owner, source, ok := splitPeerSource(item.Source); ok {
+		item.Source = source
+		item.ServerID = owner
+	}
+	return item
+}
+
+// Internal RPCs use the recipient's own source names. Qualified names are only
+// the submitting server's transfer coordinates, not a public browsing namespace.
+func rewritePeerSources(value any, owner string) {
+	switch v := value.(type) {
+	case map[string]any:
+		if source, ok := v["source"].(string); ok {
+			v["source"] = peerSourceFor(source, owner)
+		}
+		for _, child := range v {
+			rewritePeerSources(child, owner)
+		}
+	case []any:
+		for _, child := range v {
+			rewritePeerSources(child, owner)
+		}
+	}
 }
 func (s *Service) crossPeer(r CopyRequest) bool {
 	for _, i := range r.Items {
@@ -39,7 +109,16 @@ func peerRequest(ctx context.Context, p PeerConfig, method, path string, q url.V
 		return nil, e
 	}
 	u.Path = strings.TrimRight(u.Path, "/") + path
-	u.RawQuery = q.Encode()
+	query := url.Values{}
+	for key, values := range q {
+		for _, value := range values {
+			if key == "source" {
+				value = peerSourceFor(value, p.ID)
+			}
+			query.Add(key, value)
+		}
+	}
+	u.RawQuery = query.Encode()
 	r, e := http.NewRequestWithContext(ctx, method, u.String(), b)
 	if e != nil {
 		return nil, e
@@ -60,6 +139,15 @@ func peerJSON(ctx context.Context, p PeerConfig, path string, in, out any) error
 	if e != nil {
 		return e
 	}
+	var value any
+	if json.Unmarshal(b, &value) != nil {
+		return ErrUnsafe
+	}
+	rewritePeerSources(value, p.ID)
+	b, e = json.Marshal(value)
+	if e != nil {
+		return e
+	}
 	resp, e := peerRequest(ctx, p, "POST", path, nil, bytes.NewReader(b))
 	if e != nil {
 		return e
@@ -68,7 +156,19 @@ func peerJSON(ctx context.Context, p PeerConfig, path string, in, out any) error
 	if resp.StatusCode != 200 {
 		return peerError(resp.StatusCode)
 	}
-	return json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(out)
+	if e = json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(out); e != nil {
+		return e
+	}
+	if item, ok := in.(Item); ok {
+		if files, ok := out.(*[]File); ok {
+			for i := range *files {
+				if (*files)[i].Source == peerSourceFor(item.Source, p.ID) {
+					(*files)[i].Source = item.Source
+				}
+			}
+		}
+	}
+	return nil
 }
 func peerError(status int) error {
 	switch status {
@@ -102,6 +202,35 @@ func (s *Service) proxyPeer(p PeerConfig, w http.ResponseWriter, r *http.Request
 	out.Header = r.Header.Clone()
 	out.Header.Set("Authorization", "Bearer "+p.Token)
 	out.Header.Set("X-FileBeans-Peer", "1")
+	if r.Method == http.MethodPost && r.URL.Path == "/v1/jobs" {
+		var request CopyRequest
+		if json.NewDecoder(io.LimitReader(r.Body, (1<<20)+1)).Decode(&request) != nil {
+			fail(w, ErrUnsafe)
+			return
+		}
+		request.Destination.Source = peerSourceFor(request.Destination.Source, p.ID)
+		for i := range request.Items {
+			owner, source, qualified := splitPeerSource(request.Items[i].Source)
+			if !qualified {
+				request.Items[i].ServerID = ""
+				for _, source := range p.Sources {
+					if source == request.Items[i].Source {
+						request.Items[i].ServerID = s.config.ServerID
+					}
+				}
+			} else {
+				request.Items[i].ServerID = owner
+				request.Items[i].Source = source
+			}
+		}
+		raw, err := json.Marshal(request)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		out.Body = io.NopCloser(bytes.NewReader(raw))
+		out.ContentLength = int64(len(raw))
+	}
 	resp, e := peerClient(p).Do(out)
 	if e != nil {
 		fail(w, e)
@@ -144,34 +273,14 @@ func (s *Service) proxyPeer(p PeerConfig, w http.ResponseWriter, r *http.Request
 	_, _ = io.Copy(w, resp.Body)
 }
 
-func (s *Service) federated(local http.Handler, w http.ResponseWriter, r *http.Request) {
-	if s.config.Profile == "pi" && strings.HasPrefix(r.URL.Path, "/v1/archive-") && s.config.ArchiveCoordinator != "" {
-		for _, p := range s.config.Peers {
-			if p.ID == s.config.ArchiveCoordinator {
-				s.proxyPeer(p, w, r)
-				return
-			}
-		}
-		fail(w, ErrMount)
-		return
-	}
-	if s.config.Profile == "pi" && (strings.HasPrefix(r.URL.Path, "/v1/archive-") || strings.HasPrefix(r.URL.Path, "/v1/datasets/") || strings.HasPrefix(r.URL.Path, "/v1/normalization")) {
-		fail(w, ErrUnsupported)
-		return
-	}
+// Client APIs belong to this server. A configured peer is an internal transfer
+// destination, not an additional browsing namespace or authentication provider.
+func (s *Service) routeExplicitPeerOperations(local http.Handler, w http.ResponseWriter, r *http.Request) {
 	if len(s.config.Peers) == 0 || r.Header.Get("X-FileBeans-Peer") != "" || strings.HasPrefix(r.URL.Path, "/v1/peer/") {
 		local.ServeHTTP(w, r)
 		return
 	}
-	if strings.HasPrefix(r.URL.Path, "/v1/protection") {
-		s.federatedProtection(local, w, r)
-		return
-	}
-	source := r.URL.Query().Get("source")
-	if strings.HasPrefix(r.URL.Path, "/v1/drive/") {
-		source = "drive"
-	}
-	if r.Method == "POST" && r.URL.Path == "/v1/jobs" {
+	if r.Method == http.MethodPost && r.URL.Path == "/v1/jobs" {
 		b, e := io.ReadAll(io.LimitReader(r.Body, (1<<20)+1))
 		if e != nil || len(b) > 1<<20 {
 			fail(w, ErrUnsafe)
@@ -183,167 +292,91 @@ func (s *Service) federated(local http.Handler, w http.ResponseWriter, r *http.R
 			fail(w, ErrUnsafe)
 			return
 		}
-		source = req.Destination.Source
+		destination, err := s.normalizeTransferLocation(req.Destination)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		req.Destination = destination
+		for i := range req.Items {
+			item, err := s.normalizeTransferLocation(req.Items[i])
+			if err != nil {
+				fail(w, err)
+				return
+			}
+			req.Items[i] = item
+		}
+		raw, err := json.Marshal(req)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(raw))
+		r.ContentLength = int64(len(raw))
+		if p := s.peerFor(req.Destination.Source); p != nil {
+			if req.DriveGrant != nil {
+				fail(w, ErrUnsafe)
+				return
+			}
+			s.proxyPeer(*p, w, r)
+			return
+		}
 	}
-	// Route source-bearing JSON writes without consuming upload streams.
-	if source == "" && r.Method == "POST" && (r.URL.Path == "/v1/trash" || r.URL.Path == "/v1/fs/move" || r.URL.Path == "/v1/vaults") {
-		b, e := io.ReadAll(io.LimitReader(r.Body, (1<<20)+1))
-		if e != nil || len(b) > 1<<20 {
+	// Only an explicitly submitted transfer's owner-qualified ID can route to
+	// another server. Vaults, Trash and file paths never select another owner.
+	const jobs = "/v1/jobs/"
+	if strings.HasPrefix(r.URL.Path, jobs) {
+		rest := strings.TrimPrefix(r.URL.Path, jobs)
+		for _, p := range s.config.Peers {
+			if strings.HasPrefix(rest, p.ID+"~") {
+				copy := r.Clone(r.Context())
+				u := *r.URL
+				copy.URL = &u
+				copy.URL.Path = jobs + strings.TrimPrefix(rest, p.ID+"~")
+				s.proxyPeer(p, w, copy)
+				return
+			}
+		}
+	}
+	// The preserved cross-server archive is coordinated by its library owner.
+	// A link-specific unlink is explicit; browsing/status lists remain local.
+	if r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/v1/archive-links/") && s.config.ArchiveCoordinator != "" {
+		id := strings.TrimPrefix(r.URL.Path, "/v1/archive-links/")
+		var found int
+		if e := s.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM fb_operations WHERE id=? AND kind='archiveLink'", id).Scan(&found); e != nil || found != 1 {
 			fail(w, ErrUnsafe)
 			return
 		}
-		r.Body = io.NopCloser(bytes.NewReader(b))
-		var item Item
-		_ = json.Unmarshal(b, &item)
-		source = item.Source
-	}
-	if p := s.peerFor(source); p != nil {
-		s.proxyPeer(*p, w, r)
-		return
-	}
-	// Prefix only remote operation IDs; the owning server always sees its original ID.
-	for _, kind := range []string{"jobs", "trash", "vaults"} {
-		prefix := "/v1/" + kind + "/"
-		if strings.HasPrefix(r.URL.Path, prefix) {
-			rest := strings.TrimPrefix(r.URL.Path, prefix)
-			for _, p := range s.config.Peers {
-				if strings.HasPrefix(rest, p.ID+"~") {
-					copy := r.Clone(r.Context())
-					u := *r.URL
-					copy.URL = &u
-					copy.URL.Path = prefix + strings.TrimPrefix(rest, p.ID+"~")
-					s.proxyPeer(p, w, copy)
-					return
-				}
+		for _, p := range s.config.Peers {
+			if p.ID == s.config.ArchiveCoordinator {
+				s.proxyPeer(p, w, r)
+				return
 			}
 		}
-	}
-	if r.Method == "GET" && (r.URL.Path == "/v1/fs/sources" || r.URL.Path == "/v1/jobs" || r.URL.Path == "/v1/vaults" || r.URL.Path == "/v1/trash") {
-		s.aggregate(local, w, r)
+		fail(w, ErrMount)
 		return
 	}
-	if r.URL.Path == "/v1/capabilities" && r.Method == "GET" {
-		rec := httptest.NewRecorder()
-		local.ServeHTTP(rec, r)
+	if r.Method == http.MethodGet && r.URL.Path == "/v1/capabilities" {
+		recorder := httptest.NewRecorder()
+		local.ServeHTTP(recorder, r)
 		var data map[string]any
-		if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &data) != nil {
+		if recorder.Code != http.StatusOK || json.Unmarshal(recorder.Body.Bytes(), &data) != nil {
 			fail(w, ErrMount)
 			return
 		}
-		data["features"] = append(data["features"].([]any), "peerTransfersV1")
-		// Drive authorization is owned by the VPS. A short probe cannot block local use.
-		if p := s.peerFor("drive"); p != nil {
-			ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-			defer cancel()
-			resp, e := peerRequest(ctx, *p, "GET", "/v1/capabilities", nil, nil)
-			if e == nil {
-				defer resp.Body.Close()
-				var remote map[string]any
-				if resp.StatusCode == 200 && json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&remote) == nil {
-					data["driveConnected"] = remote["driveConnected"]
-					data["driveWriteAccess"] = remote["driveWriteAccess"]
-				}
+		features, _ := data["features"].([]any)
+		found := false
+		for _, feature := range features {
+			if feature == "peerTransfersV1" {
+				found = true
 			}
 		}
-		reply(w, 200, data)
+		if !found {
+			features = append(features, "peerTransfersV1")
+		}
+		data["features"] = features
+		reply(w, http.StatusOK, data)
 		return
 	}
 	local.ServeHTTP(w, r)
-}
-
-func (s *Service) aggregate(local http.Handler, w http.ResponseWriter, r *http.Request) {
-	rec := httptest.NewRecorder()
-	local.ServeHTTP(rec, r)
-	if rec.Code != 200 {
-		w.WriteHeader(rec.Code)
-		_, _ = w.Write(rec.Body.Bytes())
-		return
-	}
-	object := r.URL.Path == "/v1/fs/sources"
-	var items []map[string]any
-	if object {
-		var d struct {
-			Scopes []map[string]any `json:"scopes"`
-		}
-		if json.Unmarshal(rec.Body.Bytes(), &d) != nil {
-			fail(w, ErrMount)
-			return
-		}
-		items = d.Scopes
-	} else {
-		if json.Unmarshal(rec.Body.Bytes(), &items) != nil {
-			fail(w, ErrMount)
-			return
-		}
-	}
-	for _, p := range s.config.Peers {
-		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-		resp, e := peerRequest(ctx, p, "GET", r.URL.Path, r.URL.Query(), nil)
-		if e == nil {
-			var remote []map[string]any
-			if object {
-				var d struct {
-					Scopes []map[string]any `json:"scopes"`
-				}
-				e = json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&d)
-				remote = d.Scopes
-			} else {
-				e = json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&remote)
-			}
-			resp.Body.Close()
-			if e == nil && resp.StatusCode == 200 {
-				for _, v := range remote {
-					if object {
-						name, _ := v["name"].(string)
-						if owner := s.peerFor(name); owner == nil || owner.ID != p.ID {
-							continue
-						}
-					} else {
-						if source, ok := v["source"].(string); ok {
-							if owner := s.peerFor(source); owner == nil || owner.ID != p.ID {
-								continue
-							}
-						}
-						if request, ok := v["request"].(map[string]any); ok {
-							if destination, ok := request["destination"].(map[string]any); ok {
-								if source, ok := destination["source"].(string); ok {
-									if owner := s.peerFor(source); owner == nil || owner.ID != p.ID {
-										continue
-									}
-								}
-							}
-						}
-						if id, ok := v["id"].(string); ok {
-							v["id"] = p.ID + "~" + id
-						}
-					}
-					items = append(items, v)
-				}
-			}
-		}
-		cancel()
-	}
-	if object {
-		seen := map[string]bool{}
-		for _, v := range items {
-			if n, ok := v["name"].(string); ok {
-				seen[n] = true
-			}
-		}
-		for _, p := range s.config.Peers {
-			for _, n := range p.Sources {
-				if n != "drive" && !seen[n] {
-					items = append(items, map[string]any{"name": n, "scope": "/", "permissions": map[string]bool{"view": true, "download": true, "modify": true, "create": true, "delete": true}})
-				}
-			}
-		}
-	}
-	if items == nil {
-		items = []map[string]any{}
-	}
-	if object {
-		reply(w, 200, map[string]any{"version": 1, "scopes": items})
-	} else {
-		reply(w, 200, items)
-	}
 }

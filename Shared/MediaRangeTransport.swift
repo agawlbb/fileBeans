@@ -90,7 +90,16 @@ final class MediaRangeTransport: NSObject, URLSessionDataDelegate, @unchecked Se
 
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
-        completionHandler(nil)
+        guard let connection, connection.isGoogleDrive, let url = request.url,
+              GoogleDriveTransport.googleURL(url) else { completionHandler(nil); return }
+        Task {
+            do {
+                var next = request
+                next.setValue("Bearer " + (try await GoogleDriveAuthorization.shared.accessToken(connection)), forHTTPHeaderField: "Authorization")
+                if let range = task.originalRequest?.value(forHTTPHeaderField: "Range") { next.setValue(range, forHTTPHeaderField: "Range") }
+                completionHandler(next)
+            } catch { completionHandler(nil) }
+        }
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,

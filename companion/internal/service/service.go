@@ -204,6 +204,7 @@ func (s *Service) maintenance(ctx context.Context) {
 				r.Close()
 			}
 		}
+		s.cleanupExpiredNativeGoogle()
 		s.reconcileTrash()
 		if s.vaults != nil && s.vaults.remote != nil {
 			for _, v := range s.vaults.status() {

@@ -1,5 +1,7 @@
 import Foundation
 
+enum SourceKind: String, Codable, CaseIterable { case server, googleDrive }
+
 struct Connection: Codable, Identifiable, Hashable {
     var id: UUID = UUID()
     var name: String
@@ -9,11 +11,15 @@ struct Connection: Codable, Identifiable, Hashable {
     var localURL: URL? = nil
     var localFingerprint: String? = nil
     var serverID: String? = nil
+    var kind: SourceKind? = nil
+    var googleAccountID: String? = nil
+    var isGoogleDrive: Bool { kind == .googleDrive }
     // Existing connections already identify the companion, which now hosts
     // file access too. Keep connection/domain IDs and stored credentials.
     var filesystemURL: URL { companionURL ?? url }
     var filesystemTokenID: UUID { companionTokenID ?? id }
     var unified: Connection {
+        guard !isGoogleDrive else { return self }
         var value = self
         value.companionURL = filesystemURL
         value.companionTokenID = filesystemTokenID

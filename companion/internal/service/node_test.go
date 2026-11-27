@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -253,7 +254,7 @@ func TestPeerRejectsChangedSourceAndCertificate(t *testing.T) {
 		t.Fatal("wrong certificate accepted")
 	}
 }
-func TestFederatedSourcesAndOfflineLocalAccess(t *testing.T) {
+func TestIndependentSourcesAndOfflineLocalAccess(t *testing.T) {
 	a := testNode(t, "Pi")
 	b := testNode(t, "VPS")
 	server := httptest.NewTLSServer(b.Handler())
@@ -268,7 +269,7 @@ func TestFederatedSourcesAndOfflineLocalAccess(t *testing.T) {
 			Name string `json:"name"`
 		} `json:"scopes"`
 	}
-	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &result) != nil || len(result.Scopes) != 2 {
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &result) != nil || len(result.Scopes) != 1 || result.Scopes[0].Name != "Pi" {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	server.Close()
@@ -372,5 +373,56 @@ func TestPeerMovePreservesSourceIfPublishedDestinationChanges(t *testing.T) {
 	}
 	if data, e := os.ReadFile(source); e != nil || string(data) != "original" {
 		t.Fatal("move removed source after destination changed", e)
+	}
+}
+
+func TestServerClientAPIsNeverDiscoverOrRelayPeerStorage(t *testing.T) {
+	local := testNode(t, "Pi")
+	var calls atomic.Int32
+	remote := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		reply(w, 200, map[string]any{"driveConnected": true, "driveWriteAccess": true, "scopes": []map[string]string{{"name": "VPS"}}})
+	}))
+	defer remote.Close()
+	peer := testPeer(remote, "vps", "VPS", strings.Repeat("x", 32))
+	peer.Sources = append(peer.Sources, "drive")
+	local.config.Peers = []PeerConfig{peer}
+	for _, route := range []string{"/v1/fs/sources", "/v1/jobs", "/v1/vaults", "/v1/trash", "/v1/capabilities", "/v1/archive-links", "/v1/archive-sync/status"} {
+		r := httptest.NewRequest("GET", route, nil)
+		r.Header.Set("Authorization", "Bearer "+local.config.Token)
+		w := httptest.NewRecorder()
+		local.Handler().ServeHTTP(w, r)
+		if w.Code != 200 {
+			t.Fatalf("%s: %d %s", route, w.Code, w.Body.String())
+		}
+		if route == "/v1/capabilities" {
+			var c struct {
+				DriveConnected bool   `json:"driveConnected"`
+				ServerID       string `json:"serverId"`
+			}
+			if json.Unmarshal(w.Body.Bytes(), &c) != nil || c.DriveConnected || c.ServerID != "Pi" {
+				t.Fatal("remote capabilities leaked", w.Body.String())
+			}
+		}
+	}
+	for _, test := range []struct{ method, path, body string }{
+		{"GET", "/v1/fs/resources?source=VPS&path=/", ""},
+		{"POST", "/v1/fs/folders?source=VPS&path=/unexpected", ""},
+		{"GET", "/v1/drive/files?folder=root", ""},
+		{"GET", "/v1/vaults/vps~unknown", ""},
+		{"POST", "/v1/vaults/vps~unknown/unlock", `{"key":"not-a-key"}`},
+		{"POST", "/v1/trash/vps~unknown/restore", `{}`},
+		{"POST", "/v1/protection/unlock", `{"key":"not-a-key"}`},
+	} {
+		r := httptest.NewRequest(test.method, test.path, strings.NewReader(test.body))
+		r.Header.Set("Authorization", "Bearer "+local.config.Token)
+		w := httptest.NewRecorder()
+		local.Handler().ServeHTTP(w, r)
+		if w.Code >= 200 && w.Code < 300 {
+			t.Fatalf("unexpected peer access: %s %s: %d", test.method, test.path, w.Code)
+		}
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("ordinary client APIs contacted a peer %d times", calls.Load())
 	}
 }

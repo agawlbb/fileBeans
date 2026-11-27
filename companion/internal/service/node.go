@@ -110,11 +110,12 @@ func (c Config) validateNode() error {
 				return errors.New("peer vault must belong to its source owner")
 			}
 		}
+		peerNames := map[string]bool{}
 		for _, n := range p.Sources {
-			if n == "" || n == "upload" || names[n] {
+			if n == "" || n == "upload" || peerNames[n] {
 				return errors.New("sources must have exactly one owner")
 			}
-			names[n] = true
+			peerNames[n] = true
 		}
 	}
 	return nil

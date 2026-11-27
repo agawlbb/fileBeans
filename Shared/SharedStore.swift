@@ -16,12 +16,12 @@ enum AppConfiguration {
 }
 
 enum TokenStore {
-    private static func query(_ id: UUID) -> [String: Any] {
+    private static func query(_ id: UUID, group: String? = nil) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "myFiles.Quantum",
-         kSecAttrAccount as String: id.uuidString, kSecAttrAccessGroup as String: AppConfiguration.keychain]
+         kSecAttrAccount as String: id.uuidString, kSecAttrAccessGroup as String: group ?? AppConfiguration.keychain]
     }
-    static func read(_ id: UUID) throws -> String {
-        var q = query(id)
+    static func read(_ id: UUID, group: String? = nil) throws -> String {
+        var q = query(id, group: group)
         q[kSecReturnData as String] = true
         var value: CFTypeRef?
         let status = SecItemCopyMatching(q as CFDictionary, &value)
@@ -30,8 +30,8 @@ enum TokenStore {
         }
         return token
     }
-    static func save(_ token: String, for id: UUID) throws {
-        var q = query(id)
+    static func save(_ token: String, for id: UUID, group: String? = nil) throws {
+        var q = query(id, group: group)
         let attrs: [String: Any] = [kSecValueData as String: Data(token.utf8),
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
         var status = SecItemUpdate(q as CFDictionary, attrs as CFDictionary)
@@ -41,8 +41,8 @@ enum TokenStore {
         }
         guard status == errSecSuccess else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
     }
-    static func remove(_ id: UUID) throws {
-        let status = SecItemDelete(query(id) as CFDictionary)
+    static func remove(_ id: UUID, group: String? = nil) throws {
+        let status = SecItemDelete(query(id, group: group) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
         }

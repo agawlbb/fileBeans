@@ -276,6 +276,7 @@ func (s *Service) runJob(ctx context.Context, j *Job) {
 	// Failure to save leaves the previous recoverable state, never an invented success.
 	if s.save(j.ID, "copy", j.State, j) == nil && (j.State == "completed" || j.State == "cancelled") {
 		s.cleanupJobUploads(j)
+		s.removeNativeGoogle(j.Connection)
 	}
 }
 func (s *Service) execute(ctx context.Context, j *Job) error {

@@ -10,7 +10,7 @@ struct ArchiveLinkView: View {
     @State private var confirmingUnlink = false
     @State private var busy = true
     @State private var error: String?
-    @State private var destination: StoredItem?
+    @State private var destination: SourceDestination?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -32,17 +32,17 @@ struct ArchiveLinkView: View {
             .overlay { if busy { ProgressView() } }
             .navigationDestination(isPresented: $picking) {
                 SourceDestinationPicker(connection: connection, mode: .archive, excludedLocal: [folder], excludedDrive: [],
-                    protectedFolderSheet: { parent in AnyView(NewProtectedFolder(connection: connection, parent: parent) {}) }) { target in
-                    guard case .local(let archive) = target else { return }
+                    protectedFolderSheet: { owner, parent in AnyView(NewProtectedFolder(connection: owner, parent: parent) {}) }) { target in
+                    guard case .local(let archive) = target.destination else { return }
                     picking = false
                     perform { client in
-                        link = try await client.linkArchive(library: folder, archive: archive)
+                        link = try await client.linkArchive(library: folder, archive: archive, archiveConnection: target.connection)
                         completed()
                     }
                 }
             }
             .navigationDestination(for: SourceDestination.self) { $0.destination }
-            .navigationDestination(item: $destination) { item in BrowserView(connection: connection, parent: item) }
+            .navigationDestination(item: $destination) { $0.destination }
             .confirmationDialog("Unlink Archive?", isPresented: $confirmingUnlink, titleVisibility: .visible) {
                 Button("Unlink", role: .destructive) {
                     guard let link else { return }
@@ -69,16 +69,22 @@ struct ArchiveLinkView: View {
         Section(title) {
             Button {
                 perform { _ in
-                    let repository = try Repository(connection: connection, store: SharedStore())
+                    let choices = try SharedStore().connections().filter { !$0.isGoogleDrive }
+                    let owner: Connection
+                    if let server = value.server, server != connection.serverID {
+                        guard let found = choices.first(where: { $0.serverID == server }) else { throw APIError.missing }
+                        owner = found
+                    } else { owner = connection }
+                    let repository = try Repository(connection: owner, store: SharedStore())
                     guard var current = try await repository.roots().first(where: { $0.source == value.source }) else { throw APIError.missing }
-                    let scope = try repository.store.sourceScope(connection.id, source: value.source)
+                    let scope = try repository.store.sourceScope(owner.id, source: value.source)
                     guard FilePath.contains(value.path, in: scope) else { throw APIError.forbidden }
                     let relative = String(value.path.dropFirst(scope == "/" ? 1 : scope.count)).split(separator: "/")
                     for part in relative {
                         guard let child = try await repository.children(current).first(where: { $0.file.name == String(part) && $0.file.isDirectory }) else { throw APIError.missing }
                         current = child
                     }
-                    destination = current
+                    destination = SourceDestination(connection: owner, kind: .local(current))
                 }
             } label: {
                 LabeledContent(value.source, value: value.path)
