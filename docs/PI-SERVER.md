@@ -173,6 +173,13 @@ and `/config/source-operations.json` while the broker remains stopped. Successfu
 maintenance logs completion and sleeps; stop the app, select `off` and start only
 after its configuration and handoff are ready. Normal boot never migrates.
 
+Permission preparation records original ACLs durably before changing them in
+`/share/.filebeans-access-<root-path-sha256-first-16>.sqlite`, root-private and
+limited to 64 MiB. `prepare-pi-access.py --config CONFIG --restore` can restore
+that before-state with inode checks while writers are stopped; changed identities
+refuse recovery. Remove the exact journal after verified rollout acceptance.
+It contains ordinary-file permission metadata only; vault stores are excluded.
+
 Host swap can stay enabled: the broker/API require a kernel cgroupfs proof of
 their current process's zero-swap limit. Ordinary files and symlinks cannot fake
 that proof. The cgroup control files remain root-writable; the API can read them.

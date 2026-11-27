@@ -50,6 +50,48 @@ class PiAccessTests(unittest.TestCase):
                 access.prepare(root)
             self.assertEqual(os.listxattr(file), before)
 
+    def test_journal_keeps_original_acl_across_resume_and_rejects_other_scope(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / 'root'
+            root.mkdir()
+            (root / 'ordinary').write_bytes(b'keep')
+            journal = access.AccessJournal(base / 'before.sqlite', root)
+            try:
+                access.prepare(root, journal=journal)
+                first = journal.db.execute('SELECT relative,name,value FROM before_state ORDER BY id').fetchall()
+                self.assertTrue(first)
+                access.prepare(root, journal=journal)
+                self.assertEqual(first, journal.db.execute('SELECT relative,name,value FROM before_state ORDER BY id').fetchall())
+                access.restore(root, journal)
+                self.assertNotIn('system.posix_acl_access', os.listxattr(root))
+                self.assertNotIn('system.posix_acl_default', os.listxattr(root))
+                self.assertEqual((root / 'ordinary').read_bytes(), b'keep')
+            finally:
+                journal.close()
+            with self.assertRaises(ValueError):
+                access.AccessJournal(base / 'before.sqlite', base / 'other')
+
+    def test_recovery_never_changes_a_replacement_inode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / 'root'
+            root.mkdir()
+            (root / 'ordinary').write_bytes(b'original')
+            journal = access.AccessJournal(base / 'before.sqlite', root)
+            try:
+                access.prepare(root, journal=journal)
+                (root / 'ordinary').rename(root / 'moved')
+                (root / 'ordinary').write_bytes(b'replacement')
+                before = os.getxattr(root / 'ordinary', 'system.posix_acl_access')
+                with self.assertRaises(ValueError):
+                    access.restore(root, journal)
+                self.assertEqual(os.getxattr(root / 'ordinary', 'system.posix_acl_access'), before)
+                self.assertEqual((root / 'ordinary').read_bytes(), b'replacement')
+                self.assertEqual((root / 'moved').read_bytes(), b'original')
+            finally:
+                journal.close()
+
 
 if __name__ == '__main__':
     unittest.main()
