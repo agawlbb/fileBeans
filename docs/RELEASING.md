@@ -2099,3 +2099,61 @@ all 377 staged originals remain retained for archive backup. Permission errors
 and attention problems cleared. The existing 298 Samba-unavailable backup retries
 remain separate; 79 newly published items await backup. Missing-picture repair
 is finished and verified; no further deployment or app build needed.
+
+
+### Pi archive backlog repair — 2026-11-28
+
+Finished and verified. VPS API `filebeans-api:83342fc-archive` is deployed,
+manifest `sha256:e446d25012527904794c94a0bfe16d469cc3fa0ae68ed87c4163e918d1661f33`,
+transfer SHA-256 `eb99dd0e00252b42b565d97660c113726c60f466b2d30766dd44390a71252d78`,
+binary SHA-256 `c3b38ff3334f89babc120066225a4b95564917bbd43fa6fd4998b31d63f98657`.
+Pi HA app 0.1.7 uses source `1a3a2a3`, manifest
+`sha256:ffb5e0f113758388f583484dafbc2d64afe482b3afa2ab6de34672b704fa0aca`;
+ARM64 API/broker SHA-256 values are
+`dd53b4df472c80cb4a1d65cfe59eb17e6d2b84e392951a2280754867638c218e` and
+`ddac8ed681f738fd671d69a23fc53348e8b88f787b15c248515ef8778c5f085c`.
+The VPS broker remains the earlier ownership-fixed `e2e777a` binary.
+
+Timestamp writes on Pi native protected mounts now succeed as API UID 1000.
+Peer permission failures retain their actual classification; matching originals
+are verified before retransmission. Alternate-extension conflicts are checked
+before upload, while genuinely missing parent directories remain supported.
+The full final service suite passes in the exact runtime image; focused archive,
+recovery and protection race regressions and vet pass.
+
+Of 377 retained inputs, 294 completed normal verified backup/confirmation and 83
+differing versions were preserved separately on Pi. These job inputs may already
+be encoded derivatives; they are not assumed to be master originals. The scoped
+maintenance plan also cleared 92 unchanged, unstarted discovery intents whose
+archive counterparts already existed. Both servers now report zero pending work
+and zero problems after normal processing resumed; VPS visible files remain 749,
+VPS retained input count is zero, and the audited Pi canonical inventory remains
+749 with no removed entries. Existing canonical Pi originals were not overwritten.
+Original link ciphertext remains SHA-256
+`e628005f4682156549021c8de491a78bb397ebd045de6fe5d49a0ba5354107fd`.
+
+The 83 retained user versions total 1,505,441,079 bytes in the protected Pi vault:
+`/share/fileBeans/pics/.filebeans-stage/archive-recovery/<job-id>/`.
+`index-20261128.json` lists exact recovery filenames, sizes and SHA-256 values;
+per-job `details.json` records the canonical original and visible library path.
+All copied bytes and metadata were read back before releasing VPS retention.
+These are user recovery data, not task scratch; preserve until owner review or
+an explicit restore/discard decision. Thumbnail generation remains suppressed
+on Pi; no video/PDF tools or Apple build were added. TestFlight remains build 59.
+
+API 2 GiB/no-swap/128-PID limits and Pi 512 MiB/no-swap/one-CPU/128-PID startup
+controls remain. HA stayed healthy during transfer (Core about 0.6–1.95% CPU,
+about 0.78–0.81 GiB in representative samples). Unrelated VPS containers and the
+media worker were unchanged. Both servers are unlocked with independent scopes;
+anonymous protection requests still return 401.
+
+Cleanup verified: exact VPS `.archive-reconcile` staging and drain absent;
+superseded API images and old Pi registry manifests/unreferenced blobs removed;
+current registry has 17 blobs / 138,906,448 bytes. VM five task containers, three
+loaded API tags, bounded scratch filesystems/backings, contexts, tools, caches,
+exports, audit data and temporary SSH control files removed. Shared builder is
+stopped with its normal state volume restored. Temporary Pi key now fails
+public-key authentication; original SSH options restored. Pi manifest staging
+and the old A-025 permission journal were removed after archive acceptance.
+The sole newly retained data are the user recovery versions (A-029). Feature
+branches remain pushed/unmerged and shared main checkouts untouched.

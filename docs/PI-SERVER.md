@@ -659,3 +659,13 @@ These are live user recovery versions, not disposable deployment staging; they
 must not be removed by build/task cleanup. The canonical Pi originals and visible
 encoded VPS files are preserved. No new thumbnail generator or Apple build is
 needed for this server repair.
+
+
+Delivery acceptance: VPS 83342fc / Pi 0.1.7; both queues zero and scopes independent.
+294 inputs completed ordinary verified backup, 83 differing inputs preserved in
+protected recovery storage, 92 stale discovery intents cleared. The protected
+`pics/.filebeans-stage/archive-recovery/index-20261128.json` catalog lists the
+83 exact filenames/checksums (1,505,441,079 bytes). No canonical Pi original was
+overwritten; the library remains 749 files. See RELEASING.md for artifact and
+cleanup details. Old permission journal A-025 removed; user recovery data A-029
+remain deliberately protected. No Apple build or Pi renderer tools added.
