@@ -29,6 +29,11 @@ func (s *Service) cachedArchivePolicies() ([]ArchiveLink, error) {
 	}
 	defer rows.Close()
 	links := []ArchiveLink{}
+	type upgrade struct {
+		id            string
+		before, after []byte
+	}
+	var upgrades []upgrade
 	for rows.Next() {
 		var id string
 		var original, sealed []byte
@@ -49,9 +54,6 @@ func (s *Service) cachedArchivePolicies() ([]ArchiveLink, error) {
 		}
 		if errors.Is(e, ErrVaultLocked) && envelope.Boundary != nil {
 			plain, e = json.Marshal(envelope.Boundary)
-		} else if e == nil && envelope.Boundary == nil {
-			// Rebuild older caches while their routing metadata is readable.
-			return nil, errArchivePolicyMiss
 		}
 		if e != nil {
 			return nil, e
@@ -64,10 +66,31 @@ func (s *Service) cachedArchivePolicies() ([]ArchiveLink, error) {
 		if p.Link != id || p.Revision != hex.EncodeToString(h[:]) {
 			return nil, errArchivePolicyMiss
 		}
+		if envelope.Boundary == nil {
+			// Upgrade the readable Library-owned cache directly. Reading the
+			// original link additionally requires the independent Archive's key.
+			// Preserve its ciphertext and the policy's existing encryption/AAD.
+			updated, err := archivePolicyBoundary(sealed, p)
+			if err != nil {
+				return nil, err
+			}
+			upgrades = append(upgrades, upgrade{"policy-" + id, sealed, updated})
+		}
 		link := ArchiveLink{ID: id, Library: p.Library, Archive: ArchiveEndpoint{Source: p.Target.Backend, Path: p.Target.Base, Vault: p.Target.VaultID, Relative: p.Target.Relative, Identity: p.Target.Identity}}
 		links = append(links, s.archiveMirrorCoordinates(link, envelope.Owner, envelope.LocalSource))
 	}
-	return links, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	for _, update := range upgrades {
+		if _, err := s.db.Exec("UPDATE fb_operations SET body=? WHERE id=? AND kind='archivePolicy' AND body=?", update.after, update.id, update.before); err != nil {
+			return nil, err
+		}
+	}
+	return links, nil
 }
 func (s *Service) cacheArchivePolicies(links []ArchiveLink) {
 	if s.db == nil {
@@ -105,6 +128,10 @@ func (s *Service) encodeArchivePolicy(id string, policy archivePolicy, plain []b
 	if err != nil {
 		return nil, err
 	}
+	return archivePolicyBoundary(encoded, policy)
+}
+
+func archivePolicyBoundary(encoded []byte, policy archivePolicy) ([]byte, error) {
 	boundary := policy
 	if boundary.Library.Vault != "" {
 		boundary.Library.Path = ""
@@ -117,13 +144,14 @@ func (s *Service) encodeArchivePolicy(id string, policy archivePolicy, plain []b
 		boundary.Target.Identity = ""
 	}
 	var envelope map[string]json.RawMessage
-	if err = json.Unmarshal(encoded, &envelope); err != nil {
+	if err := json.Unmarshal(encoded, &envelope); err != nil {
 		return nil, err
 	}
-	envelope["archiveBoundary"], err = json.Marshal(boundary)
+	raw, err := json.Marshal(boundary)
 	if err != nil {
 		return nil, err
 	}
+	envelope["archiveBoundary"] = raw
 	return json.Marshal(envelope)
 }
 
