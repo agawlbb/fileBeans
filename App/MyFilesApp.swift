@@ -62,9 +62,7 @@ struct ConnectionsSettingsView: View {
     @State private var removing: Connection?
     var body: some View {
         List {
-            ForEach(model.connections.filter { !$0.isGoogleDrive }) { connection in
-                VaultsView(connection: connection, embedded: true)
-            }
+            VaultsView(connections: model.connections.filter { !$0.isGoogleDrive }, embedded: true)
             VaultKeyControls()
             Section("Public Hosting") {
                 ForEach(model.connections.filter { !$0.isGoogleDrive }) { connection in

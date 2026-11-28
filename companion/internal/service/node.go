@@ -39,6 +39,9 @@ type PeerConfig struct {
 var nodeIDPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`)
 
 func (c Config) validateNode() error {
+	if err := c.validateProtectionSync(); err != nil {
+		return err
+	}
 	if c.ArchivePeerKey != "" && (len(c.ArchivePeerKey) < 32 || c.ArchivePeerKey == c.Token) {
 		return errors.New("archive peer key must be separate from the client token")
 	}

@@ -7,5 +7,15 @@
   "controlUID": 1000,
   "readerUID": 10001,
   "gid": 1000,
-  "roots": [{"name": "Samba", "path": "/share/fileBeans"}]
+  "roots": [
+    {
+      "name": "Samba",
+      "path": "/share/fileBeans"
+    }
+  ],
+  "protectionSync": {
+    "group": "vps-pi",
+    "server": "filebeans-pi",
+    "peer": "filebeans-vps"
+  }
 }

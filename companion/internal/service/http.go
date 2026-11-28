@@ -95,6 +95,9 @@ func (s *Service) Handler() http.Handler {
 				features = append(features, "archiveSyncV1", "archiveLinksV1", "archiveReadOnlyV1", "archiveCachedThumbnailsV1")
 			}
 		}
+		if s.config.ProtectionSync != nil {
+			features = append(features, "protectionSyncV1")
+		}
 		if s.vaults != nil && s.vaults.remote != nil && s.vaults.remote.ready() {
 			features = append(features, "protectedFoldersCreate")
 		}
@@ -611,6 +614,7 @@ func (s *Service) Handler() http.Handler {
 	s.normalizationRoutes(mux)
 	s.vaultRoutes(mux)
 	s.protectionRoutes(mux)
+	s.protectionPeerRoutes(mux)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -627,6 +631,10 @@ func (s *Service) Handler() http.Handler {
 			s.vaultGate.RLock()
 			defer s.vaultGate.RUnlock()
 			public.ServeHTTP(w, r)
+			return
+		}
+		if r.URL.Path == "/v1/peer/protection" {
+			mux.ServeHTTP(w, r)
 			return
 		}
 		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")

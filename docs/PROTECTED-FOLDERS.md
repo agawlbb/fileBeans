@@ -1,3 +1,34 @@
+## VPS/Pi synchronized session
+
+The explicitly configured VPS/Pi group uses one Lock/Unlock command and one
+hour of inactivity across protected file activity on either server. The broker
+retains enforcement when the client closes or the API is unavailable. A ten-second
+coordination allowance accommodates the existing five-second watcher/poll cadence.
+Directory polling, peer status/heartbeats and private cache activity do not reset
+the deadline; imported activity is never re-exported as local activity.
+
+Both APIs configure `protectionSync` with matching `group`, their local `name`,
+the existing `peer` ID, `peerName`, and a separate shared `key`. Addresses/TLS
+pins stay in existing peer configuration. Both brokers configure the same group
+and their own `server` and `peer` IDs, without any network credential. Settings
+shows one Protected folders control and per-member status when mixed. Other
+server groups and file browsing remain independent.
+
+Commands work through either server. Local access remains available when the
+peer is unreachable. An offline/restarted member stays locked until another
+explicit Unlock; no recovery key or unlock retry is stored. Lock generations,
+acknowledgments and bounded command IDs are durably stored in the broker's private
+`protection-session.json`; pending locks reconcile on reconnect, and a newer lock
+rejects stale unlocks. Busy mounts retain pending lock intent for broker retry.
+
+Public `/v1/protection` and lock/unlock routes preserve local `state` and add
+`group`, `groupState`, and `members` (server ID, name, state, error). Legacy vault
+commands coordinate the group while retaining their list response. The private
+peer route requires the separate group credential and configured member/group;
+normal API and archive credentials do not authorize it. Internal snapshots carry
+local activity sequence/age and effective session age, without paths or keys.
+API and broker builds must both be updated before enabling the group configuration.
+
 # Experimental protected folders
 
 fileBeans uses gocryptfs vault controls in the companion and iOS app.

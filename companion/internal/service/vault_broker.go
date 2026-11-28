@@ -22,16 +22,17 @@ const brokerStore = ".filebeans-vaults"
 const brokerProtocol = 1
 
 type BrokerConfig struct {
-	FilesystemConsumer bool     `json:"filesystemConsumer,omitempty"`
-	LocationBackups    []string `json:"locationBackups,omitempty"`
-	State              string   `json:"state"`
-	Runtime            string   `json:"runtime"`
-	Roots              []Root   `json:"roots"`
-	Gocryptfs          string   `json:"gocryptfs"`
-	Fusermount         string   `json:"fusermount"`
-	ControlUID         uint32   `json:"controlUID"`
-	ReaderUID          uint32   `json:"readerUID"`
-	GID                int      `json:"gid"`
+	ProtectionSync     *BrokerProtectionSyncConfig `json:"protectionSync,omitempty"`
+	FilesystemConsumer bool                        `json:"filesystemConsumer,omitempty"`
+	LocationBackups    []string                    `json:"locationBackups,omitempty"`
+	State              string                      `json:"state"`
+	Runtime            string                      `json:"runtime"`
+	Roots              []Root                      `json:"roots"`
+	Gocryptfs          string                      `json:"gocryptfs"`
+	Fusermount         string                      `json:"fusermount"`
+	ControlUID         uint32                      `json:"controlUID"`
+	ReaderUID          uint32                      `json:"readerUID"`
+	GID                int                         `json:"gid"`
 }
 
 type brokerEntry struct {
@@ -79,6 +80,7 @@ type brokerSnapshot struct {
 }
 
 type mountBroker struct {
+	protectionSync        *brokerProtectionSync
 	unavailableSources    map[string]error
 	datasetActivity       time.Time
 	locationKey           []byte
@@ -96,6 +98,11 @@ type mountBroker struct {
 }
 
 func validateBrokerConfig(c BrokerConfig) error {
+	if p := c.ProtectionSync; p != nil {
+		if !nodeIDPattern.MatchString(p.Group) || !nodeIDPattern.MatchString(p.Server) || !nodeIDPattern.MatchString(p.Peer) || p.Server == p.Peer {
+			return ErrUnsafe
+		}
+	}
 	if len(c.Roots) == 0 || c.GID < 0 || c.ControlUID == c.ReaderUID {
 		return ErrUnsafe
 	}

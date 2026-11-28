@@ -13,23 +13,25 @@ import (
 )
 
 type Service struct {
-	piBulk           sync.Mutex
-	piRate           sync.Mutex
-	mediaWorker      bool
-	archiveEpoch     atomic.Uint64
-	archiveStatusMu  sync.Mutex
-	archiveActive    map[string]*archiveActivity
-	archiveMemory    archiveMemoryGuard
-	archiveTrusted   bool                 // private maintenance instance; never used by HTTP handlers
-	datasetDiskCheck func(*os.File) error // injected only for synthetic filesystem capacity tests
-	fsMu             sync.Mutex           // serialize API mutation publication and revision checks
-	vaultGate        sync.RWMutex         // filesystem operations must finish before an unmount
-	vaults           *vaultManager
-	config           Config
-	db               *sql.DB
-	mu               sync.Mutex
-	driveMu          sync.Mutex
-	copyCancels      map[string]context.CancelFunc // guarded by mu
+	protectionLocalTest func(*protectionSyncCommand) (protectionSyncSnapshot, error)
+	protectionSyncMu    sync.Mutex
+	piBulk              sync.Mutex
+	piRate              sync.Mutex
+	mediaWorker         bool
+	archiveEpoch        atomic.Uint64
+	archiveStatusMu     sync.Mutex
+	archiveActive       map[string]*archiveActivity
+	archiveMemory       archiveMemoryGuard
+	archiveTrusted      bool                 // private maintenance instance; never used by HTTP handlers
+	datasetDiskCheck    func(*os.File) error // injected only for synthetic filesystem capacity tests
+	fsMu                sync.Mutex           // serialize API mutation publication and revision checks
+	vaultGate           sync.RWMutex         // filesystem operations must finish before an unmount
+	vaults              *vaultManager
+	config              Config
+	db                  *sql.DB
+	mu                  sync.Mutex
+	driveMu             sync.Mutex
+	copyCancels         map[string]context.CancelFunc // guarded by mu
 }
 
 func ID() string {
@@ -96,6 +98,7 @@ func MigrateConfig(c Config) error {
 	return e
 }
 func (s *Service) Run(ctx context.Context) {
+	go s.protectionSyncLoop(ctx)
 	if s.config.SQLite != "" {
 		s.runSQLite(ctx)
 		return

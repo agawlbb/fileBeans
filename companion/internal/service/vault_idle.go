@@ -146,11 +146,23 @@ func (b *mountBroker) pollIdleVaults(watches map[string]*vaultIdleWatch, now tim
 			latest = w.last
 		}
 	}
-	if len(open) > 0 && !latest.IsZero() && now.Sub(latest) >= vaultIdleTimeout {
+	latest = b.protectionSyncActivity(latest, now)
+	pending := b.protectionSync != nil && b.protectionSync.disk.Pending
+	if pending || len(open) > 0 && !latest.IsZero() && now.Sub(latest) >= b.protectionIdleTimeout() {
+		if !pending && b.config.ProtectionSync != nil {
+			if err := b.protectionSyncLockIntent(ID(), b.config.ProtectionSync.Server, nil); err != nil {
+				log.Print("Protection coordination unavailable; enforcing local idle lock")
+			}
+		}
 		if gate, err := b.exclusive(); err == nil {
 			err = b.lockAll()
 			gate.Close()
 			if err == nil {
+				if b.protectionSync != nil {
+					next := b.protectionSync.disk
+					next.Pending = false
+					_ = b.protectionSyncPersist(next)
+				}
 				for id, w := range watches {
 					w.close()
 					delete(watches, id)

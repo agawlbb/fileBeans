@@ -115,6 +115,7 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
         parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         var r = URLRequest(url: parts.url!)
         r.httpMethod = method; r.httpBody = body
+        if route == "protection" { r.timeoutInterval = 5 }
         if route.hasPrefix("protection/") { r.timeoutInterval = 60 }
         r.setValue("Bearer " + (try credential ?? TokenStore.read(tokenID)), forHTTPHeaderField: "Authorization")
         if body != nil { r.setValue("application/json", forHTTPHeaderField: "Content-Type") }

@@ -15,28 +15,29 @@ type Root struct {
 	MountSource string `json:"mountSource,omitempty"`
 }
 type Config struct {
-	ArchivePeerKey     string              `json:"archivePeerKey,omitempty"`
-	ArchiveCoordinator string              `json:"archiveCoordinator,omitempty"`
-	Profile            string              `json:"profile,omitempty"`
-	SQLite             string              `json:"sqlite,omitempty"`
-	ServerID           string              `json:"serverId,omitempty"`
-	TLS                TLSConfig           `json:"tls,omitempty"`
-	Peers              []PeerConfig        `json:"peers,omitempty"`
-	ArchiveMediaSocket string              `json:"archiveMediaSocket,omitempty"`
-	ArchiveDrainFile   string              `json:"archiveDrainFile,omitempty"`
-	Filesystem         FilesystemConfig    `json:"filesystem,omitempty"`
-	ProtectedRuntime   string              `json:"protectedRuntime,omitempty"`
-	Vaults             []VaultConfig       `json:"vaults,omitempty"`
-	Rclone             string              `json:"rclone,omitempty"`
-	Normalization      NormalizationConfig `json:"normalization,omitempty"`
-	Listen             string              `json:"listen"`
-	DSN                string              `json:"dsn"`
-	Token              string              `json:"token"`
-	State              string              `json:"state"`
-	Roots              []Root              `json:"roots"`
-	GoogleClientID     string              `json:"googleClientID"`
-	GoogleClientSecret string              `json:"googleClientSecret"`
-	GoogleRedirect     string              `json:"googleRedirect"`
+	ProtectionSync     *ProtectionSyncConfig `json:"protectionSync,omitempty"`
+	ArchivePeerKey     string                `json:"archivePeerKey,omitempty"`
+	ArchiveCoordinator string                `json:"archiveCoordinator,omitempty"`
+	Profile            string                `json:"profile,omitempty"`
+	SQLite             string                `json:"sqlite,omitempty"`
+	ServerID           string                `json:"serverId,omitempty"`
+	TLS                TLSConfig             `json:"tls,omitempty"`
+	Peers              []PeerConfig          `json:"peers,omitempty"`
+	ArchiveMediaSocket string                `json:"archiveMediaSocket,omitempty"`
+	ArchiveDrainFile   string                `json:"archiveDrainFile,omitempty"`
+	Filesystem         FilesystemConfig      `json:"filesystem,omitempty"`
+	ProtectedRuntime   string                `json:"protectedRuntime,omitempty"`
+	Vaults             []VaultConfig         `json:"vaults,omitempty"`
+	Rclone             string                `json:"rclone,omitempty"`
+	Normalization      NormalizationConfig   `json:"normalization,omitempty"`
+	Listen             string                `json:"listen"`
+	DSN                string                `json:"dsn"`
+	Token              string                `json:"token"`
+	State              string                `json:"state"`
+	Roots              []Root                `json:"roots"`
+	GoogleClientID     string                `json:"googleClientID"`
+	GoogleClientSecret string                `json:"googleClientSecret"`
+	GoogleRedirect     string                `json:"googleRedirect"`
 }
 
 func Load(path string) (Config, error) {

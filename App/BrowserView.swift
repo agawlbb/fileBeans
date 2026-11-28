@@ -376,12 +376,16 @@ struct BrowserView: View {
                         thumbnail: ThumbnailView(item: item, client: model.repository?.client), protection: item.protection, pending: pending(item), linked: item.file.archiveRoot == true)
     }
     private func changeLock(_ item: StoredItem, action: String) {
-        guard let protection = item.protection else { return }
+        guard item.protection != nil else { return }
         Task {
             await model.perform {
                 let client = CompanionClient(connection: connection); defer { client.close() }
                 let code = action == "unlock" ? try await VaultKeySession.shared.authorizedCode(requireBackup: false) : nil
-                try await client.vaultAction(id: protection.id, action: action, code: code)
+                let body = try code.map { try JSONEncoder().encode(["key": $0]) }
+                let status = try JSONDecoder().decode(ProtectionStatus.self,
+                    from: await client.request("protection/" + action, method: "POST", body: body,
+                        key: UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()))
+                try await ProtectionChanges.apply(status, origin: connection)
                 await reload()
             }
         }

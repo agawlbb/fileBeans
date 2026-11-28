@@ -721,6 +721,10 @@ func (s *Service) vaultRoutes(mux *http.ServeMux) {
 				fail(w, ErrUnsafe)
 				return
 			}
+			if s.config.ProtectionSync != nil && action != "initialize" {
+				s.protectionGroupHTTP(w, r, action)
+				return
+			}
 			if s.vaults.remote != nil && action != "initialize" {
 				var input struct {
 					Key string `json:"key"`
