@@ -2257,3 +2257,28 @@ mode, not a proven historical initiating event. The previous blanket assertion
 that the 83 files were distinct originals needing transfer was unsupported.
 Admission and generation reconciliation remain unfixed; no new server deployment
 or Apple build/release was performed. Feature source remains unmerged.
+
+
+### Filename-based archive admission correction — 2026-11-28
+
+Source correction on the existing Pi feature branch; deployment remains pending.
+File intents are deduplicated by linked relative filename/stem across extension
+changes. Directory intents are deduplicated by relative directory name. Neither
+admission key includes mount device, inode, byte length or modification time;
+legacy queued records are also found by filename rather than their old key.
+
+Before processing a waiting ingest, the worker checks for its existing archive
+counterpart by filename, allowing deliberate encoding/extension differences.
+An existing counterpart retires only an unstarted intent with no processing
+stage. An interrupted stage remains retained for explicit reconciliation. A
+locked, parked or unavailable archive pauses processing instead of being treated
+as a set of missing originals. The peer performs the protected-root validation
+and filename lookup within one broker lease. Uploads can remain visible/waiting
+while the archive is unavailable; they are not encoded on an unverified absence.
+
+Seven new remount, extension, baseline, visibility, offline and retention
+regressions pass. The full service and protection suites pass using the existing
+VM FFmpeg 7.1.5 tools and checksum-pinned rclone 1.76.0. Focused admission/guard
+race checks and service/protection vet pass. No client source changes or Apple
+build are needed. The ongoing full Pi original-hash verification and recovery
+copy disposition will be recorded separately after their results are known.

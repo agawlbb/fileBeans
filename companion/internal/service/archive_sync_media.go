@@ -358,12 +358,6 @@ func (s *Service) runArchiveIngest(ctx context.Context, j *archiveTask, encodeOn
 	if e := validateArchiveTask(j); e != nil {
 		return e
 	}
-	if j.State == "waiting" {
-		if err := s.archiveAdmission(ctx, j.WaitingForMemory); err != nil {
-			return err
-		}
-		j.WaitingForMemory = false
-	}
 	r, e := s.root(j.Library.Source)
 	if e != nil {
 		return e
@@ -438,6 +432,30 @@ func (s *Service) runArchiveIngest(ctx context.Context, j *archiveTask, encodeOn
 		return s.saveArchiveTask(j)
 	}
 	if j.State == "waiting" {
+		archive, err := s.archiveWriter().root(j.Target.Backend)
+		if err != nil {
+			return err
+		}
+		_, err = archiveBaselineMatch(archive, ArchiveEndpoint{Source: j.Target.Backend, Path: j.Target.Base, Vault: j.Target.VaultID, Relative: j.Target.Relative}, j.Relative)
+		archive.Close()
+		if err == nil {
+			// Do not release an interrupted job's retained bytes. Only an
+			// unstarted intent can be retired by an existing filename pair.
+			if _, err = r.Stat(base); !errors.Is(err, os.ErrNotExist) {
+				if err != nil {
+					return err
+				}
+				return ErrConflict
+			}
+			return s.removeArchiveTask(j)
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if err := s.archiveAdmission(ctx, j.WaitingForMemory); err != nil {
+			return err
+		}
+		j.WaitingForMemory = false
 		path := filepath.Join(j.Library.Path, j.Relative)
 		st, e := r.Stat(path)
 		if errors.Is(e, os.ErrNotExist) {
