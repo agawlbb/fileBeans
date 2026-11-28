@@ -80,7 +80,8 @@ final class GoogleDriveSignIn: NSObject, ASWebAuthenticationPresentationContextP
                           userInfo: [NSLocalizedDescriptionKey: "Choose the account belonging to this source, or add a new Google Drive source."])
         }
         let store = try SharedStore()
-        var connection = existing ?? (try store.connections().first { $0.isGoogleDrive && $0.googleAccountID == account })
+        let saved = try store.connections().first { $0.isGoogleDrive && $0.googleAccountID == account }
+        var connection = existing ?? saved
             ?? Connection(name: email, url: URL(string: "https://www.googleapis.com/drive/v3")!)
         connection.kind = .googleDrive; connection.companionURL = nil; connection.companionTokenID = nil
         connection.googleAccountID = account
