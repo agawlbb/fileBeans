@@ -35,11 +35,11 @@ Source through `df59644` passes the full service/SQLite Go suite, Go vet, scoped
 copy/move byte checks in both directions for Pi/VPS with a simulated Google API,
 archive byte/owner/read-only regressions, and Swift/config/Keychain static checks.
 MariaDB integration is skipped: no FileBeans VM `.test-config` exists. TestFlight
-preflight `46086597258` passed. Signed app build 55 from `354fedf` passed
-`46088039824`; its IPA SHA-256 is
-`281eaa6f96a94f0dfef60b6b2565978a9d41b5eefd3b73cf658c9f096dbd4019`.
+preflight `46086597258` passed. Signed app build 55 from `af675f4` passed
+`46088856258`; its IPA SHA-256 is
+`e72c4e8688ca3fc22cc00911f2f93711bbc49ec466ae8cd11d102dfab5c0c1a6`.
 The signed IPA contains the supplied native OAuth ID, reversed callback scheme
-and Google-only Keychain group. Apple validation `46088044137` and upload remain
+and Google-only Keychain group. Apple validation `46088853408` and upload remain
 pending. Physical Google consent and protected-folder acceptance require device use.
 
 The correction backend is deployed: VPS `filebeans-api:df59644-independent`
