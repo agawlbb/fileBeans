@@ -254,7 +254,7 @@ struct BrowserView: View {
             }
             else if displayedItems.isEmpty && model.error == nil && parent != nil {
                 ContentUnavailableView("No files", systemImage: "folder")
-            } else if parent == nil && sources.isEmpty || parent != nil && !model.items.isEmpty && visible.isEmpty {
+            } else if parent == nil && visible.isEmpty || parent != nil && !model.items.isEmpty && visible.isEmpty {
                 ContentUnavailableView.search(text: search)
             }
     }
