@@ -1,3 +1,39 @@
+## Source, delete and Pi-thumbnail corrections — TestFlight 57
+
+Build **0.1.0 (57)** was signed from runtime source `03ab502` on the isolated
+feature branch. Sources show one label, migrate the legacy default VPS name,
+and open a sole storage root directly. Deletion asks the server for current
+archive authorization rather than rejecting an ordinary file from stale cached
+metadata. Internal peer coordinates are removed from archive error text.
+
+[SDK validation 46097196522](https://github.com/agawlbb/fileBeans/actions/runs/46097196522)
+passed **171 unit tests and four UI tests**, with no retries/failures, on the
+larger Apple runner. Initial standard-runner validation 46095867937 had video
+playback/seek timeouts and a full-screen gesture failure; the source/delete
+regressions passed there too. No code was changed between the two validations.
+
+[Signed build 46095867823](https://github.com/agawlbb/fileBeans/actions/runs/46095867823)
+and [upload 46097745266](https://github.com/agawlbb/fileBeans/actions/runs/46097745266)
+verified the same IPA SHA-256
+`99561445dcd1e4b7b748be0fdcf6c62aeae8693fbfb354209965744c847df04b`,
+bundle `com.agawlbb.myfiles` and build 57. Upload reused the signed artifact,
+without rebuilding; temporary runner signing credentials were removed.
+Apple build `0b57b5b0-6da4-4990-bf99-0829aaee7d1c` is **VALID /
+IN_BETA_TESTING**, not expired, with automatic notification enabled. The existing
+Joe internal group still has access to all builds; no audience changes were made.
+The direct per-build beta-group listing endpoint returned 403 for the existing
+API role; app-level group configuration and build beta state were verified.
+
+The server release is deployed: VPS `filebeans-api:03ab502-fixes`, Pi HA app
+0.1.4. Full Go service regressions and vet pass against the actual runtime;
+all 34 top-level archive thumbnails and nine nested samples return HTTP 200.
+Pi generation stays disabled and no renderer packages were added. The archive
+link/ciphertext and existing 297 backup retries are preserved. See
+[PI-SERVER.md](PI-SERVER.md) for image identities, resource checks and cleanup.
+The signed artifact and both simulator result bundles were removed after
+verified delivery/results. No build/deployment remains pending. Source branches
+remain unmerged and shared default branches were not modified.
+
 # Signing and TestFlight
 
 ## Independent sources TestFlight 55 — November 28, 2026

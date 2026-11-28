@@ -14,11 +14,12 @@
   Pi-only compatibility, legacy video versions and locked protected-file denial.
   Targeted Pi/Samba, existing cache-only and locked-policy Go regressions pass,
   as does `go vet ./internal/service`. The disposable test container and exact
-  `.build/thumbnail-check` directory/backing filesystem were removed. The owner subsequently authorized server deployment and app release. Runtime
+  `.build/thumbnail-check` directory/backing filesystem were removed. The owner
+  subsequently authorized server deployment and app release. Runtime
   source 03ab502 is deployed as HA app 0.1.4. After owner unlock, all 34
   top-level thumbnails and nine nested samples returned HTTP 200/image/jpeg.
 
-## Pending source-screen and delete corrections — November 28, 2026
+## Source-screen and delete corrections — November 28, 2026
 
 - The Pi ordinary-file delete message was traced to the app's cached archive
   check: live resources for `/vps_exchange` and the reported file had no archive
@@ -27,8 +28,8 @@
   now delegates archive authorization to the server Trash endpoint, which checks
   the live boundary before mutation. Other source/permission/system-path guards
   remain. Added mocked-server tests for stale-cache acceptance and genuine server
-  archive rejection, plus message-format coverage. These new SDK tests await an
-  explicitly authorized validation/build; static Swift/config checks pass.
+  archive rejection, plus message-format coverage. SDK validation 46097196522
+  passed 171 unit/four UI tests; static checks pass.
 - Archive messages now display the logical source and a real path when known,
   instead of internal `peer:` coordinates or `.`. Filesystem archive-library
   metadata uses the same public owner/source representation as archive links.
@@ -39,7 +40,8 @@
   single-root server directly without an intermediate folder. Multiple roots stay
   selectable; connection/credential IDs and custom names are preserved. Validation
   [46092196122](https://github.com/agawlbb/fileBeans/actions/runs/46092196122)
-  passed 168 unit tests and four UI tests. No correction has been released.
+  passed 168 unit tests and four UI tests. The corrections are included in signed
+  build 57; the exact IPA was uploaded in run 46097745266.
 - Source `45e024f` upgrades a readable legacy archive-policy cache directly instead
   of requiring the separately protected original link to be readable. It verifies
   the original-link revision, adds the existing redacted boundary format, preserves
@@ -53,10 +55,11 @@
   existing fallback refreshed that cache; its boundary is now present. The source
   correction prevents that initial upgrade from requiring the Archive key. Pi
   visibility needed no code change and is resolved by the owner's unlock.
-- Further app/image builds, uploads and deployments require explicit authorization.
-  The previously started signed build 56 was not uploaded; its signed artifact was
-  removed. TestFlight 55 and the deployed backend remain the current releases.
-  No new app/image build or deployment accompanied the backend source fix.
+- The owner explicitly authorized server deployment and app release. VPS runtime
+  03ab502 and HA app 0.1.4 are deployed and verified. Signed app 57 passed the
+  larger-runner SDK suite and was uploaded without rebuilding; Apple build 57
+  is VALID / IN_BETA_TESTING. Previously started build 56 was never uploaded,
+  and its signed artifact was removed.
 - Disposable Go regression tooling, dependencies, caches, outputs, container
   `filebeans-delete-check`, and `.build/delete-check` / `.build/delete-check.ext4`
   were removed after verification. No task artifact is retained for these fixes.
