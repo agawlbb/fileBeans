@@ -490,6 +490,7 @@ final class Movie: ObservableObject, Identifiable {
 struct MovieView: View {
     @ObservedObject var movie: Movie
     var fullScreen = false
+    var exitFullScreen: () -> Void = {}
     @Environment(\.dismiss) private var dismiss
     private var player: AVPlayer { movie.player }
     @State private var error = false
@@ -517,6 +518,15 @@ struct MovieView: View {
             }
             .alert("Unable to Play", isPresented: $error) { Button("OK") { dismiss() } } message: {
                 Text("Playback failed.\n\n\(failureDetails)")
+            }
+            // AVKit may consume taps before a parent SwiftUI gesture sees
+            // them. A full-screen-only surface gives the exit gesture a
+            // stable target without changing the attached player.
+            .overlay {
+                if fullScreen {
+                    Color.clear.contentShape(Rectangle())
+                        .onTapGesture(perform: exitFullScreen)
+                }
             }
             #if DEBUG
             .overlay(alignment: .bottomLeading) {

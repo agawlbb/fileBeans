@@ -186,7 +186,7 @@ struct FolderViewer: View {
         ZStack {
             TabView(selection: $selected) {
                 ForEach(session.files) { file in
-                    FolderViewerPage(file: file, active: selected == file.id, cache: cache, fullScreen: fullScreen)
+                    FolderViewerPage(file: file, active: selected == file.id, cache: cache, fullScreen: fullScreen, exitFullScreen: { fullScreen = false })
                         .ignoresSafeArea(.container, edges: fullScreen ? .all : [])
                         .tag(file.id)
                 }
@@ -236,6 +236,7 @@ struct FolderViewerPage: View {
     let active: Bool
     @ObservedObject var cache: FolderViewerCache
     var fullScreen = false
+    var exitFullScreen: () -> Void = {}
 
     var body: some View {
         ZStack {
@@ -245,7 +246,7 @@ struct FolderViewerPage: View {
                     if active { FolderDocumentPreview(url: url) } else { ProgressView() }
                 case .image(_, let image): FolderImagePreview(image: image, name: file.name)
                 case .movie(let movie):
-                    if active { MovieView(movie: movie, fullScreen: fullScreen).id(movie.id) } else { ProgressView() }
+                    if active { MovieView(movie: movie, fullScreen: fullScreen, exitFullScreen: exitFullScreen).id(movie.id) } else { ProgressView() }
                 }
             } else if let error = cache.errors[file.id] {
                 ContentUnavailableView {
