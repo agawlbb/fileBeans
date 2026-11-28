@@ -4,8 +4,71 @@ This implementation is isolated on `feature/pi-server`, in
 `.worktrees/pi-server`. The owner authorized the trial deployment and app release;
 the Pi now owns the three Pi-backed vaults and ordinary Samba files through its
 native server. Keep the feature branches unmerged until the permanence decision.
-See “Completed ownership cutover” below for current state; earlier dated sections
-are historical checkpoints.
+The automatic federation deployed in the ownership cutover was rejected by the
+owner. The correction below supersedes its client-discovery design; dated rollout
+sections describe historical checkpoints.
+
+## Independent-source correction — November 28, 2026
+
+A saved client source is one FileBeans server or one Google Drive account. Each
+server exposes only its own roots, protection, Trash and jobs. The Pi and VPS are
+selected independently; the Pi's LAN address and public VPS tunnel address identify
+the same Pi server. Configured private peers are used only for explicit transfers
+and the existing archive link. Google Drive is not a peer storage root.
+
+Native Google sign-in uses the public iOS OAuth registration for
+`com.agawlbb.myfiles`, PKCE, and an App/Share-only Keychain group. The File Provider
+cannot read Google credentials and does not create Google domains. Google listing,
+media, uploads, and Google-native copies use Google directly. For server/Drive
+jobs, the client seals an account grant to the selected server's X25519 key; only
+the server streams payloads with Google. Grants are encrypted at rest per job,
+expire after 24 hours, renew on explicit retry, and are removed on completion or
+cancellation. No web-client secret or server-attached Google account is required.
+Transfers between different Google accounts are currently rejected by the client.
+
+The original VPS-library/Pi-originals archive link and ciphertext remain intact.
+Mirror coordinate interpretation preserves local root-name collisions without
+rewriting the original link or its protection AAD. Pi resource ceilings and its
+paced single bulk-transfer budget remain unchanged.
+
+Source through `df59644` passes the full service/SQLite Go suite, Go vet, scoped
+copy/move byte checks in both directions for Pi/VPS with a simulated Google API,
+archive byte/owner/read-only regressions, and Swift/config/Keychain static checks.
+MariaDB integration is skipped: no FileBeans VM `.test-config` exists. TestFlight
+preflight `46086597258` passed. Signed app build 55 from `354fedf` passed
+`46088039824`; its IPA SHA-256 is
+`281eaa6f96a94f0dfef60b6b2565978a9d41b5eefd3b73cf658c9f096dbd4019`.
+The signed IPA contains the supplied native OAuth ID, reversed callback scheme
+and Google-only Keychain group. Apple validation `46088044137` and upload remain
+pending. Physical Google consent and protected-folder acceptance require device use.
+
+The correction backend is deployed: VPS `filebeans-api:df59644-independent`
+(manifest `c76cff6686add3a08267938bc98d4c535207316be51995413f1f0652750ba8db`;
+transfer SHA-256 `9adf6fe99477da3e0ffdeb731f9a8cfcce26fb10e7474df6bb46e092546ce1e9`)
+and HA `local_filebeans` 0.1.3 (manifest
+`e2d26ec12d878529db07b753211b6fc13f9a8bb28305a4fc28c55ac7c5ff3040`).
+The prepared Pi registry has 97,082,848 current blob bytes. Its obsolete manifest
+and unused old config blob were removed. The VPS media worker remains on release
+41. Source builds, tests and preparation stayed on VM-laptop; the VPS only loaded
+prepared artifacts and validated/restarted the API.
+
+Live `/v1/fs/sources` returns only VPS on VPS and Samba on Pi; cross-owner browsing
+is rejected with 400. VPS lists its two protected folders, Pi its three locked
+folders. Pi LAN and public HTTPS return the same server ID/certificate; anonymous
+LAN returns 401. Pi startup verifies 512 MiB/no swap/one CPU/128 PIDs. App RAM was
+14.5 MB and Core CPU 1.33% at the sample; Supervisor reports healthy/supported.
+The authoritative archive-link ciphertext still hashes to
+`e628005f4682156549021c8de491a78bb397ebd045de6fe5d49a0ba5354107fd`.
+No source bytes or protected registry entries were migrated by this correction.
+
+VPS `.independent-20261128`, transferred exports and superseded API image were
+removed after live checks. Pi private-config temporary copy is gone. The temporary
+SSH key was removed while preserving the original key; new authentication with
+the task key was denied, and private control files were deleted. VM loop staging,
+Go caches, contexts, image exports and disposable tooling containers/images were
+removed; shared builder state is restored and its worker stopped. The existing
+A-025 permission journal remains until migrated protected/archive acceptance after
+owner unlock; the retained original and existing drift attention are unchanged.
 
 ## Runtime and routing
 
