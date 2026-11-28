@@ -148,33 +148,8 @@ struct BrowserView: View {
             }
         }
     }
-    private enum SourceEntry: Identifiable {
-        case local(StoredItem)
-        case drive
-        var id: String { switch self { case .local(let item): return item.id; case .drive: return "google-drive" } }
-        var name: String { switch self { case .local(let item): return item.file.name; case .drive: return "Google Drive" } }
-    }
-    private var sources: [SourceEntry] {
-        var result = visible.map(SourceEntry.local)
-        if search.isEmpty || "Google Drive".localizedStandardContains(search) { result.append(.drive) }
-        return result.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-    }
     @ViewBuilder private var fileContent: some View {
-        if parent == nil {
-            BrowserFileCollection(items: sources, grid: grid, header: companionLinks, row: { source, large in sourceEntry(source, large: large) })
-        } else {
-            BrowserFileCollection(items: visible, grid: grid, header: companionLinks, row: { item, large in entry(item, large: large) })
-        }
-    }
-    @ViewBuilder private func sourceEntry(_ source: SourceEntry, large: Bool) -> some View {
-        switch source {
-        case .local(let item): entry(item, large: large)
-        case .drive:
-            NavigationLink(value: SourceDestination(connection: connection, kind: .drive)) {
-                BrowserItemCell(name: source.name, size: nil, folder: true, large: large, selecting: false, selected: false,
-                                thumbnail: Image(systemName: "folder.fill").resizable().scaledToFit().padding(8).foregroundStyle(Color.accentColor))
-            }.disabled(selecting)
-        }
+        BrowserFileCollection(items: visible, grid: grid, header: companionLinks, row: { item, large in entry(item, large: large) })
     }
     private var companionLinks: some View { EmptyView() }
     private var browserContent: some View {
