@@ -149,11 +149,9 @@ func (b *mountBroker) pollIdleVaults(watches map[string]*vaultIdleWatch, now tim
 	latest = b.protectionSyncActivity(latest, now)
 	pending := b.protectionSync != nil && b.protectionSync.disk.Pending
 	if pending || len(open) > 0 && !latest.IsZero() && now.Sub(latest) >= b.protectionIdleTimeout() {
-		if !pending && b.config.ProtectionSync != nil {
-			if err := b.protectionSyncLockIntent(ID(), b.config.ProtectionSync.Server, nil); err != nil {
-				log.Print("Protection coordination unavailable; enforcing local idle lock")
-			}
-		}
+		// Only explicit locks propagate durable intent. A member timing out
+		// during a partition must not later close an independently active peer.
+
 		if gate, err := b.exclusive(); err == nil {
 			err = b.lockAll()
 			gate.Close()

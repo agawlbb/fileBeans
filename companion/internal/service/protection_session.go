@@ -17,12 +17,13 @@ type BrokerProtectionSyncConfig struct {
 	Peer   string `json:"peer"`
 }
 type protectionSyncCommand struct {
-	Action string                  `json:"action,omitempty"`
-	ID     string                  `json:"id,omitempty"`
-	Origin string                  `json:"origin,omitempty"`
-	Key    string                  `json:"key,omitempty"`
-	Epochs map[string]uint64       `json:"epochs,omitempty"`
-	Remote *protectionSyncSnapshot `json:"remote,omitempty"`
+	TargetBoot string                  `json:"targetBoot,omitempty"`
+	Action     string                  `json:"action,omitempty"`
+	ID         string                  `json:"id,omitempty"`
+	Origin     string                  `json:"origin,omitempty"`
+	Key        string                  `json:"key,omitempty"`
+	Epochs     map[string]uint64       `json:"epochs,omitempty"`
+	Remote     *protectionSyncSnapshot `json:"remote,omitempty"`
 }
 type protectionSyncSnapshot struct {
 	SessionAgeMillis int64             `json:"sessionAgeMillis"`
@@ -299,6 +300,11 @@ func (b *mountBroker) protectionSyncHTTP(w http.ResponseWriter, r *http.Request)
 			brokerFail(w, ErrUnsafe)
 			return
 		}
+	}
+	if cmd.Action == "unlock" && cmd.TargetBoot != b.protectionSync.boot {
+		b.mu.Unlock()
+		brokerFail(w, ErrConflict)
+		return
 	}
 	if b.protectionSyncSeen(cmd.Action + ":" + cmd.ID) {
 		result := b.protectionSyncSnapshot(time.Now())

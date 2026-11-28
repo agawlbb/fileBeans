@@ -172,3 +172,21 @@ func TestProtectionSyncFailedLocalTransitionDoesNotPreventPeerLock(t *testing.T)
 		t.Fatal("local busy blocked reachable peer lock", status)
 	}
 }
+
+func TestProtectionSyncPeerIdleClosureDoesNotLockActiveMember(t *testing.T) {
+	one, _, a, b := protectionPair(t)
+	code := recoveryCode(bytes.Repeat([]byte{0x42}, 32))
+	protectionActionRequest(t, one, "unlock", code, ID())
+	// A local idle closure does not create explicit cross-server lock intent.
+	b.mu.Lock()
+	err := b.lockAll()
+	b.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	one.protectionExchange(t.Context())
+	a.pollIdleVaults(map[string]*vaultIdleWatch{}, time.Now())
+	if a.protectionStatus().State != "unlocked" || b.protectionStatus().State != "locked" {
+		t.Fatal("reconnect changed independent states without a user command")
+	}
+}

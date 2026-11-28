@@ -21,6 +21,12 @@ func syncBroker(t *testing.T, server, peer string) *mountBroker {
 }
 func syncBrokerCommand(t *testing.T, b *mountBroker, cmd protectionSyncCommand) (*httptest.ResponseRecorder, protectionSyncSnapshot) {
 	t.Helper()
+	if cmd.Action == "unlock" && cmd.TargetBoot == "" {
+		if err := b.protectionSyncInit(); err != nil {
+			t.Fatal(err)
+		}
+		cmd.TargetBoot = b.protectionSync.boot
+	}
 	data, err := json.Marshal(cmd)
 	if err != nil {
 		t.Fatal(err)
@@ -167,6 +173,9 @@ func TestProtectionSyncLockWinsWhileUnlockWaitsForLease(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := func(cmd protectionSyncCommand) <-chan *httptest.ResponseRecorder {
+		if cmd.Action == "unlock" {
+			cmd.TargetBoot = b.protectionSync.boot
+		}
 		ch := make(chan *httptest.ResponseRecorder, 1)
 		data, _ := json.Marshal(cmd)
 		go func() { ch <- brokerRequest(b, &b.config.ControlUID, "POST", "/v1/protection-session", string(data)) }()
@@ -223,5 +232,22 @@ func TestProtectionSyncRejectsUnboundedEncodedCommandIDs(t *testing.T) {
 	out, _ = syncBrokerCommand(t, b, protectionSyncCommand{Action: "lock", ID: ID(), Origin: "one"})
 	if out.Code != 200 {
 		t.Fatal("valid command failed after rejected input", out.Code, out.Body.String())
+	}
+}
+
+func TestProtectionSyncRestartRejectsInFlightUnlock(t *testing.T) {
+	b := syncBroker(t, "one", "two")
+	if err := b.protectionSyncInit(); err != nil {
+		t.Fatal(err)
+	}
+	before := b.protectionSync.boot
+	b.protectionSync = nil
+	if err := b.protectionSyncInit(); err != nil {
+		t.Fatal(err)
+	}
+	cmd := protectionSyncCommand{Action: "unlock", ID: ID(), Origin: "two", Key: recoveryCode(bytes.Repeat([]byte{0x42}, 32)), TargetBoot: before, Epochs: map[string]uint64{"one": 0, "two": 0}}
+	out, _ := syncBrokerCommand(t, b, cmd)
+	if out.Code != 409 || b.protectionStatus().State != "locked" {
+		t.Fatal("pre-restart unlock opened restarted broker", out.Code, out.Body.String())
 	}
 }
