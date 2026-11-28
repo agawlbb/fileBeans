@@ -413,3 +413,34 @@ the Share extension receives the encryption key or can unlock folders.
 Eviction can fail for open files or unsynced edits. Locking cannot revoke copies
 already delivered to Apple Files or another application. This behavior needs an
 explicitly requested Apple build and real-device acceptance; it is not yet deployed.
+
+
+### Shared protection delivery — 2026-11-28
+
+VPS API `1ac7725` and Pi HA app 0.1.6 are deployed. The broker remains
+`1306507` (SHA-256 `8f3d6c6ba52358fc94935040521d639cb5055159c0f7c505c3dd49b39aafbf39`).
+Both authenticated public APIs report the same locked group and their own source
+scopes. One live Lock command through VPS confirmed both members locked.
+Owner Unlock and live shared-activity acceptance remain pending; no recovery key
+was accessed. The linked archive was preserved; Pi thumbnail generation stays off.
+
+Full Go service tests against the final runtime image, targeted synchronization
+race tests and service vet passed. Apple validation 46102198409 passed 177 unique
+unit tests and four UI tests; the existing HEVC seek test needed its configured
+retry. Signed build 46102198390 and exact-artifact upload 46102952077 delivered
+TestFlight 0.1.0 (59), source `755685b`, Apple build
+`0d9db3a1-66b8-4a97-ad11-e1cb4462d0e7`, VALID / IN_BETA_TESTING.
+IPA SHA-256: `f6961b0aa055f2f6450ed4d23180cf60c6c359b14ecebd9f0c406e8ed38af7db`.
+The final API retry-receipt fix changes no app source. Existing tester audience
+and auto-notification remain unchanged; build 58 was never uploaded.
+
+VM test/preparation containers, disposable API images, two bounded scratch
+filesystems and backing files, exported images, caches and temporary SSH key
+were removed. Pi private staging and VPS `.protection-sync` staging were removed;
+the temporary Pi key now fails authentication and original SSH options are
+restored. Superseded VPS API images and obsolete Pi registry manifests/blobs were
+removed after workload checks. All four task build/test workflow artifact lists
+are empty. Current operational images remain. The older Pi access journal
+`/share/.filebeans-access-62877acfd70fe72e.sqlite` remains solely for pending
+migrated archive backup/publication acceptance (A-025). Existing archive retries
+were preserved, not discarded. Feature branches remain unmerged; main untouched.
