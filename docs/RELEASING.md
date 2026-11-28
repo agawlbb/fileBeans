@@ -2157,3 +2157,103 @@ public-key authentication; original SSH options restored. Pi manifest staging
 and the old A-025 permission journal were removed after archive acceptance.
 The sole newly retained data are the user recovery versions (A-029). Feature
 branches remain pushed/unmerged and shared main checkouts untouched.
+
+
+### Archive provenance investigation — 2026-11-28
+
+This corrects the interpretation of the backlog repair above. An empty queue did
+not establish that admission was correct. Its retained inputs were not a list of
+missing Pi masters, and the recovery metadata's generic “bytes differ” reason is
+incorrect for 30 entries. No production files, configuration, jobs, locks or
+service versions were changed during this investigation.
+
+Evidence: the protected recovery catalog and all 83 details records; fresh
+on-Pi SHA-256 reads of all 59 canonical counterparts (metadata only across the
+network); all 743 surviving normalization records; and the existing scheduled
+VPS backup `055cf07d` from 2026-11-28 06:34:22 UTC. The backup SQL was streamed
+through resource-limited read-only containers, never restored or imported into
+any database. It recovered 381 archive-task records, including every recovery
+ID: 298 ingest/backup, 79 ingest/waiting and four directory tasks. One other
+historical plaintext task was omitted by the ordinary protected-record decoder;
+it was not needed for these counts or the 83-file classification.
+
+| Recovery entries | Canonical paths | Proven version |
+| ---: | ---: | --- |
+| 30 | 15 | Byte-identical to the Pi master and an earlier normalization output; filenames/extensions differ. |
+| 32 | 26 | Exact earlier normalization JPEG outputs, differing from the Pi masters. |
+| 2 | 1 | The same existing VPS `NPool.jpg` bytes retained by two jobs; the Pi counterpart is `NPool.png`. No surviving record establishes the earlier generating job. |
+| 19 | 17 | Exact inputs to the historical VPS archive jobs, differing from the Pi masters. Two paths have two distinct processing generations. The earlier production of every first-generation video input is not established. |
+
+These total 83 entries, 59 canonical paths, 61 distinct retained SHA-256 values
+and 1,505,441,079 bytes. Twenty-four paths have two recovery entries; 22 of those
+pairs are duplicate bytes. Every counterpart hash request succeeded. This
+comparison checks identity between versions; it does not expect a deliberately
+encoded VPS derivative to match its Pi master.
+
+The raw inputs were on VPS at
+`/folder/pics/.filebeans-stage/archive-sync/<job-id>/original`. The worker creates
+that path by renaming the then-visible VPS file there before publishing the next
+output. Thus “original” means input to that job, potentially an earlier VPS
+output. It is not an assertion of camera/master provenance. The later repair
+copied these retained inputs into Pi's hidden recovery area; that transfer was
+not required to reconstruct the already-present canonical master library.
+
+Recovered chronology, UTC:
+
+- 295 of the 298 retained backup jobs were created on November 27 between
+  23:19:57.686902 and 23:21:12.283930. Their inputs include 276 exact earlier
+  normalization outputs across the full retained cohort. The transfer history
+  has no corresponding bulk-library copy; the six known later additions do not
+  explain this cohort. Creation records do not record the admission caller.
+- The remaining three backup jobs were created November 27 at 21:26 and 22:21,
+  and November 28 at 02:28. All three concern the same video path.
+- At 03:19 on November 28, 79 waiting ingests and four directory tasks were added.
+  All 79 ingests match an earlier backup job's path and inode number. In every
+  case the mount-device component changed from 87 to 86. Seventy-eight also have
+  identical size/mtime versions; the remaining `NReading.mp4` changed from
+  8,186,352 to 8,186,360 bytes while retaining its mtime. Twenty-three of these
+  waiting jobs later contributed recovery entries; 60 entries came from the
+  older backup cohort.
+
+An exact generation chain survives for
+`V/Fake/BA663276-516B-41A5-BC94-DB1CADF4D021.mp4`:
+
+1. Job `9f847129fd8b13825b1c14fcec3f40c4` at 21:26 consumed SHA-256
+   `226618003f1d624e6e0335829244c46298f0cdad204af59f3b02ef2dd3b07eeb`,
+   which matches the current Pi master, and produced `45a42b13540675c5...`.
+2. Job `a02795996d43e2651c0d5c2298a00198` at 22:21 consumed that exact output
+   and produced `72248eb4f2b28685...`.
+3. Job `305a010431fb68a00d2211befaa2c186` at 02:28 consumed that second output;
+   its own output hash is unchanged. The two recovery entries hold generations
+   one and two, not two missing masters. Changed container hashes alone do not
+   establish lossy re-encoding; the video plan can remux existing HEVC streams.
+
+Two admission defects were reproduced using only synthetic VM files, isolated
+SQLite databases and TLS peers:
+
+- `archiveAdded` deduplicates a live job by path plus device/inode identity. A
+  device-only change admits another job for the same path, inode, size and mtime.
+  This matches all 79 historical remount duplicates. The key is not a durable
+  content/generation identity across FUSE remounts.
+- If the archive path disappears after the names inventory in an already-started
+  discovery scan, matching returns missing and the scan admits the existing
+  library file. Restoring the counterpart leaves that intent queued. Waiting
+  ingest does not revalidate an existing baseline pairing before processing.
+  The synthetic reproduction models lost visibility; it does not prove which
+  production event caused the first false-missing observation.
+
+The separate native-owner/timestamp-publication defect explains why those later
+jobs could hide 79 visible VPS inputs on failure. Its deployed recovery fixed
+that publication failure, not admission. The sender's alternate-extension
+conflict check also does not compare bytes at the matched alternate path;
+classifying all such conflicts as differing content caused the 30 false recovery
+classifications.
+
+Remaining uncertainty is specific: neither retained task schema nor the disabled
+API request logging identifies the caller and remote vault generation for the
+first bulk admission. Historical broker journal inspection supplied no relevant
+mount event. Therefore a production lock/visibility race is a reproduced failure
+mode, not a proven historical initiating event. The previous blanket assertion
+that the 83 files were distinct originals needing transfer was unsupported.
+Admission and generation reconciliation remain unfixed; no new server deployment
+or Apple build/release was performed. Feature source remains unmerged.
