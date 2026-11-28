@@ -146,6 +146,15 @@ func (s *Service) preserveArchiveRecovery(ctx context.Context, j *archiveTask) e
 	}
 	canonical := filepath.Join(j.Target.Base, j.Original)
 	st, err := a.Stat(canonical)
+	if errors.Is(err, os.ErrNotExist) {
+		// An earlier encode can change the extension. The unique archive
+		// counterpart stays canonical; the retained generation is kept apart.
+		canonical, err = archiveMatch(a, j.Target.Base, j.Original, false)
+		if err != nil {
+			return err
+		}
+		st, err = a.Stat(canonical)
+	}
 	if err != nil {
 		return err
 	}

@@ -624,3 +624,38 @@ before-state journal `/share/.filebeans-access-62877acfd70fe72e.sqlite`, needed
 until the migrated protected folders/archive checks pass after owner unlock;
 remove then, or after a verified cancellation restores permissions. It is not an
 indefinite rollback archive. Shared register A-025 records this pending check.
+
+
+### Archive confirmation and legacy journal recovery (2026-11-28)
+
+A job's hidden VPS `original` is its input before that particular encode. It may
+already be an encoded derivative from an earlier pass. It is not necessarily
+the archive's master original, and its hash must not be equated with the visible
+encoded VPS file or assumed to match every existing Pi version.
+
+Pi 0.1.7 carries the native API ownership fix: protected mounts report control
+UID 1000, enabling timestamp preservation. The peer protocol reports permission
+failures distinctly from unavailable storage. VPS API `1a3a2a3-archive` verifies
+an existing archive original's length/hash before transmitting bytes. A matching
+copy is reused, a missing copy is published with checked readback, and a differing
+copy remains a conflict rather than replacing the archive original. Backed-off
+copies receive one recovery attempt when first visible after startup/unlock.
+
+The VM-prepared `filebeans-archive-audit` tool defaults to read-only authorized
+operation metadata. Its explicit `-reconcile-plan` mode requires a link ID and
+an exact list of journal IDs. It obtains the worker advisory lock; production
+workers must be stopped for this operation. Unselected work remains untouched.
+An unstarted discovery intent can be cleared only if its source version is still
+unchanged, no staging exists, and its archive counterpart now exists.
+
+For legacy retained bytes differing from the canonical Pi file, maintenance
+preserves both. The retained bytes are copied without overwrite to the same
+protected Pi vault at
+`pics/.filebeans-stage/archive-recovery/<job-id>/<original-basename>`.
+`details.json` records the retained SHA-256, canonical path/identity/revision,
+visible library path and reason. File checksum/readback, durable metadata and
+unchanged canonical identity are required before the VPS retention is released.
+These are live user recovery versions, not disposable deployment staging; they
+must not be removed by build/task cleanup. The canonical Pi originals and visible
+encoded VPS files are preserved. No new thumbnail generator or Apple build is
+needed for this server repair.

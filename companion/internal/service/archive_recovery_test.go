@@ -130,3 +130,36 @@ func TestArchiveRecoveryClearsOnlyUnchangedUnstartedDiscovery(t *testing.T) {
 		}
 	}
 }
+
+func TestArchiveRecoveryPreservesOriginalWithDifferentExtension(t *testing.T) {
+	library, archive, _ := archivePeers(t)
+	link := ArchiveLink{ID: ID(), Library: ArchiveEndpoint{Source: "VPS", Path: "/photos"}, Archive: ArchiveEndpoint{Source: "Samba", Path: "/photos"}}
+	for _, s := range []*Service{library, archive} {
+		os.MkdirAll(filepath.Join(s.config.Roots[0].Path, "photos"), 0770)
+	}
+	library.insert(link.ID, "archiveLink", "linked", "", link)
+	library.cacheArchivePolicies([]ArchiveLink{link})
+	os.WriteFile(filepath.Join(archive.config.Roots[0].Path, "photos/photo.png"), []byte("canonical PNG original"), 0660)
+	os.WriteFile(filepath.Join(library.config.Roots[0].Path, "photos/photo.jpg"), []byte("visible JPEG"), 0660)
+	j := newArchiveTask(link, "ingest", "photo.jpg")
+	j.State = "backup"
+	j.Output = "photo.jpg"
+	raw := filepath.Join("photos", archiveStage, j.ID, "original")
+	os.MkdirAll(filepath.Join(library.config.Roots[0].Path, filepath.Dir(raw)), 0770)
+	os.WriteFile(filepath.Join(library.config.Roots[0].Path, raw), []byte("retained JPEG generation"), 0660)
+	root, _ := library.root("VPS")
+	j.Hash, _ = archiveHash(root, raw)
+	root.Close()
+	library.insert(j.ID, archiveTaskKind, j.State, "", j)
+	report, err := library.ReconcileArchiveRetentions(context.Background(), ArchiveRepairPlan{Link: link.ID, Tasks: []string{j.ID}})
+	if err != nil || report.PreservedVersions != 1 || report.Remaining != 0 {
+		t.Fatal(err, report)
+	}
+	data, _ := os.ReadFile(filepath.Join(archive.config.Roots[0].Path, "photos/photo.png"))
+	if string(data) != "canonical PNG original" {
+		t.Fatal("canonical PNG changed")
+	}
+	if _, err = os.Stat(filepath.Join(archive.config.Roots[0].Path, "photos/photo.jpg")); !os.IsNotExist(err) {
+		t.Fatal("duplicate canonical extension created", err)
+	}
+}
