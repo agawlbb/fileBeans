@@ -21,6 +21,16 @@ struct Connection: Codable, Identifiable, Hashable {
     var unified: Connection {
         guard !isGoogleDrive else { return self }
         var value = self
+        if name.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("File Browser Quantum") == .orderedSame {
+            let endpoint = filesystemURL
+            if serverID == "filebeans-vps" || endpoint.host?.lowercased() == "files.coffeybean.com" && endpoint.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) == "companion" {
+                value.name = "VPS"
+            } else if serverID == "filebeans-pi" {
+                value.name = "Pi"
+            } else {
+                value.name = "FileBeans"
+            }
+        }
         value.companionURL = filesystemURL
         value.companionTokenID = filesystemTokenID
         return value

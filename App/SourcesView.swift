@@ -4,6 +4,7 @@ struct SourceDestination: Identifiable, Hashable {
     enum Kind: Hashable { case server, local(StoredItem), drive, driveFolder(String, String), transfers, protection, trash(String), driveTrash }
     let connection: Connection
     let kind: Kind
+    var serverRoot: StoredItem? = nil
     var id: String {
         switch kind {
         case .server: return connection.id.uuidString + ":server"
@@ -29,7 +30,7 @@ struct SourceDestination: Identifiable, Hashable {
     }
     @MainActor @ViewBuilder var destination: some View {
         switch kind {
-        case .server: BrowserView(connection: connection, parent: nil)
+        case .server: ServerSourceBrowser(connection: connection, initialRoot: serverRoot)
         case .local(let item): BrowserView(connection: connection, parent: item)
         case .drive: DriveBrowser(connection: connection)
         case .driveFolder(let id, let name): DriveBrowser(connection: connection, folder: id, title: name)
@@ -37,6 +38,56 @@ struct SourceDestination: Identifiable, Hashable {
         case .protection: VaultsView(connection: connection)
         case .trash(let source): TrashList(connection: connection, source: source)
         case .driveTrash: DriveTrashView(connection: connection)
+        }
+    }
+}
+
+/// Resolve a server's storage root within the selected source destination, so
+/// a single-root server does not add another folder to the navigation stack.
+private struct ServerSourceBrowser: View {
+    let connection: Connection
+    @State private var root: StoredItem?
+    @State private var resolved: Bool
+    @State private var error: String?
+
+    init(connection: Connection, initialRoot: StoredItem?) {
+        self.connection = connection
+        _root = State(initialValue: initialRoot)
+        _resolved = State(initialValue: initialRoot != nil)
+    }
+    var body: some View {
+        Group {
+            if resolved {
+                BrowserView(connection: connection, parent: root)
+            } else if let error {
+                ContentUnavailableView {
+                    Label(connection.name, systemImage: "folder")
+                } description: { Text(error) } actions: {
+                    Button("Retry") { Task { await load() } }
+                }
+            } else {
+                ProgressView()
+            }
+        }
+        .task(id: connection) { if !resolved { await load() } }
+    }
+    private func load() async {
+        error = nil
+        do {
+            let repository = try Repository(connection: connection, store: SharedStore())
+            root = SourcesModel.singleRoot(try await repository.roots())
+            resolved = true
+        } catch {
+            guard !Task.isCancelled else { return }
+            if let store = try? SharedStore(), let cached = try? store.items(connection.id) {
+                let roots = cached.values.filter { $0.isSource && $0.parent == "root" }
+                if !roots.isEmpty {
+                    root = SourcesModel.singleRoot(roots)
+                    resolved = true
+                    return
+                }
+            }
+            self.error = error.localizedDescription
         }
     }
 }
@@ -49,12 +100,17 @@ final class SourcesModel: ObservableObject {
     private var generation = UUID()
 
     static func entries(connections: [Connection], roots: [UUID: [StoredItem]]) -> [SourceDestination] {
-        connections.map { connection in
-            SourceDestination(connection: connection, kind: connection.isGoogleDrive ? .drive : .server)
+        connections.map { saved in
+            let connection = saved.unified
+            return SourceDestination(connection: connection, kind: connection.isGoogleDrive ? .drive : .server,
+                                     serverRoot: connection.isGoogleDrive ? nil : singleRoot(roots[connection.id] ?? []))
         }.sorted {
             let order = $0.name.localizedStandardCompare($1.name)
             return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
         }
+    }
+    static func singleRoot(_ roots: [StoredItem]) -> StoredItem? {
+        roots.count == 1 ? roots.first : nil
     }
     func reload(_ connections: [Connection]) async {
         let current = UUID(); generation = current; loading = true
@@ -141,13 +197,8 @@ struct SourcesView: View {
     private var sourceCollection: some View {
         BrowserFileCollection(items: entries, grid: grid, header: status, row: { source, large in
             sourceLink(source) {
-                VStack(alignment: .leading, spacing: 4) {
-                    BrowserItemCell(name: source.name, size: nil, folder: true, large: large, selecting: false, selected: false,
-                                    thumbnail: Image(systemName: "folder.fill").resizable().scaledToFit().padding(8).foregroundStyle(Color.accentColor))
-                    if connections.connections.count > 1 {
-                        Text(source.connection.name).font(.caption).foregroundStyle(.secondary)
-                    }
-                }.accessibilityElement(children: .combine)
+                BrowserItemCell(name: source.name, size: nil, folder: true, large: large, selecting: false, selected: false,
+                                thumbnail: Image(systemName: "folder.fill").resizable().scaledToFit().padding(8).foregroundStyle(Color.accentColor))
             }.buttonStyle(.plain)
         })
         .navigationTitle("Sources")
