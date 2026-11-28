@@ -20,6 +20,14 @@ import (
 	"strings"
 )
 
+// A native Drive credential belongs to this job, never the server account.
+type peerDriveConnectionKey struct{}
+
+func peerDriveConnection(ctx context.Context) string {
+	connection, _ := ctx.Value(peerDriveConnectionKey{}).(string)
+	return connection
+}
+
 type PeerSelection struct {
 	Item    Item   `json:"item"`
 	Files   []File `json:"files"`
@@ -75,7 +83,7 @@ func (s *Service) peerSnapshot(ctx context.Context, item Item) ([]File, error) {
 		return out, e
 	}
 	if item.Source == "drive" {
-		files, _, e := s.driveTree(context.WithValue(ctx, peerInventoryKey{}, true), item.Path, "", false)
+		files, _, e := s.driveTree(context.WithValue(ctx, peerInventoryKey{}, true), item.Path, peerDriveConnection(ctx), false)
 		if len(files) > piManifestLimit {
 			return nil, ErrUnsafe
 		}
@@ -175,7 +183,7 @@ func (s *Service) verifyPeerFile(ctx context.Context, f File) error {
 		return peerJSON(ctx, *p, "/v1/peer/version", f, &out)
 	}
 	if f.Source == "drive" {
-		m, e := s.driveMeta(ctx, f.From, "")
+		m, e := s.driveMeta(ctx, f.From, peerDriveConnection(ctx))
 		if e != nil {
 			return e
 		}
@@ -248,14 +256,14 @@ func (s *Service) readPeerChunk(ctx context.Context, f File, offset int64, lengt
 		return b, e
 	}
 	if f.Source == "drive" {
-		m, e := s.driveMeta(ctx, f.From, "")
+		m, e := s.driveMeta(ctx, f.From, peerDriveConnection(ctx))
 		if e != nil {
 			return nil, e
 		}
 		if m.Version != f.Version || m.Trashed {
 			return nil, ErrConflict
 		}
-		reader, e := s.driveContent(ctx, f.From, offset, "")
+		reader, e := s.driveContent(ctx, f.From, offset, peerDriveConnection(ctx))
 		if e != nil {
 			return nil, e
 		}
@@ -341,7 +349,7 @@ func (s *Service) removePeerSource(ctx context.Context, selection PeerSelection,
 	if selection.Item.Source == "drive" {
 		var prior driveMutationRecord
 		if e := s.existing(key, "driveMutation", &prior); e == nil {
-			_, e = s.driveMutation(ctx, DriveMutation{Action: "trash", FileID: selection.Item.Path}, key)
+			_, e = s.driveMutationForConnection(ctx, DriveMutation{Action: "trash", FileID: selection.Item.Path}, key, peerDriveConnection(ctx))
 			return e
 		}
 	}
@@ -353,7 +361,7 @@ func (s *Service) removePeerSource(ctx context.Context, selection PeerSelection,
 		return ErrConflict
 	}
 	if selection.Item.Source == "drive" {
-		_, e = s.driveMutation(ctx, DriveMutation{Action: "trash", FileID: selection.Item.Path}, key)
+		_, e = s.driveMutationForConnection(ctx, DriveMutation{Action: "trash", FileID: selection.Item.Path}, key, peerDriveConnection(ctx))
 		return e
 	}
 	_, e = s.trash(selection.Item, key)
@@ -361,6 +369,7 @@ func (s *Service) removePeerSource(ctx context.Context, selection PeerSelection,
 }
 
 func (s *Service) executePeer(ctx context.Context, j *Job) error {
+	ctx = context.WithValue(ctx, peerDriveConnectionKey{}, j.Connection)
 	if len(j.PeerPlan) == 0 {
 		var plan []PeerSelection
 		total := 0

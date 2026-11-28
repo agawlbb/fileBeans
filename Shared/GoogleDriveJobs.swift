@@ -122,9 +122,12 @@ actor GoogleDriveJobs {
                 }
                 job.current = name; try save(job, connection)
                 if job.request.operation == "move" {
-                    let old = (file["parents"] as? [String] ?? []).filter { $0 != destinationID }
-                    if !(file["parents"] as? [String] ?? []).contains(destinationID) {
-                        var query = ["addParents": destinationID, "supportsAllDrives": "true"]
+                    let parents = file["parents"] as? [String] ?? []
+                    let old = parents.filter { $0 != destinationID }
+                    let rename = job.request.destinationName.map { $0 != name } ?? false
+                    if !parents.contains(destinationID) || rename {
+                        var query = ["supportsAllDrives": "true"]
+                        if !parents.contains(destinationID) { query["addParents"] = destinationID }
                         if !old.isEmpty { query["removeParents"] = old.joined(separator: ",") }
                         var fields: [String: Any] = [:]
                         if let name = job.request.destinationName { fields["name"] = name }

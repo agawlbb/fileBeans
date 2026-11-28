@@ -130,12 +130,31 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
             let client = CompanionClient(connection: owner); defer { client.close() }
             let data = try await client.request(forwarded, method: method, body: body, key: key, permanent: permanent, query: query, headers: headers)
             var job = try JSONDecoder().decode(CopyJob.self, from: data); job.id = alias
+            try ClientTransferLinks.remember(job, origin: connection)
             return try JSONEncoder().encode(job)
         }
         if connection.isGoogleDrive {
             return try await googleTransport.request(route, method: method, body: body, key: key, permanent: permanent, query: query, headers: headers)
         }
-        let r = try authorizedRequest(route, method: method, body: body, key: key, permanent: permanent, query: query, headers: headers)
+        var requestBody = body
+        let jobRoute = route.split(separator: "/").map(String.init)
+        if method == "POST", body == nil, jobRoute.count == 3, jobRoute[0] == "jobs",
+           jobRoute[2] == "retry" || jobRoute[2] == "cancel" {
+            do {
+                let job = try JSONDecoder().decode(CopyJob.self, from: await request("jobs/" + jobRoute[1]))
+                if let account = job.request?.driveAccount {
+                    guard let drive = try SharedStore().connections().first(where: { $0.isGoogleDrive && $0.googleAccountID == account }) else { throw APIError.authentication }
+                    let grant = try await GoogleDriveDelegation.seal(account: drive, server: await capabilities())
+                    struct Renewal: Encodable { let driveAccount: String; let driveGrant: SealedGoogleDriveGrant }
+                    requestBody = try JSONEncoder().encode(Renewal(driveAccount: account, driveGrant: grant))
+                }
+            } catch {
+                // Cancellation can still use the server's unexpired job grant
+                // when the Google account has been disconnected on this device.
+                if jobRoute[2] == "retry" { throw error }
+            }
+        }
+        let r = try authorizedRequest(route, method: method, body: requestBody, key: key, permanent: permanent, query: query, headers: headers)
         let (data, response) = try await ServerRoute.shared.data(r, connection: connection, session: session)
         guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
         guard (200..<300).contains(http.statusCode) else {

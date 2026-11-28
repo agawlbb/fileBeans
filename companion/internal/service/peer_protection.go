@@ -32,6 +32,9 @@ func (s *Service) nodeRecordCipher(sources []string, requireRemote bool) (cipher
 		if len(parts) != 2 {
 			return nil, ErrVaultLocked
 		}
+		if owner, source, qualified := splitPeerSource(parts[0]); qualified && owner == s.config.ServerID {
+			parts[0] = source
+		}
 		peer := s.peerFor(parts[0])
 		if peer == nil {
 			found := false

@@ -78,8 +78,8 @@ func (s *Service) Handler() http.Handler {
 		for _, root := range s.config.Roots {
 			roots = append(roots, map[string]string{"source": root.Name, "trash": "/Trash"})
 		}
-        g,e:=s.google()
-        transferKey, keyError := s.transferPublicKey()
+		g, e := s.google()
+		transferKey, keyError := s.transferPublicKey()
 		if keyError != nil {
 			fail(w, keyError)
 			return
@@ -637,10 +637,6 @@ func (s *Service) Handler() http.Handler {
 		if !strings.HasPrefix(r.URL.Path, "/v1/vaults") && !strings.HasPrefix(r.URL.Path, "/v1/protection") {
 			s.vaultGate.RLock()
 			defer s.vaultGate.RUnlock()
-		}
-		if strings.HasPrefix(r.URL.Path, "/v1/drive/") {
-			fail(w, ErrUnsupported)
-			return
 		}
 		s.routeExplicitPeerOperations(s.archiveMirrorHandler(mux), w, r)
 	})

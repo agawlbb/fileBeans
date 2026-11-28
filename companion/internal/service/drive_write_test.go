@@ -3,6 +3,8 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -109,7 +111,12 @@ func TestDriveEmptyPages(t *testing.T) {
 	fixtureGrant(t, s, false)
 	previous := googleHTTP
 	defer func() { googleHTTP = previous }()
-	googleHTTP = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) { return jsonResponse(200, map[string]any{}), nil })}
+	googleHTTP = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/drive/v3/files/root" {
+			return jsonResponse(200, DriveItem{ID: "root", Mime: "application/vnd.google-apps.folder"}), nil
+		}
+		return jsonResponse(200, map[string]any{}), nil
+	})}
 	for route, field := range map[string]string{"/v1/drive/files?folder=root": "files", "/v1/drive/trash": "files", "/v1/drive/drives": "drives"} {
 		r := httptest.NewRequest("GET", route, nil)
 		r.Header.Set("Authorization", "Bearer "+s.config.Token)
@@ -150,6 +157,9 @@ func (f *cloudFixture) nextID() string { f.serial++; return fmt.Sprintf("generat
 func (f *cloudFixture) add(id, name, mime string, trashed bool) {
 	f.items[id] = DriveItem{ID: id, Name: name, Mime: mime, Version: "1", Size: "6", Parents: []string{"root"}, Trashed: trashed, Capabilities: allDrivePermissions()}
 	f.payloads[id] = []byte("abcdef")
+	item := f.items[id]
+	item.SHA256 = fmt.Sprintf("%x", sha256.Sum256(f.payloads[id]))
+	f.items[id] = item
 }
 func (f *cloudFixture) serve(r *http.Request) (*http.Response, error) {
 	if r.Header.Get("Authorization") != "Bearer fixture" {
@@ -180,6 +190,8 @@ func (f *cloudFixture) serve(r *http.Request) (*http.Response, error) {
 			f.received = append(f.received, data...)
 			if len(f.received) == total {
 				f.upload.Size = strconv.Itoa(total)
+				f.upload.MD5 = fmt.Sprintf("%x", md5.Sum(f.received))
+				f.upload.SHA256 = fmt.Sprintf("%x", sha256.Sum256(f.received))
 				f.upload.Capabilities = allDrivePermissions()
 				f.items[f.upload.ID] = f.upload
 				f.payloads[f.upload.ID] = append([]byte{}, f.received...)

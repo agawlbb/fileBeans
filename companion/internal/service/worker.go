@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"io/fs"
 	"os"
@@ -283,7 +284,7 @@ func (s *Service) execute(ctx context.Context, j *Job) error {
 	if e := s.guardArchiveJob(j.Request); e != nil {
 		return e
 	}
-	if s.crossPeer(j.Request) || s.config.Profile == "pi" && j.Request.Operation != "move" {
+	if s.crossPeer(j.Request) || strings.HasPrefix(j.Connection, "native:") || s.config.Profile == "pi" && j.Request.Operation != "move" {
 		return s.executePeer(ctx, j)
 	}
 	if j.Request.Operation == "move" {

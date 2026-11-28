@@ -89,7 +89,7 @@ func (s *Service) syncArchiveMirrors(ctx context.Context) error {
 				if json.Unmarshal(record.Body, &envelope) != nil || envelope.Boundary == nil {
 					return ErrUnsafe
 				}
-				if envelope.Boundary.Target.Backend != source {
+				if peerSourceFor(envelope.Boundary.Target.Backend, p.ID) != source {
 					continue
 				}
 				link, ok := byID[envelope.Boundary.Link]
@@ -116,6 +116,26 @@ func (s *Service) applyArchiveMirrors(in archivePeerRequest) error {
 	if e := validateArchiveMirrors(in.Records); e != nil {
 		return e
 	}
+	for i := range in.Records {
+		record := &in.Records[i]
+		if record.Kind != "archivePolicy" {
+			continue
+		}
+		var envelope map[string]json.RawMessage
+		if json.Unmarshal(record.Body, &envelope) != nil {
+			return ErrUnsafe
+		}
+		// Keep the sealed policy and original link unchanged. Coordinates are
+		// interpreted in the coordinator's namespace after decryption as well
+		// as when using the locked public boundary.
+		envelope["archiveOwner"], _ = json.Marshal(in.Owner)
+		envelope["archiveLocalSource"], _ = json.Marshal(in.Source)
+		var err error
+		record.Body, err = json.Marshal(envelope)
+		if err != nil {
+			return err
+		}
+	}
 	ids := map[string]bool{}
 	for _, record := range in.Records {
 		if record.Kind != "archiveLink" && record.Kind != "archivePolicy" {
@@ -126,7 +146,7 @@ func (s *Service) applyArchiveMirrors(in archivePeerRequest) error {
 			var envelope struct {
 				Boundary *archivePolicy `json:"archiveBoundary"`
 			}
-			if json.Unmarshal(record.Body, &envelope) != nil || envelope.Boundary == nil || envelope.Boundary.Target.Backend != in.Source || s.peerFor(envelope.Boundary.Library.Source) == nil {
+			if json.Unmarshal(record.Body, &envelope) != nil || envelope.Boundary == nil || (peerSourceFor(envelope.Boundary.Target.Backend, s.config.ServerID) != in.Source && !strings.HasSuffix(envelope.Boundary.Target.Backend, ":"+in.Source)) || s.peerFor("peer:"+in.Owner+":"+peerSourceFor(envelope.Boundary.Library.Source, in.Owner)) == nil {
 				return ErrUnsafe
 			}
 		}
@@ -157,7 +177,7 @@ func (s *Service) applyArchiveMirrors(in archivePeerRequest) error {
 			rows.Close()
 			return ErrUnsafe
 		}
-		if envelope.Boundary.Target.Backend == in.Source && !ids[id] {
+		if (envelope.Boundary.Target.Backend == in.Source || strings.HasSuffix(envelope.Boundary.Target.Backend, ":"+in.Source)) && !ids[id] {
 			obsolete = append(obsolete, id, envelope.Boundary.Link)
 		}
 	}

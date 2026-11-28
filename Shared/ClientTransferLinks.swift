@@ -46,6 +46,15 @@ enum ClientTransferLinks {
         let suffix = parts.dropFirst(2).joined(separator: "/")
         return (owner, "jobs/" + link.job + (suffix.isEmpty ? "" : "/" + suffix), parts[1])
     }
+    static func remember(_ job: CopyJob, origin: Connection) throws {
+        lock.lock(); defer { lock.unlock() }
+        var records = try read(origin.id)
+        guard var link = records[job.id] else { return }
+        link.last = job; records[job.id] = link
+        let data = try JSONEncoder().encode(records)
+        guard data.count <= 4 * 1024 * 1024 else { throw APIError.forbidden }
+        try data.write(to: url(origin.id), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    }
     private static func snapshots(_ origin: UUID) throws -> [String: ClientTransferLink] {
         lock.lock(); defer { lock.unlock() }; return try read(origin)
     }
@@ -57,7 +66,7 @@ enum ClientTransferLinks {
                 guard let (owner, route, alias) = try resolve("jobs/" + id, origin: origin) else { continue }
                 let client = CompanionClient(connection: owner); defer { client.close() }
                 var job = try JSONDecoder().decode(CopyJob.self, from: await client.request(route))
-                job.id = alias; jobs.append(job)
+                job.id = alias; try remember(job, origin: origin); jobs.append(job)
             } catch {
                 if var last = link.last {
                     if last.active { last.state = "unavailable"; last.error = "The transfer server is unavailable." }

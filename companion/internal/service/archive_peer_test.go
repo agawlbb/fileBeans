@@ -304,3 +304,58 @@ func TestArchivePeerIngestKeepsEncodingOnLibraryAndVerifiesOriginal(t *testing.T
 		t.Fatal("unfinished ingest", tasks, e)
 	}
 }
+
+func TestArchiveMirrorKeepsCoordinatorBytesWithEqualRootNames(t *testing.T) {
+	library, archive, _ := archivePeers(t)
+	library.config.Roots[0].Name = "Files"
+	archive.config.Roots[0].Name = "Files"
+	library.config.Peers[0].Sources = []string{"Files"}
+	archive.config.Peers[0].Sources = []string{"Files"}
+	for _, s := range []*Service{library, archive} {
+		if err := os.MkdirAll(filepath.Join(s.config.Roots[0].Path, "photos"), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w := archiveRequest(library, "POST", "/v1/archive-links", `{"library":{"source":"Files","path":"/photos"},"archive":{"server":"pi","source":"Files","path":"/photos"}}`)
+	if w.Code != 201 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	var link ArchiveLink
+	if err := json.Unmarshal(w.Body.Bytes(), &link); err != nil {
+		t.Fatal(err)
+	}
+	if link.Library.ServerID != library.config.ServerID || link.Archive.ServerID != "pi" || link.Archive.Source != "Files" {
+		t.Fatal("public owner coordinates lost", link)
+	}
+	var original, mirror []byte
+	if err := library.db.QueryRow("SELECT body FROM fb_operations WHERE id=?", link.ID).Scan(&original); err != nil {
+		t.Fatal(err)
+	}
+	if err := archive.db.QueryRow("SELECT body FROM fb_operations WHERE id=?", link.ID).Scan(&mirror); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(original, mirror) {
+		t.Fatal("mirror changed original link bytes")
+	}
+	for _, cached := range []bool{false, true} {
+		var links []ArchiveLink
+		var err error
+		if cached {
+			links, err = archive.cachedArchivePolicies()
+		} else {
+			links, err = archive.archiveLinks()
+		}
+		if err != nil || len(links) != 1 {
+			t.Fatal(cached, links, err)
+		}
+		if links[0].Library.Source != "peer:VPS:Files" || links[0].Archive.Source != "Files" {
+			t.Fatal("mirror owner coordinates lost", cached, links)
+		}
+	}
+	if err := archive.guardArchiveWrite("Files", "photos/blocked", false); !errors.Is(err, ErrArchiveReadOnly) {
+		t.Fatal("archive write guard bypassed", err)
+	}
+	if err := library.guardArchiveWrite("Files", "photos/allowed", false); err != nil {
+		t.Fatal("library became read-only", err)
+	}
+}

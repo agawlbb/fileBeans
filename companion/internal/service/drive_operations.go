@@ -184,7 +184,7 @@ func (s *Service) driveMutationForConnection(ctx context.Context, request DriveM
 			return record.Result, nil
 		}
 	} else if errors.Is(e, sql.ErrNoRows) {
-		g, e := s.google()
+		g, e := s.googleForConnection(connection)
 		if e != nil {
 			return DriveItem{}, e
 		}

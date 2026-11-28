@@ -236,3 +236,80 @@ func TestIndependentPeersCanHaveTheSameRootName(t *testing.T) {
 		t.Fatal(string(data), e)
 	}
 }
+
+// The request contains authorization and file coordinates only. The server's
+// Google transport must perform every payload read/write for both directions.
+func TestNativeDriveServerTransfersWithoutServerGoogleAccount(t *testing.T) {
+	for _, server := range []string{"Pi", "VPS"} {
+		t.Run(server, func(t *testing.T) {
+			s := testNode(t, server)
+			f := newCloudFixture(t)
+			previous := googleHTTP
+			t.Cleanup(func() { googleHTTP = previous })
+			googleHTTP = &http.Client{Transport: roundTrip(f.serve)}
+			grant := syntheticNativeGoogle()
+			grant.Access = "fixture"
+			submit := func(request CopyRequest) Job {
+				t.Helper()
+				envelope, err := s.sealNativeDriveGrant(grant)
+				if err != nil {
+					t.Fatal(err)
+				}
+				request.DriveAccount, request.DriveGrant = grant.Account, &envelope
+				raw, _ := json.Marshal(request)
+				r := httptest.NewRequest("POST", "/v1/jobs", bytes.NewReader(raw))
+				r.Header.Set("Authorization", "Bearer "+s.config.Token)
+				r.Header.Set("Idempotency-Key", ID())
+				w := httptest.NewRecorder()
+				s.Handler().ServeHTTP(w, r)
+				if w.Code != 202 {
+					t.Fatal(w.Code, w.Body.String())
+				}
+				var public, stored Job
+				if err = json.Unmarshal(w.Body.Bytes(), &public); err != nil {
+					t.Fatal(err)
+				}
+				if err = s.read(public.ID, "copy", &stored); err != nil {
+					t.Fatal(err)
+				}
+				s.runJob(context.Background(), &stored)
+				if stored.State != "completed" {
+					t.Fatal(stored.State, stored.Error)
+				}
+				if _, _, err = s.nativeGoogle(stored.Connection); err == nil {
+					t.Fatal("completed job retained authorization")
+				}
+				return stored
+			}
+			for _, operation := range []string{"copy", "move"} {
+				name := operation + "-upload.dat"
+				payload := bytes.Repeat([]byte(server+" direct Google payload "), 17000)
+				source := filepath.Join(s.config.Roots[0].Path, name)
+				if err := os.WriteFile(source, payload, 0600); err != nil {
+					t.Fatal(err)
+				}
+				job := submit(CopyRequest{Items: []Item{{Source: server, Path: name}}, Destination: Item{Source: "drive", Path: "root"}, Operation: operation})
+				if len(job.Manifest) != 1 || !bytes.Equal(f.payloads[job.Manifest[0].TargetID], payload) {
+					t.Fatal("upload bytes differ")
+				}
+				_, err := os.Stat(source)
+				if operation == "copy" && err != nil || operation == "move" && !os.IsNotExist(err) {
+					t.Fatal("incorrect local source cleanup", err)
+				}
+				id := operation + "-download"
+				f.add(id, id+".dat", "application/octet-stream", false)
+				submit(CopyRequest{Items: []Item{{Source: "drive", Path: id}}, Destination: Item{Source: server, Path: "/"}, Operation: operation})
+				data, err := os.ReadFile(filepath.Join(s.config.Roots[0].Path, id+".dat"))
+				if err != nil || !bytes.Equal(data, []byte("abcdef")) {
+					t.Fatal("download bytes differ", err)
+				}
+				if f.items[id].Trashed != (operation == "move") {
+					t.Fatal("incorrect Drive source cleanup")
+				}
+			}
+			if _, err := s.google(); err == nil {
+				t.Fatal("transfer created a server Google account")
+			}
+		})
+	}
+}

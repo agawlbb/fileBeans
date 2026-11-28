@@ -40,7 +40,9 @@ func (s *Service) cachedArchivePolicies() ([]ArchiveLink, error) {
 		}
 		plain, e := s.decodeRecord("policy-"+id, "archivePolicy", sealed)
 		var envelope struct {
-			Boundary *archivePolicy `json:"archiveBoundary"`
+			Boundary    *archivePolicy `json:"archiveBoundary"`
+			Owner       string         `json:"archiveOwner"`
+			LocalSource string         `json:"archiveLocalSource"`
 		}
 		if json.Unmarshal(sealed, &envelope) != nil {
 			return nil, ErrUnsafe
@@ -62,7 +64,8 @@ func (s *Service) cachedArchivePolicies() ([]ArchiveLink, error) {
 		if p.Link != id || p.Revision != hex.EncodeToString(h[:]) {
 			return nil, errArchivePolicyMiss
 		}
-		links = append(links, ArchiveLink{ID: id, Library: p.Library, Archive: ArchiveEndpoint{Source: p.Target.Backend, Path: p.Target.Base, Vault: p.Target.VaultID, Relative: p.Target.Relative, Identity: p.Target.Identity}})
+		link := ArchiveLink{ID: id, Library: p.Library, Archive: ArchiveEndpoint{Source: p.Target.Backend, Path: p.Target.Base, Vault: p.Target.VaultID, Relative: p.Target.Relative, Identity: p.Target.Identity}}
+		links = append(links, s.archiveMirrorCoordinates(link, envelope.Owner, envelope.LocalSource))
 	}
 	return links, rows.Err()
 }
@@ -71,7 +74,7 @@ func (s *Service) cacheArchivePolicies(links []ArchiveLink) {
 		return
 	}
 	for _, link := range links {
-		if link.Library.Pending != nil || link.Archive.Pending != nil {
+		if s.peerFor(link.Library.Source) != nil || link.Library.Pending != nil || link.Archive.Pending != nil {
 			continue
 		}
 		var original []byte
@@ -122,4 +125,35 @@ func (s *Service) encodeArchivePolicy(id string, policy archivePolicy, plain []b
 		return nil, err
 	}
 	return json.Marshal(envelope)
+}
+
+// Mirror bytes remain owned by their coordinator. Adapt only runtime routing.
+func (s *Service) archiveMirrorCoordinates(link ArchiveLink, owner, localSource string) ArchiveLink {
+	if owner == "" && s.config.Profile == "pi" && s.peerFor(link.Library.Source) != nil {
+		owner = s.config.ArchiveCoordinator
+		localSource = peerSourceFor(link.Archive.Source, s.config.ServerID)
+	}
+	if owner == "" || owner == s.config.ServerID || localSource == "" {
+		return link
+	}
+	var library func(ArchiveEndpoint) ArchiveEndpoint
+	library = func(e ArchiveEndpoint) ArchiveEndpoint {
+		e.Source = "peer:" + owner + ":" + peerSourceFor(e.Source, owner)
+		if e.Pending != nil {
+			pending := library(*e.Pending)
+			e.Pending = &pending
+		}
+		return e
+	}
+	var archive func(ArchiveEndpoint) ArchiveEndpoint
+	archive = func(e ArchiveEndpoint) ArchiveEndpoint {
+		e.Source = localSource
+		if e.Pending != nil {
+			pending := archive(*e.Pending)
+			e.Pending = &pending
+		}
+		return e
+	}
+	link.Library, link.Archive = library(link.Library), archive(link.Archive)
+	return link
 }
