@@ -488,3 +488,12 @@ comparisons removed. Shared builder stopped with its normal cache volume restore
 The older A-025 Pi access journal remains for pending archive backup/publication
 acceptance; live archive staging is application data, not disposable task scratch.
 Feature worktrees remain unmerged and main untouched.
+
+
+Owner Unlock acceptance (2026-11-28): both APIs report unlocked/group unlocked.
+All 79 recovered files completed publication; all 79 visible timestamps match
+retained originals. Visible count remains 749; unpublished output count zero;
+all 377 staged originals remain retained for archive backup. Permission errors
+and attention problems cleared. The existing 298 Samba-unavailable backup retries
+remain separate; 79 newly published items await backup. Missing-picture repair
+is finished and verified; no further deployment or app build needed.
