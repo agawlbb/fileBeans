@@ -444,3 +444,47 @@ are empty. Current operational images remain. The older Pi access journal
 `/share/.filebeans-access-62877acfd70fe72e.sqlite` remains solely for pending
 migrated archive backup/publication acceptance (A-025). Existing archive retries
 were preserved, not discarded. Feature branches remain unmerged; main untouched.
+
+
+### Missing VPS pictures repair — 2026-11-28
+
+Deployed VPS API/broker `e2e777a`. Native filesystem-consumer mounts now map
+ownership to the API control UID (1000), while legacy browser mounts retain
+reader ownership. This permits preserving timestamps without broadening API
+capabilities or changing stored ciphertext ownership.
+
+Publication prepares output timestamps before staging the visible original.
+Failure restores an otherwise-hidden original with no-overwrite rename; an
+interrupted publication receives one recovery attempt when it becomes visible
+to the worker after startup/unlock. Ordinary backoff remains in place.
+
+The deployed API recovered all 79 stranded originals before broker restart:
+visible files rose from 670 to 749, no unpublished output retained a hidden
+original, and all 79 original SHA-256 values matched visible-file readback.
+The broker correction is installed and healthy/locked. Its restart left a
+disconnected public FUSE bind; with API/broker stopped, both exact disconnected
+aliases were detached and the underlying marker device/inode matched the sealed
+registry before restart. Final state: VPS locked, Pi unlocked, group partial;
+owner Unlock is needed for live timestamp/publication acceptance. No recovery
+key was accessed. Existing linked archive records, queued jobs and retained
+originals are preserved; Pi HA 0.1.6, thumbnail suppression and TestFlight 59
+are unchanged. No app build is required for this repair.
+
+Focused publication/shared-protection race regressions and vet pass. A real
+isolated encrypted FUSE mount verified timestamp preservation as UID 1000.
+The full Go service suite passes against the exact repair runtime image.
+API image `filebeans-api:e2e777a-pics`, manifest
+`sha256:982e064bbd103a1d96a78a13e8153dea742782d7aa956818d617397bb52bbdb6`;
+transfer SHA-256 `9a8fb70d88dc5a8a8511dff3fc667025057fad567a38bf7ba332c32e8d77e1c5`.
+API binary SHA-256 `7a8d169221660856ed7442815ba3eae3134399cf5871a083d74a4f3182660d8b`;
+broker `b22bb207766b1febf510460ebed29ad01e7f6bbf1e7a4ab89236236bed6e61c8`.
+API 2 GiB/no-swap/128-PID limits remain; restart count zero/OOM false at initial
+cutover. All unrelated container identities/start times remain unchanged.
+
+VPS `.pics-repair` staging/rollback copies and superseded API image removed.
+VM preparation/test/FUSE containers, local image, two bounded scratch filesystems
+and backing files, contexts, caches, test tools, exports and temporary checksum
+comparisons removed. Shared builder stopped with its normal cache volume restored.
+The older A-025 Pi access journal remains for pending archive backup/publication
+acceptance; live archive staging is application data, not disposable task scratch.
+Feature worktrees remain unmerged and main untouched.
