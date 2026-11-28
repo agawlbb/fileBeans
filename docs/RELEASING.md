@@ -2349,3 +2349,14 @@ image, mobile build, release, master file or recovery copy was changed. Live API
 83342fc and Pi 0.1.7 both reported zero queued work/problems. HA remained healthy
 and supported; observed FileBeans RAM about 88–111 MiB, CPU about 19–23% in
 Supervisor's aggregate display, with existing pacing and limits unchanged.
+
+
+Cleanup verified after the owner stopped the audit: VPS verifier container and
+exact `/opt/services/filebeans/.archive-name-audit` staging are absent. VM
+`filebeans-archive-name-fix` container, `.build/archive-name-fix` loop filesystem,
+backing file, prepared audit binaries, copied media runtime, toolchain, dependency
+and compiler/test caches and raw diagnostic outputs were removed. Existing
+read-only original-reference mount, user masters, all 83 A-029 recovery copies,
+configured images and shared development tools were preserved. VM disk headroom
+114 GiB / available RAM about 2.8 GiB; VPS disk headroom 28 GiB / available RAM
+about 5.9 GiB. No deployment, mobile build or merge occurred.
