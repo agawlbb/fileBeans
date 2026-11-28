@@ -1,7 +1,7 @@
 name: FileBeans
 slug: filebeans
 description: FileBeans storage server
-version: 0.1.2
+version: 0.1.3
 arch: [aarch64]
 startup: services
 boot: auto
