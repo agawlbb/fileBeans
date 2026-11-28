@@ -218,7 +218,7 @@ func (p *archivePeerRoot) copyOriginal(ctx context.Context, src rootFS, from, to
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	if e = p.callContext(ctx, archivePeerRequest{Operation: "filename", Path: to}, nil); e != nil {
+	if e = p.callContext(ctx, archivePeerRequest{Operation: "filename", Path: to}, nil); e != nil && !errors.Is(e, os.ErrNotExist) {
 		return e
 	}
 	if _, e = input.Seek(0, 0); e != nil {
