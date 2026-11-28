@@ -2414,3 +2414,14 @@ available RAM. Pending live check alone retains the bounded VPS filesystem
 containing only the 9,228,482-byte prepared read-only status helper plus lost+found.
 Remove that helper, mount/backing and drain after successful owner-unlock acceptance.
 All feature branches remain unmerged; no mobile build/release was requested or run.
+
+
+Owner-unlock acceptance completed November 28, 2026: both servers report unlocked
+with the shared group unlocked. Deployment drain was removed; all 174 restart-boundary
+pending entries cleared through normal processing. Both servers now report zero
+pending originals, changes, work and problems. Pi visible media inventory remains
+749 and recovery-root stat returns missing. The media worker has only its normal
+init/server processes, with no encoder child. The prepared status helper, bounded
+VPS `.filename-deploy` mount and `.filename-deploy.ext4` backing were removed;
+all exact staging paths and deployment drain checked absent. Deployment and
+redundant-copy deletion are finished and verified; no mobile build is needed.
