@@ -1,3 +1,17 @@
+# Permanent independent VPS and Pi servers
+
+The owner accepted this setup as permanent on November 28, 2026 and explicitly
+authorized merging the trial branches into main and deleting their worktrees.
+Local and cellular connections, cross-server moves/copies and improved FileBeans
+responsiveness were accepted. The measured remote HA connector slowdown during
+sustained tunnel traffic is an accepted tradeoff; the detailed test results below
+remain valid. Keep Pi resource limits and thumbnail suppression in place.
+
+This decision supersedes the historical trial/isolation instructions below.
+Canonical development now uses `/home/dev/projects/fileBeans` on main. Existing
+VPS/Pi deployments and TestFlight59 remain current; merging requires no new
+server deployment or app build.
+
 ## Server corrections deployed — November 28, 2026
 
 Runtime source `03ab502` is deployed on both independent servers. VPS API image
