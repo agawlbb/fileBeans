@@ -2292,3 +2292,60 @@ atomic match before admission. The peer validates the expected protected root
 inside the names-inventory lease too. The request-budget regression proves one
 archive names request and zero per-file matches for an unchanged baseline.
 The final full service/protection suites, focused race checks and vet pass.
+
+
+### Master-integrity and VPS quality checks — 2026-11-28
+
+The owner stopped the remaining large-file checksum reads and explicitly accepted
+those files as originals. Actual completed results: **740 of 749 Pi masters**
+match their recorded original SHA-256 values, with stable size/mtime through each
+read, **zero mismatches**, and 26,795,190,510 bytes checked locally on Pi. The
+remaining **nine files / 18,359,766,411 bytes are assumed originals**, not reported
+as checksum-verified. Partial-result SHA-256:
+`80c2ab1820264d0528e66f3f290344ab0fab1e69022651970802b1323bfe7d8a`.
+
+All **59 canonical masters corresponding to the 83 recovery entries** passed the
+original-byte comparison. The comparison used original Drive-import checksums
+for the established 742-file baseline (upstream Drive SHA-256 where available,
+otherwise the recorded original-download SHA-256), plus original move receipts
+for six later additions and the first original-input receipt for the seventh.
+Every normalization provenance record is a Drive import; none of its recorded
+input hashes contradict an available upstream hash. The read-only laptop
+reference inventory agrees with original sizes; four extension-only name
+changes are accounted for. Its additional cancelled-import PNG was outside the
+established 742-file paired library. The master check did not recopy the library
+or compare deliberately encoded VPS bytes against Pi originals.
+
+VPS quality evidence:
+
+- All **402 current images** match their recorded original/first-encoded bytes:
+  399 baseline normalized outputs and the three later image additions. No extra
+  image compression was found.
+- All **347 videos** were inspected locally on VPS without encoding. The 343
+  baseline videos retain the approved independent queue's CRF-22 x265 headers;
+  the four later additions use CRF-18. The archive's lossy encoder uses CRF-18,
+  so the baseline headers do not show an additional archive-encoder generation.
+  The 194 older normalization video-output hashes predate the deliberate
+  independent re-encoding and are not the later CRF-22 reference outputs.
+- Six retained recovery versions small enough for the existing private read API
+  were checked by SHA-256 and compared against current VPS compressed audio/video
+  payload hashes. All six match, including both retained generations of the
+  repeatedly processed `BA663276-516B-41A5-BC94-DB1CADF4D021.mp4`. Those passes
+  changed/remuxed containers without changing the encoded audio/video payloads.
+- Direct payload comparison was not performed for the larger hidden recovery
+  files, including the two `NReading.mp4` versions; the existing private read is
+  capped at 2 MiB. NReading's whole-file difference is eight bytes. Read-only
+  container-metadata experiments did not reproduce the earlier whole-file hash;
+  no byte-level reconstruction or complete historical payload proof is claimed.
+  Its known initial output is compatible with the stream-copy plan. No additional
+  lossy pass was demonstrated. No user media was altered by these checks.
+
+Runtime correction is `96f88d4` plus inventory refinement `9bbd02c`, tested on the
+isolated feature branch. Full service/protection suites, focused races, vet and
+Linux/ARM64 server compilation pass with VM FFmpeg 7.1.5 and pinned rclone 1.76.0.
+The source is pushed and unmerged. Deployment and permanent recovery-copy deletion
+were separately presented for explicit approval and remain pending; no server
+image, mobile build, release, master file or recovery copy was changed. Live API
+83342fc and Pi 0.1.7 both reported zero queued work/problems. HA remained healthy
+and supported; observed FileBeans RAM about 88–111 MiB, CPU about 19–23% in
+Supervisor's aggregate display, with existing pacing and limits unchanged.
