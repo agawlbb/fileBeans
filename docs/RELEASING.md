@@ -2360,3 +2360,57 @@ read-only original-reference mount, user masters, all 83 A-029 recovery copies,
 configured images and shared development tools were preserved. VM disk headroom
 114 GiB / available RAM about 2.8 GiB; VPS disk headroom 28 GiB / available RAM
 about 5.9 GiB. No deployment, mobile build or merge occurred.
+
+
+## Filename pairing deployment and redundant-copy removal — November 28, 2026
+
+Owner explicitly authorized server deployment and deletion of the redundant copies.
+VPS now runs `filebeans-api:df5115d-filename`, manifest
+`sha256:1248d6f7a152538cb2a922a32ae9d4edecd8506982a47592a30f6568df2469c6`,
+API SHA-256 `7fed8192dd4a26e83540b7a1feb0c4ceb7ba574ef73f17f13644ad2dd402bc4f`.
+The VM-built transfer SHA-256 was
+`9b9bca0f61ae624b4b0c5300825848b71ac8409e904573d9a243083c095c7009`.
+Pi app 0.1.8 is installed/started, manifest
+`sha256:8a0b782713045c539bf74c486e65e95d444d3bed43f981f268e32d26a9d85a5a`,
+API SHA-256 `f5aec1333f0b324871d3f500f82761586e734e767e3956c3139cc27e47549845`.
+It reuses the 0.1.7 runtime, broker and tools. Four superseded binary-only layers
+were validated by their exact tar members and omitted from the prepared OCI image;
+current registry is 14 blobs / 117,616,455 bytes, below its 128 MiB packaging cap.
+The pinned Caddy manifest route was updated after the initial pull returned 404;
+Supervisor update succeeded after the exact manifest was served and verified.
+Pi rendering remains disabled, without new video/PDF tools. API limits remain
+2 GiB/no swap/128 PIDs; Pi startup confirms 512 MiB/no swap/one CPU/128 processes.
+Supervisor is healthy/supported; Pi app used 16,896,000 bytes at 1.39% CPU,
+HA Core 829,181,952 bytes at 3.49% CPU. The release-41 media worker is unchanged.
+
+Before restarting Pi, the exact recovery catalog was validated: 83 distinct job
+copies, 1,505,441,079 bytes, 59 canonical paths. Every copy size and details record
+matched; each canonical master still had its recorded size/timestamp. Only the
+83 catalogued files, their details.json files, empty job directories, index and
+empty `pics/.filebeans-stage/archive-recovery` root were removed with individual
+remove calls. All 59 masters still stat successfully afterward; the visible Pi
+inventory remained 749 and recovery-root stat returned missing. No new full-media
+hashing or transfer was performed. The nine previously unverified masters remain
+accepted as original at the owner's instruction. Archive-link ciphertext remains
+`e628005f4682156549021c8de491a78bb397ebd045de6fe5d49a0ba5354107fd`.
+
+Both public APIs respond with their independent server IDs/scopes. VPS has zero
+restarts/OOM events. Pi restart locked its protected folders; VPS is still unlocked.
+At this restart boundary 174 pending work entries appeared (173 waiting and one
+change), with zero pending originals/problems. Deployment drain remains installed
+at `/opt/services/filebeans/media-runtime/drain`: no encoder child was running.
+Owner Unlock has been requested. Final acceptance must verify the filename guard
+retires existing-counterpart waits, remove drain, then confirm quiet queues and
+749 masters. Do not declare archive acceptance complete while this remains pending.
+
+Superseded VPS 83342fc image, old Pi manifests/five unreferenced registry blobs,
+image transfers and operation-local config copies were removed. Temporary Pi SSH
+options were restored, app restarted and task-key authentication confirmed denied;
+private control files removed. VM preparation container, exports, SDK/caches and
+`.build/archive-filename-deploy` plus both bounded filesystems/backings are absent;
+shared builder state restored and worker stopped. VM has 114 GiB free and 3599 MiB
+available RAM. Pending live check alone retains the bounded VPS filesystem
+`/opt/services/filebeans/.filename-deploy` and backing `.filename-deploy.ext4`,
+containing only the 9,228,482-byte prepared read-only status helper plus lost+found.
+Remove that helper, mount/backing and drain after successful owner-unlock acceptance.
+All feature branches remain unmerged; no mobile build/release was requested or run.
