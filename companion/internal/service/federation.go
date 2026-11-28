@@ -139,12 +139,27 @@ func peerJSON(ctx context.Context, p PeerConfig, path string, in, out any) error
 	if e != nil {
 		return e
 	}
-	var value any
-	if json.Unmarshal(b, &value) != nil {
-		return ErrUnsafe
+	if request, ok := in.(archivePeerRequest); ok {
+		// Mirror records carry hashes of their original JSON bytes. Never run
+		// them through an untyped JSON round trip or rewrite sealed metadata.
+		request.Source = peerSourceFor(request.Source, p.ID)
+		var endpoint func(*ArchiveEndpoint)
+		endpoint = func(e *ArchiveEndpoint) {
+			e.Source = peerSourceFor(e.Source, p.ID)
+			if e.Pending != nil {
+				endpoint(e.Pending)
+			}
+		}
+		endpoint(&request.Endpoint)
+		b, e = json.Marshal(request)
+	} else {
+		var value any
+		if json.Unmarshal(b, &value) != nil {
+			return ErrUnsafe
+		}
+		rewritePeerSources(value, p.ID)
+		b, e = json.Marshal(value)
 	}
-	rewritePeerSources(value, p.ID)
-	b, e = json.Marshal(value)
 	if e != nil {
 		return e
 	}

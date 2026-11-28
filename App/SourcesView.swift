@@ -29,7 +29,7 @@ struct SourceDestination: Identifiable, Hashable {
     }
     @MainActor @ViewBuilder var destination: some View {
         switch kind {
-        case .server: BrowserView(connection: connection)
+        case .server: BrowserView(connection: connection, parent: nil)
         case .local(let item): BrowserView(connection: connection, parent: item)
         case .drive: DriveBrowser(connection: connection)
         case .driveFolder(let id, let name): DriveBrowser(connection: connection, folder: id, title: name)
