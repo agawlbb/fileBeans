@@ -734,3 +734,56 @@ init/server processes, with no encoder child. The prepared status helper, bounde
 VPS `.filename-deploy` mount and `.filename-deploy.ext4` backing were removed;
 all exact staging paths and deployment drain checked absent. Deployment and
 redundant-copy deletion are finished and verified; no mobile build is needed.
+
+
+## Read-only HA load review — November 28, 2026
+
+Owner authorized testing before deciding whether the two-server setup is permanent.
+Three sequential existing-file reads discarded all received bytes: ordinary LAN
+672 MiB/60.345s (11.136 MiB/s), protected LAN608 MiB/61.354s (9.910 MiB/s),
+protected public VPS/Tailscale tunnel320 MiB/70.396s (4.546 MiB/s). Each used one
+stream,32 MiB HTTP ranges,12 MiB/s pacing and768 MiB total ceiling; the60-second
+loop target allowed the final range to finish. No upload/move/delete, automation
+trigger, service/config change, restart or merge. Pi LAN TLS certificate pinned;
+credentials passed only in a pipe into a128 MiB/no-swap/0.5CPU/32PID VM container.
+No media/credentials were stored on the VM or VPS.
+
+Authenticated HA template reads through the connector had these p95 round-trip
+results (nearest-rank, one request at a time):
+
+| Phase | Samples | p50 ms | p95 ms | Maximum ms | Failures |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Initial idle |20|589|877|994|0|
+| Ordinary LAN |35|691|1230|1350|0|
+| Protected LAN |35|644|955|2267|0|
+| Intermediate idle |20|585|913|1901|0|
+| Protected tunnel |16|1402|1990|1990|0|
+| Final idle |20|579|678|849|0|
+
+The connector includes remote transport/tool overhead, so these are not internal
+HA processing times. A supplemental direct LAN GET `/auth/providers` measured
+30 successful HTTP200/valid-provider-list responses during tunnel load: median
+20.303ms,p95 53.207ms,max69.969ms. Matching post-load idle:30 successes,median
+14.519ms,p95 25.109ms,max50.804ms. Initial supplemental attempts rejected the
+installed HA response object because the probe expected a top-level list; those
+invalid validation samples were discarded. The corrected probe validates the
+`providers` list inside the response object. Direct checks exercise HA's public
+auth-provider endpoint, not the authenticated template API or physical automations.
+
+Sampled FileBeans RAM peaked55,418,880 bytes; CPU samples4.89–19.86% during LAN
+reads and13.07% during tunnel load. Tailscale tunnel sample17.08%CPU/46,567,424
+bytes. These are sparse samples, not guaranteed peaks. HA stayed healthy/supported,
+zero active repairs, unchanged recorder run06:31:50UTC. Available host log window
+had no OOM/thermal/undervoltage/I/O warnings; no new resource-related Core errors.
+Existing unreachable Tuya fan errors continued. Host temperature, pressure,
+Core CPU/RAM and effective cgroup counters were not directly sampled under load.
+Cache effects are possible. No write-load, LAN server-to-server copy, pressure
+pause injection, reboot/reconnect, or physical automation outcome was tested.
+
+Result: bounded read-load testing found no local HA responsiveness/health failure,
+but strict end-to-end connector p95 criteria fail for ordinary LAN and tunnel
+runs. The tunnel result is consistent with network/remote-path contention, not
+proof of its cause. Do not claim unrestricted permanence acceptance: remote
+response degradation remains a decision/diagnostic item. All test containers,
+`.build/ha-performance-readtest.py`, `.build/ha-http-probe.py` and original
+`/tmp/filebeans-ha-readtest.py` are removed; no test artifacts retained.
