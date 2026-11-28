@@ -199,6 +199,11 @@ func (s *Service) preserveArchiveRecovery(ctx context.Context, j *archiveTask) e
 	if err = syncDir(a, dir); err != nil {
 		return err
 	}
+	for _, parent := range []string{filepath.Dir(dir), filepath.Dir(filepath.Dir(dir))} {
+		if err = syncDir(a, parent); err != nil {
+			return err
+		}
+	}
 	readback, err := a.ReadFile(manifest)
 	if err != nil || string(readback) != string(data) {
 		return fmt.Errorf("recovery metadata readback: %w", ErrConflict)
@@ -207,6 +212,9 @@ func (s *Service) preserveArchiveRecovery(ctx context.Context, j *archiveTask) e
 	latest, err := a.Stat(canonical)
 	if err != nil || version(latest) != version(st) || moveIdentity(latest) != moveIdentity(st) {
 		return ErrConflict
+	}
+	if err = a.RemoveAll(filepath.Join(j.Target.Base, archiveStage, j.ID)); err != nil {
+		return err
 	}
 	j.State = "cleanup"
 	j.Error = ""

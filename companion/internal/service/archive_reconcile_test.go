@@ -65,6 +65,17 @@ func TestArchivePeerExistingOriginalAvoidsUpload(t *testing.T) {
 		t.Fatal("archive conflict overwritten")
 	}
 	os.Remove(dstPath)
+	alternate := filepath.Join(archive.config.Roots[0].Path, "photo.jpg")
+	if err = os.WriteFile(alternate, other, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = library.copyArchiveOriginal(context.Background(), src, "original", remote, "photo.png", "", stage); !errors.Is(err, ErrConflict) {
+		t.Fatal("alternate archive extension was not recognized", err)
+	}
+	if uploads.Load() != 0 {
+		t.Fatal("conflicting alternate extension retransmitted")
+	}
+	os.Remove(alternate)
 	if err = library.copyArchiveOriginal(context.Background(), src, "original", remote, "photo.png", "", stage); err != nil {
 		t.Fatal("qualified-source missing original copy", err)
 	}
