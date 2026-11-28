@@ -33,4 +33,10 @@ final class ProtectionGroupTests: XCTestCase {
         let groups = ProtectionControlGroup.groups([a,b], statuses: [a.id:value,b.id:ProtectionStatus(state:"locked")], reachable: [a.id,b.id])
         XCTAssertEqual(groups.count, 2)
     }
+    func testOfflineMemberStillAllowsLockIntentWhenLocalMemberIsLocked() throws {
+        let data = #"{"state":"locked","group":"pair","groupState":"partial","members":[{"server":"one","name":"VPS","state":"locked"},{"server":"two","name":"Pi","state":"unavailable","error":"Unavailable"}]}"#
+        let value = try JSONDecoder().decode(ProtectionStatus.self, from: Data(data.utf8))
+        XCTAssertTrue(value.canLock); XCTAssertTrue(value.needsUnlock)
+    }
+
 }

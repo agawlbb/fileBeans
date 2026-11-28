@@ -13,6 +13,7 @@ struct ProtectionStatus: Decodable, Equatable {
     var groupState: String? = nil
     var members: [ProtectionMemberStatus]? = nil
     var hasUnlocked: Bool { members?.contains { $0.state == "unlocked" || $0.state == "error" } ?? (state == "unlocked" || state == "error") }
+    var canLock: Bool { hasUnlocked || groupState == "partial" }
     var needsUnlock: Bool { !hasUnlocked || groupState == "partial" }
 }
 struct ProtectionControlGroup: Identifiable {
@@ -86,7 +87,7 @@ struct VaultsView: View {
             ForEach(groups) { group in
                 if groups.count > 1 { Text(group.connections[0].name) }
                 if let status = group.status {
-                    if status.hasUnlocked { Button("Lock") { changeProtection(group, action: "lock") }.disabled(busy) }
+                    if status.canLock { Button("Lock") { changeProtection(group, action: "lock") }.disabled(busy) }
                     if status.needsUnlock { Button("Unlock") { changeProtection(group, action: "unlock") }.disabled(busy || !keySession.hasKey) }
                     if status.groupState == "partial", let members = status.members {
                         ForEach(members) { member in
