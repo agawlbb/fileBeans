@@ -1,5 +1,18 @@
 ## Pending source-screen and delete corrections — November 28, 2026
 
+- The Pi ordinary-file delete message was traced to the app's cached archive
+  check: live resources for `/vps_exchange` and the reported file had no archive
+  membership; only `/pics` was marked as the archive. The app could reject deletion
+  before contacting the Pi based on an earlier cached flag. Repository deletion
+  now delegates archive authorization to the server Trash endpoint, which checks
+  the live boundary before mutation. Other source/permission/system-path guards
+  remain. Added mocked-server tests for stale-cache acceptance and genuine server
+  archive rejection, plus message-format coverage. These new SDK tests await an
+  explicitly authorized validation/build; static Swift/config checks pass.
+- Archive messages now display the logical source and a real path when known,
+  instead of internal `peer:` coordinates or `.`. Filesystem archive-library
+  metadata uses the same public owner/source representation as archive links.
+  These formatting/metadata changes have not been deployed or runtime-tested.
 - Source `cf02413` removes repeated source captions, replaces the legacy default
   File Browser Quantum name with VPS for the existing VPS endpoint, and opens a
   single-root server directly without an intermediate folder. Multiple roots stay
