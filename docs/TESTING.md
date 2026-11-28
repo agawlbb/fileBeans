@@ -1,3 +1,32 @@
+## Pending source-screen and delete corrections — November 28, 2026
+
+- Source `cf02413` removes repeated source captions, replaces the legacy default
+  File Browser Quantum name with VPS for the existing VPS endpoint, and opens a
+  single-root server directly without an intermediate folder. Multiple roots stay
+  selectable; connection/credential IDs and custom names are preserved. Validation
+  [46092196122](https://github.com/agawlbb/fileBeans/actions/runs/46092196122)
+  passed 168 unit tests and four UI tests. No correction has been released.
+- Source `45e024f` upgrades a readable legacy archive-policy cache directly instead
+  of requiring the separately protected original link to be readable. It verifies
+  the original-link revision, adds the existing redacted boundary format, preserves
+  policy encryption/AAD and the original-link bytes, and updates only an unchanged
+  policy row. The SQLite regression actually moves an ordinary file to Trash with
+  the Archive locked, checks ciphertext preservation, then checks ordinary guards
+  with the Library also locked and verifies the Archive remains read-only. Related
+  locked-boundary, mirror, handoff and preview regressions plus Go vet pass.
+- Live inspection found VPS unlocked, Pi locked, and the legacy policy missing
+  its boundary. After the owner unlocked Pi separately, the running server's
+  existing fallback refreshed that cache; its boundary is now present. The source
+  correction prevents that initial upgrade from requiring the Archive key. Pi
+  visibility needed no code change and is resolved by the owner's unlock.
+- Further app/image builds, uploads and deployments require explicit authorization.
+  The previously started signed build 56 was not uploaded; its signed artifact was
+  removed. TestFlight 55 and the deployed backend remain the current releases.
+  No new app/image build or deployment accompanied the backend source fix.
+- Disposable Go regression tooling, dependencies, caches, outputs, container
+  `filebeans-delete-check`, and `.build/delete-check` / `.build/delete-check.ext4`
+  were removed after verification. No task artifact is retained for these fixes.
+
 ## Thumbnail and streaming performance — November 27, 2026
 
 - Thumbnail regressions cover synchronous decoded-image reuse, shared fetch/decode,
