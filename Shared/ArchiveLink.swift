@@ -72,7 +72,12 @@ extension RemoteFile {
     var archiveWriteMessage: String? {
         guard archiveRole == "archive" else { return nil }
         if let library = archiveLibrary {
-            return "Make changes in \(library.source) \(library.path)."
+            let parts = library.source.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
+            let source = parts.count == 3 && parts[0] == "peer" ? String(parts[2]) : library.source
+            if library.path.isEmpty || library.path == "." || library.path == "/" {
+                return "Make changes in the linked folder on \(source)."
+            }
+            return "Make changes in \(source) \(library.path)."
         }
         return "Make changes in the matched folder."
     }
