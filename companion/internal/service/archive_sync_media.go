@@ -683,10 +683,29 @@ func (s *Service) runArchiveIngest(ctx context.Context, j *archiveTask, encodeOn
 	}
 	return s.removeArchiveTask(j)
 }
-func (s *Service) publishArchiveEncoded(root rootFS, j *archiveTask, base, raw string) error {
+func (s *Service) publishArchiveEncoded(root rootFS, j *archiveTask, base, raw string) (result error) {
 	from := filepath.Join(j.Library.Path, j.Relative)
 	to := filepath.Join(j.Library.Path, j.Output)
 	output := filepath.Join(base, "output"+filepath.Ext(j.Output))
+	published := false
+	defer func() {
+		if result == nil || published {
+			return
+		}
+		// A failed publication must not hide the original. This also recovers
+		// jobs stranded by older versions after their original was staged.
+		if _, err := root.Stat(from); !errors.Is(err, os.ErrNotExist) {
+			return
+		}
+		if _, err := root.Stat(raw); err != nil {
+			return
+		}
+		if err := renameExclusive(root, raw, from); err != nil {
+			result = errors.Join(result, err)
+			return
+		}
+		result = errors.Join(result, syncDir(root, filepath.Dir(from)))
+	}()
 	if _, e := root.Stat(raw); errors.Is(e, os.ErrNotExist) {
 		st, e := root.Stat(from)
 		if e != nil {
@@ -694,6 +713,10 @@ func (s *Service) publishArchiveEncoded(root rootFS, j *archiveTask, base, raw s
 		}
 		if version(st) != j.Version {
 			return ErrConflict
+		}
+		// Prepare owner-only metadata before moving a visible original.
+		if e = normSetModified(root, output, st.ModTime().UTC().Format(time.RFC3339Nano)); e != nil {
+			return e
 		}
 		if e = renameExclusive(root, from, raw); e != nil {
 			return e
@@ -719,6 +742,7 @@ func (s *Service) publishArchiveEncoded(root rootFS, j *archiveTask, base, raw s
 			}
 			return e
 		}
+		published = true
 		if e = syncDir(root, filepath.Dir(to)); e != nil {
 			return e
 		}
@@ -732,10 +756,12 @@ func (s *Service) publishArchiveEncoded(root rootFS, j *archiveTask, base, raw s
 		if hash != j.OutputHash {
 			return ErrConflict
 		}
+		published = true
 		if e = normSetModified(root, to, modified); e != nil {
 			return e
 		}
 	}
+	published = true
 	j.Relative = j.Output
 	visible, e := root.Stat(to)
 	if e != nil {

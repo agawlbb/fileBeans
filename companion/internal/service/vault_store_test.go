@@ -57,11 +57,11 @@ func TestPrivateStoreNeverInheritsShareAccessOrDefaultACL(t *testing.T) {
 		t.Fatal("unsafe existing store silently repaired")
 	}
 }
-func TestNativeFilesystemConsumerUsesReaderOwnership(t *testing.T) {
+func TestNativeFilesystemConsumerUsesControlOwnership(t *testing.T) {
 	b := testBroker(t)
 	b.config.FilesystemConsumer = true
 	v := b.vaultConfig(brokerEntry{ID: "probe", Source: "disk"})
-	if want := fmt.Sprintf("%d:%d", b.config.ReaderUID, b.config.GID); v.forceOwner != want {
+	if want := fmt.Sprintf("%d:%d", b.config.ControlUID, b.config.GID); v.forceOwner != want {
 		t.Fatal("native consumer ownership", v.forceOwner, want)
 	}
 }

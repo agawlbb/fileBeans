@@ -574,11 +574,18 @@ func (s *Service) archiveSyncLoop(ctx context.Context) {
 	}
 }
 func (s *Service) archiveEncodeLoop(ctx context.Context) {
+	// Retry interrupted publications once after startup/unlock, rather than
+	// leaving their originals hidden for an old network backoff interval.
+	seenPublishing := map[string]bool{}
 	for ctx.Err() == nil {
 		tasks, e := s.archiveTasks()
 		if e == nil {
+			nextPublishing := map[string]bool{}
 			recovering := false
 			for _, task := range tasks {
+				if task.Kind == "ingest" && task.State == "publishing" {
+					nextPublishing[task.ID] = true
+				}
 				recovering = recovering || task.WaitingForMemory
 			}
 			s.archiveCanStart(ctx, recovering)
@@ -589,7 +596,7 @@ func (s *Service) archiveEncodeLoop(ctx context.Context) {
 				if j.State == "waiting" && s.archiveDraining() {
 					continue
 				}
-				if j.Kind != "ingest" || j.Next > time.Now().Unix() || (j.State != "waiting" && j.State != "publishing" && j.State != "cleanup") {
+				if j.Kind != "ingest" || (j.Next > time.Now().Unix() && !(j.State == "publishing" && !seenPublishing[j.ID])) || (j.State != "waiting" && j.State != "publishing" && j.State != "cleanup") {
 					continue
 				}
 				s.resolveTask(&j)
@@ -597,6 +604,7 @@ func (s *Service) archiveEncodeLoop(ctx context.Context) {
 					s.failArchiveTask(&j, e)
 				}
 			}
+			seenPublishing = nextPublishing
 		}
 		wait(ctx, 5*time.Second)
 	}

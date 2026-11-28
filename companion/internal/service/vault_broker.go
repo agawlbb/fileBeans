@@ -406,7 +406,13 @@ func (b *mountBroker) vaultConfig(e brokerEntry) VaultConfig {
 		Fusermount: b.config.Fusermount, BackingMount: r.Mount, BackingSource: r.MountSource,
 		StartClient: "/bin/true", StopClient: "/bin/true"}
 	if r.Mount != "" || b.config.FilesystemConsumer {
-		v.forceOwner = fmt.Sprintf("%d:%d", b.config.ReaderUID, b.config.GID)
+		owner := b.config.ReaderUID
+		if b.config.FilesystemConsumer {
+			// The native API performs owner-only metadata operations (notably
+			// preserving timestamps). The legacy browser uses ReaderUID.
+			owner = b.config.ControlUID
+		}
+		v.forceOwner = fmt.Sprintf("%d:%d", owner, b.config.GID)
 	}
 	return v
 }
