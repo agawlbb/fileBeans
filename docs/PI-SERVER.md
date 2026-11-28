@@ -102,8 +102,12 @@ them under pressure for later retry. These controls do not constitute a measured
 HA responsiveness guarantee. Foreground streaming and Tailscale's separate
 process also need observation during the trial.
 
-Pi thumbnails use existing adjacent caches only. No thumbnail backfill, archive
-coordinator, dataset processing or media normalization runs on the Pi. Archive
+Pi thumbnails use existing adjacent caches only. Cache lookup on the Pi also
+accepts the former Samba 100-nanosecond timestamp revision after trying the
+current exact revision; this preserves imported thumbnails after direct-storage
+migration without rewriting media or caches. Generation remains disabled.
+No thumbnail backfill, archive coordinator, dataset processing or media
+normalization runs on the Pi. Archive
 links retain their coordinator and media processing on the VPS; bounded storage
 operations and verified original publication run on the Pi owner. A separate
 server-only archive credential protects these maintenance operations from normal

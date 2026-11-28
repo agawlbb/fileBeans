@@ -399,13 +399,33 @@ func (s *Service) filesystemCachedThumbnail(w http.ResponseWriter, r *http.Reque
 		filesystemFail(w, e)
 		return
 	}
-	revision := filesystemRevision(st)
-	cached, e := filesystemOpenFile(root, filepath.Join(dir, previewCacheName(p, revision)))
+	revisions := []string{filesystemRevision(st)}
+	if s.config.Profile == "pi" {
+		// CIFS exposed 100 ns timestamps before storage moved to direct Pi
+		// access. Keep those imported cache keys readable without changing the
+		// media revision used for writes or modifying either media or caches.
+		legacy := sambaPreviewRevision(st)
+		if legacy != revisions[0] {
+			revisions = append(revisions, legacy)
+		}
+	}
+	var cached *os.File
+	for _, revision := range revisions {
+		cached, e = filesystemOpenFile(root, filepath.Join(dir, previewCacheName(p, revision)))
+		if !os.IsNotExist(e) {
+			break
+		}
+	}
 	if os.IsNotExist(e) && strings.HasPrefix(filesystemType(p), "video/") {
-		// Linked originals remain cache-only. Keep their imported preview until
-		// it can be refreshed from the VPS library, never render the archive.
+		// Linked originals remain cache-only. Keep imported v1 previews until
+		// they can be refreshed from the VPS library, never render the archive.
 		if suppressed, err := s.archiveThumbnailSuppressed(r.URL.Query().Get("source"), p); err == nil && suppressed {
-			cached, e = filesystemOpenFile(root, filepath.Join(dir, previewCacheNameVersion(p, revision, "jpeg-320-v1")))
+			for _, revision := range revisions {
+				cached, e = filesystemOpenFile(root, filepath.Join(dir, previewCacheNameVersion(p, revision, "jpeg-320-v1")))
+				if !os.IsNotExist(e) {
+					break
+				}
+			}
 		}
 	}
 	if e != nil {
@@ -425,6 +445,14 @@ func (s *Service) filesystemCachedThumbnail(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Content-Type", "image/jpeg")
 	_, _ = io.Copy(w, io.LimitReader(cached, 2<<20))
 }
+
+// Samba's Windows file timestamps truncate nanoseconds to 100 ns units.
+func sambaPreviewRevision(st os.FileInfo) string {
+	modified := st.ModTime().Truncate(100 * time.Nanosecond).UnixNano()
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%d:%d", st.Size(), modified)))
+	return hex.EncodeToString(sum[:])
+}
+
 func previewCacheName(p, revision string) string {
 	version := "jpeg-320-v1"
 	if strings.HasPrefix(filesystemType(p), "video/") {

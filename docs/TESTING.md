@@ -1,3 +1,22 @@
+## Pi imported thumbnail timestamp compatibility — November 28, 2026
+
+- Read-only live checks found 38 cache entries beside 34 top-level archive media
+  files. One media key matched directly; all other 33 matched after truncating
+  the media timestamp to Samba's 100-nanosecond precision. Five sampled VPS
+  counterparts already served cached thumbnails, while those Pi requests
+  returned 404. No media, credentials or caches were changed by diagnosis.
+- Pi cache-only lookup now tries the exact revision first, then the former Samba
+  revision. Existing linked-video v1 fallback also accepts the Samba revision.
+  Non-Pi lookup, public mutation revisions, protection checks, cache size limits
+  and Pi generation suppression remain unchanged. No renderer packages added.
+- Regression coverage exercises imported JPEG/video caches, exact-key precedence,
+  cache-only misses after actual timestamp changes, absence of cache writes,
+  Pi-only compatibility, legacy video versions and locked protected-file denial.
+  Targeted Pi/Samba, existing cache-only and locked-policy Go regressions pass,
+  as does `go vet ./internal/service`. The disposable test container and exact
+  `.build/thumbnail-check` directory/backing filesystem were removed. No image
+  or app build or deployment performed; live acceptance awaits Pi deployment.
+
 ## Pending source-screen and delete corrections — November 28, 2026
 
 - The Pi ordinary-file delete message was traced to the app's cached archive
