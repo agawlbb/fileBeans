@@ -1,3 +1,42 @@
+## Server corrections deployed — November 28, 2026
+
+Runtime source `03ab502` is deployed on both independent servers. VPS API image
+`filebeans-api:03ab502-fixes` has manifest
+`sha256:02cb1f178f561d4ccc0a4c5eefe125c85188f73a034333b7f89dfd76b0e6f0c3`
+and transfer SHA-256 `fa9e75c06fd5ff9d4f608a290cf14b6fb501a5bf7a7072138ed973825882ded7`.
+HA FileBeans app 0.1.4 has manifest
+`sha256:12c1ed86fb05f91bf65e6e5749a6256781ea237be37dc7988f8b8215bab2a3d1`,
+transfer SHA-256 `7828742ee7c97012f79444075fe5d8ea4e3ae101267d28c298247225a603f3d8`,
+and 102,785,874 current registry blob bytes. Pi uses the prior verified runtime
+layers with only its API binary replaced; no video/PDF tools were added and
+thumbnail generation remains disabled. Direct cache lookup supports Samba's
+100 ns timestamp revisions. Legacy archive-policy upgrades and public archive
+metadata/error corrections are deployed too.
+
+The full Go service suite and vet pass. The runtime suite needed the actual
+image's FFmpeg/rclone, package working directory and a temporary real procps
+helper; no test-only tools were added to either production image. Both servers
+advertise only their own scope and reject anonymous requests. API memory remains
+2 GiB/no swap; Pi startup confirms 512 MiB/no swap/one CPU/128 PIDs. Pi app RAM
+was 17,223,680 bytes; HA Core RAM 902,356,992 bytes at 1.29% CPU. All other VPS
+container identities/start times stayed unchanged. Original archive-link
+ciphertext still hashes to
+`e628005f4682156549021c8de491a78bb397ebd045de6fe5d49a0ba5354107fd`.
+The pre-existing 297 backup tasks remain journaled/retrying with unavailable
+storage; they were not discarded or treated as permission to alter originals.
+Pi protected folders relocked on app restart; the owner unlocked all three.
+All 34 top-level archive media thumbnails and nine media samples across three
+nested folders returned HTTP 200/image/jpeg. No media or cache regeneration
+was needed. No recovery key was requested or extracted. Temporary SSH options
+were restored to the original single public key and confirmed started; task
+private control files were removed. API/registry superseded objects and exact
+VPS `.release57` staging are absent. VM release containers/image, exports,
+contexts, tools/caches and both 8 GiB bounded filesystems were removed; exact
+`.build/release57`, `.build/release57-builder`, their `.ext4` backing files and
+`.build/release57-control` were checked absent. VM disk has 114 GiB free and
+available RAM was 3147 MiB after cleanup. A-025 remains pending archive backup
+publication acceptance; thumbnail reads and protected unlock alone do not clear it.
+
 # Experimental Pi server
 
 This implementation is isolated on `feature/pi-server`, in

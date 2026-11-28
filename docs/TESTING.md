@@ -14,8 +14,9 @@
   Pi-only compatibility, legacy video versions and locked protected-file denial.
   Targeted Pi/Samba, existing cache-only and locked-policy Go regressions pass,
   as does `go vet ./internal/service`. The disposable test container and exact
-  `.build/thumbnail-check` directory/backing filesystem were removed. No image
-  or app build or deployment performed; live acceptance awaits Pi deployment.
+  `.build/thumbnail-check` directory/backing filesystem were removed. The owner subsequently authorized server deployment and app release. Runtime
+  source 03ab502 is deployed as HA app 0.1.4. After owner unlock, all 34
+  top-level thumbnails and nine nested samples returned HTTP 200/image/jpeg.
 
 ## Pending source-screen and delete corrections — November 28, 2026
 
@@ -31,7 +32,8 @@
 - Archive messages now display the logical source and a real path when known,
   instead of internal `peer:` coordinates or `.`. Filesystem archive-library
   metadata uses the same public owner/source representation as archive links.
-  These formatting/metadata changes have not been deployed or runtime-tested.
+  These formatting/metadata changes passed the full Go service suite and vet
+  and are deployed in the server-corrections release.
 - Source `cf02413` removes repeated source captions, replaces the legacy default
   File Browser Quantum name with VPS for the existing VPS endpoint, and opens a
   single-root server directly without an intermediate folder. Multiple roots stay
