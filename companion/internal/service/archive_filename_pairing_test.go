@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -198,5 +199,42 @@ func TestArchiveDirectoryDeduplicatesFilenameAcrossMounts(t *testing.T) {
 	tasks, err := library.archiveTasks()
 	if err != nil || len(tasks) != 1 || tasks[0].ID != old.ID {
 		t.Fatalf("directory duplicated across remount: %+v %v", tasks, err)
+	}
+}
+
+func TestArchiveDiscoveryReusesFilenameInventory(t *testing.T) {
+	library, archive, _ := filenamePairFixture(t)
+	for _, name := range []string{"one", "two", "three"} {
+		os.WriteFile(filepath.Join(library.config.Roots[0].Path, "photos", name+".jpg"), []byte("encoded"), 0600)
+		os.WriteFile(filepath.Join(archive.config.Roots[0].Path, "photos", name+".png"), []byte("master"), 0600)
+	}
+	next := archive.Handler()
+	var names, matches atomic.Int64
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/peer/archive" {
+			var in archivePeerRequest
+			json.NewDecoder(r.Body).Decode(&in)
+			if in.Operation == "names" {
+				names.Add(1)
+			}
+			if in.Operation == "match" {
+				matches.Add(1)
+			}
+			body, _ := json.Marshal(in)
+			r.Body = io.NopCloser(bytes.NewReader(body))
+		}
+		next.ServeHTTP(w, r)
+	}))
+	defer server.Close()
+	peer := testPeer(server, "pi", "Samba", archive.config.Token)
+	peer.ArchiveKey = archive.config.ArchivePeerKey
+	library.config.Peers = []PeerConfig{peer}
+	library.discoverArchiveMedia(context.Background())
+	tasks, err := library.archiveTasks()
+	if err != nil || len(tasks) != 0 {
+		t.Fatal("baseline admitted", tasks, err)
+	}
+	if names.Load() != 1 || matches.Load() != 0 {
+		t.Fatalf("baseline caused redundant Pi lookups: names=%d matches=%d", names.Load(), matches.Load())
 	}
 }

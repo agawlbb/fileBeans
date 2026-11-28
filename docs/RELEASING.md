@@ -2276,9 +2276,19 @@ as a set of missing originals. The peer performs the protected-root validation
 and filename lookup within one broker lease. Uploads can remain visible/waiting
 while the archive is unavailable; they are not encoded on an unverified absence.
 
-Seven new remount, extension, baseline, visibility, offline and retention
-regressions pass. The full service and protection suites pass using the existing
+Eight new remount, extension, baseline, visibility, offline, retention and
+request-budget regressions pass. The full service and protection suites pass using the existing
 VM FFmpeg 7.1.5 tools and checksum-pinned rclone 1.76.0. Focused admission/guard
 race checks and service/protection vet pass. No client source changes or Apple
 build are needed. The ongoing full Pi original-hash verification and recovery
 copy disposition will be recorded separately after their results are known.
+
+
+Filename-inventory refinement: discovery now keeps its successful archive names
+snapshot and skips already-paired names directly. It does not re-query every
+known original after the snapshot, so a later lock cannot turn that known
+baseline into new-file intents. Only previously unknown names need a further
+atomic match before admission. The peer validates the expected protected root
+inside the names-inventory lease too. The request-budget regression proves one
+archive names request and zero per-file matches for an unchanged baseline.
+The final full service/protection suites, focused race checks and vet pass.

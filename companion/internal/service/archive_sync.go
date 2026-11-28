@@ -273,6 +273,18 @@ func archiveBaselineMatch(root rootFS, endpoint ArchiveEndpoint, relative string
 	return archiveMatch(root, endpoint.Path, relative, false)
 }
 
+func archiveBaselineNames(ctx context.Context, root rootFS, endpoint ArchiveEndpoint) (map[string]bool, error) {
+	if p, ok := root.(*archivePeerRoot); ok {
+		var out map[string]bool
+		err := p.callContext(ctx, archivePeerRequest{Operation: "names", Path: endpoint.Path, Endpoint: endpoint}, &out)
+		return out, err
+	}
+	if err := archiveBaselineRoot(root, endpoint); err != nil {
+		return nil, err
+	}
+	return archiveNames(ctx, root, endpoint.Path)
+}
+
 func archiveBaselineRoot(root rootFS, endpoint ArchiveEndpoint) error {
 	if endpoint.Vault != "" {
 		guarded, ok := root.(*guardedRoot)
@@ -704,11 +716,22 @@ func (s *Service) discoverArchiveMedia(ctx context.Context) {
 			continue
 		}
 		epoch := s.archiveEpoch.Load()
-		drift, e := archiveDrift(ctx, r, link.Library.Path, a, link.Archive.Path)
+		libraryNames, e := archiveNames(ctx, r, link.Library.Path)
+		var originals map[string]bool
+		if e == nil {
+			originals, e = archiveBaselineNames(ctx, a, link.Archive)
+		}
 		if e != nil || epoch != s.archiveEpoch.Load() {
 			r.Close()
 			a.Close()
 			continue
+		}
+		drift := false
+		for name := range originals {
+			if !libraryNames[name] {
+				drift = true
+				break
+			}
 		}
 		if drift {
 			found := false
@@ -774,6 +797,11 @@ func (s *Service) discoverArchiveMedia(ctx context.Context) {
 					continue
 				}
 				if !archiveMedia(entry.Name()) {
+					continue
+				}
+				// Keep the successful names snapshot. A later lock must not
+				// reinterpret known originals as missing or probe each one again.
+				if originals[filepath.Join(filepath.Dir(cp), archiveStem(entry.Name()))] {
 					continue
 				}
 				fileEpoch := s.archiveEpoch.Load()

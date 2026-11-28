@@ -356,6 +356,14 @@ func (s *Service) archivePeerOperation(ctx context.Context, in archivePeerReques
 	if e = safe(root, path); e != nil {
 		return nil, e
 	}
+	if in.Endpoint.Source != "" && (in.Operation == "match" || in.Operation == "names") {
+		if in.Endpoint.Source != in.Source || archivePath(in.Endpoint.Path) != archivePath(path) {
+			return nil, ErrUnsafe
+		}
+		if e := archiveBaselineRoot(root, in.Endpoint); e != nil {
+			return nil, e
+		}
+	}
 	switch in.Operation {
 	case "stat", "lstat":
 		var st os.FileInfo
@@ -379,14 +387,6 @@ func (s *Service) archivePeerOperation(ctx context.Context, in archivePeerReques
 	case "modified":
 		return nil, normSetModified(root, path, in.Other)
 	case "match":
-		if in.Endpoint.Source != "" {
-			if in.Endpoint.Source != in.Source || archivePath(in.Endpoint.Path) != archivePath(path) {
-				return nil, ErrUnsafe
-			}
-			if e := archiveBaselineRoot(root, in.Endpoint); e != nil {
-				return nil, e
-			}
-		}
 		return archiveMatch(root, path, in.Other, in.Directory, piManifestLimit)
 	case "names":
 		return archiveNames(context.WithValue(ctx, peerInventoryKey{}, true), root, path)
