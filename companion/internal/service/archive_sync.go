@@ -519,6 +519,7 @@ func (s *Service) archiveSyncRoutes(mux *http.ServeMux) {
 }
 
 func (s *Service) archiveSyncLoop(ctx context.Context) {
+	seenBackups := map[string]bool{}
 	if !s.config.Filesystem.Enabled {
 		return
 	}
@@ -543,7 +544,11 @@ func (s *Service) archiveSyncLoop(ctx context.Context) {
 	for ctx.Err() == nil {
 		tasks, e := s.archiveTasks()
 		if e == nil {
+			nextBackups := map[string]bool{}
 			for _, j := range tasks {
+				if j.State == "backup" || j.State == "trash-backup" {
+					nextBackups[j.ID] = true
+				}
 				if ctx.Err() != nil {
 					return
 				}
@@ -559,7 +564,7 @@ func (s *Service) archiveSyncLoop(ctx context.Context) {
 						j.Next = 0
 					}
 				}
-				if j.Next > time.Now().Unix() {
+				if j.Next > time.Now().Unix() && !(nextBackups[j.ID] && !seenBackups[j.ID]) {
 					continue
 				}
 				s.resolveTask(&j)
@@ -569,6 +574,7 @@ func (s *Service) archiveSyncLoop(ctx context.Context) {
 					s.archiveEpoch.Add(1)
 				}
 			}
+			seenBackups = nextBackups
 		}
 		wait(ctx, 5*time.Second)
 	}

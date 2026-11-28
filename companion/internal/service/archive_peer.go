@@ -131,6 +131,8 @@ func decodeArchivePeer(r archivePeerResponse, out any) error {
 		return os.ErrNotExist
 	case "locked":
 		return ErrVaultLocked
+	case "permission":
+		return os.ErrPermission
 	case "conflict":
 		return ErrConflict
 	case "unsafe":
@@ -189,10 +191,37 @@ func (p *archivePeerRoot) copyOriginal(ctx context.Context, src rootFS, from, to
 		}
 		expected = hex.EncodeToString(h.Sum(nil))
 	}
+	// Migrated archives may already contain this exact original. Verify it
+	// on its owner before sending any bytes or allocating another full copy.
+	if st, err := p.Stat(to); err == nil {
+		if !st.Mode().IsRegular() || st.Size() != info.Size() {
+			return ErrConflict
+		}
+		hash, err := archiveHashContext(ctx, p, to)
+		if err != nil {
+			return err
+		}
+		if hash != expected {
+			return ErrConflict
+		}
+		if err = normSetModified(p, to, info.ModTime().UTC().Format(time.RFC3339Nano)); err != nil {
+			return err
+		}
+		latest, err := input.Stat()
+		if err != nil {
+			return err
+		}
+		if version(latest) != version(info) {
+			return ErrConflict
+		}
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	if _, e = input.Seek(0, 0); e != nil {
 		return e
 	}
-	in := archivePeerRequest{Source: p.source, Path: to, Stage: stage, Size: info.Size(), Hash: expected, Modified: info.ModTime().UTC().Format(time.RFC3339Nano)}
+	in := archivePeerRequest{Source: peerSourceFor(p.source, p.peer.ID), Path: to, Stage: stage, Size: info.Size(), Hash: expected, Modified: info.ModTime().UTC().Format(time.RFC3339Nano)}
 	metadata, e := json.Marshal(in)
 	if e != nil {
 		return e
@@ -231,6 +260,8 @@ func archivePeerReply(w http.ResponseWriter, value any, e error) {
 			out.Error = "missing"
 		case errors.Is(e, ErrVaultLocked):
 			out.Error = "locked"
+		case errors.Is(e, os.ErrPermission):
+			out.Error = "permission"
 		case errors.Is(e, ErrConflict):
 			out.Error = "conflict"
 		case errors.Is(e, ErrUnsafe):
