@@ -13,21 +13,25 @@ import (
 )
 
 type Service struct {
-	mediaWorker      bool
-	archiveEpoch     atomic.Uint64
-	archiveStatusMu  sync.Mutex
-	archiveActive    map[string]*archiveActivity
-	archiveMemory    archiveMemoryGuard
-	archiveTrusted   bool                 // private maintenance instance; never used by HTTP handlers
-	datasetDiskCheck func(*os.File) error // injected only for synthetic filesystem capacity tests
-	fsMu             sync.Mutex           // serialize API mutation publication and revision checks
-	vaultGate        sync.RWMutex         // filesystem operations must finish before an unmount
-	vaults           *vaultManager
-	config           Config
-	db               *sql.DB
-	mu               sync.Mutex
-	driveMu          sync.Mutex
-	copyCancels      map[string]context.CancelFunc // guarded by mu
+	protectionLocalTest func(*protectionSyncCommand) (protectionSyncSnapshot, error)
+	protectionSyncMu    sync.Mutex
+	piBulk              sync.Mutex
+	piRate              sync.Mutex
+	mediaWorker         bool
+	archiveEpoch        atomic.Uint64
+	archiveStatusMu     sync.Mutex
+	archiveActive       map[string]*archiveActivity
+	archiveMemory       archiveMemoryGuard
+	archiveTrusted      bool                 // private maintenance instance; never used by HTTP handlers
+	datasetDiskCheck    func(*os.File) error // injected only for synthetic filesystem capacity tests
+	fsMu                sync.Mutex           // serialize API mutation publication and revision checks
+	vaultGate           sync.RWMutex         // filesystem operations must finish before an unmount
+	vaults              *vaultManager
+	config              Config
+	db                  *sql.DB
+	mu                  sync.Mutex
+	driveMu             sync.Mutex
+	copyCancels         map[string]context.CancelFunc // guarded by mu
 }
 
 func ID() string {
@@ -38,7 +42,13 @@ func ID() string {
 	return hex.EncodeToString(b)
 }
 func New(c Config) (*Service, error) {
-	d, e := openDB(c.DSN)
+	var d *sql.DB
+	var e error
+	if c.SQLite != "" {
+		d, e = openSQLite(c.SQLite)
+	} else {
+		d, e = openDB(c.DSN)
+	}
 	if e != nil {
 		return nil, e
 	}
@@ -59,8 +69,40 @@ func (s *Service) Close() {
 	}
 	s.db.Close()
 }
-func (s *Service) Migrate() error { _, e := s.db.Exec(Schema); return e }
+func (s *Service) Migrate() error {
+	schema := Schema
+	if s.config.SQLite != "" {
+		schema = sqliteSchema
+	}
+	_, e := s.db.Exec(schema)
+	return e
+}
+
+// Explicit schema maintenance does not start a broker or any filesystem worker.
+// This permits initializing a new HA app before importing its sealed registry.
+func MigrateConfig(c Config) error {
+	var d *sql.DB
+	var e error
+	schema := Schema
+	if c.SQLite != "" {
+		d, e = openSQLite(c.SQLite)
+		schema = sqliteSchema
+	} else {
+		d, e = openDB(c.DSN)
+	}
+	if e != nil {
+		return e
+	}
+	defer d.Close()
+	_, e = d.Exec(schema)
+	return e
+}
 func (s *Service) Run(ctx context.Context) {
+	go s.protectionSyncLoop(ctx)
+	if s.config.SQLite != "" {
+		s.runSQLite(ctx)
+		return
+	}
 	// A database advisory lock prevents two workers publishing the same job.
 	for ctx.Err() == nil {
 		conn, e := s.db.Conn(ctx)
@@ -88,6 +130,10 @@ func (s *Service) loop(ctx context.Context, lease *sql.Conn) {
 	go func() {
 		defer close(heartbeatDone)
 		for workerCtx.Err() == nil {
+			if lease == nil {
+				<-workerCtx.Done()
+				return
+			}
 			probe, stop := context.WithTimeout(workerCtx, 5*time.Second)
 			e := lease.PingContext(probe)
 			stop()
@@ -101,15 +147,15 @@ func (s *Service) loop(ctx context.Context, lease *sql.Conn) {
 	defer func() { cancel(); <-heartbeatDone }()
 	ctx = workerCtx
 	archiveDone := make(chan struct{})
-	go func() { defer close(archiveDone); s.archiveSyncLoop(ctx) }()
+	go func() { defer close(archiveDone); s.runPiOptional(ctx, s.archiveSyncLoop) }()
 	defer func() { cancel(); <-archiveDone }()
 	thumbnailDone := make(chan struct{})
-	go func() { defer close(thumbnailDone); s.thumbnailBackfill(ctx) }()
+	go func() { defer close(thumbnailDone); s.runPiOptional(ctx, s.thumbnailBackfill) }()
 	defer func() { cancel(); <-thumbnailDone }()
 	datasetDone := make(chan struct{})
 	go func() {
 		defer close(datasetDone)
-		for ctx.Err() == nil {
+		for ctx.Err() == nil && s.config.Profile != "pi" {
 			if !s.datasetWorker(ctx) {
 				wait(ctx, time.Second)
 			}
@@ -121,7 +167,7 @@ func (s *Service) loop(ctx context.Context, lease *sql.Conn) {
 	defer func() { cancel(); <-maintenanceDone }()
 	for ctx.Err() == nil {
 		s.mu.Lock()
-		data, e := s.records("copy")
+		data, e := s.operationRecords("copy", true)
 		var selected *Job
 		if e == nil {
 			for i := len(data) - 1; i >= 0; i-- {
@@ -139,6 +185,9 @@ func (s *Service) loop(ctx context.Context, lease *sql.Conn) {
 		}
 		s.mu.Unlock()
 		if selected != nil {
+			if s.piWait(ctx) != nil {
+				return
+			}
 			s.runJob(ctx, selected)
 		} else {
 			wait(ctx, time.Second)
@@ -158,6 +207,7 @@ func (s *Service) maintenance(ctx context.Context) {
 				r.Close()
 			}
 		}
+		s.cleanupExpiredNativeGoogle()
 		s.reconcileTrash()
 		if s.vaults != nil && s.vaults.remote != nil {
 			for _, v := range s.vaults.status() {

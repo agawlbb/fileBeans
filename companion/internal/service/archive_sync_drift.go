@@ -10,6 +10,11 @@ import (
 // Compare names only. Encoded files deliberately differ in bytes and extension.
 // Extra archive names are never interpreted as permission to delete originals.
 func archiveNames(ctx context.Context, root rootFS, base string) (map[string]bool, error) {
+	if p, ok := root.(*archivePeerRoot); ok {
+		var out map[string]bool
+		e := p.callContext(ctx, archivePeerRequest{Operation: "names", Path: base}, &out)
+		return out, e
+	}
 	var err error
 	base, err = clean(base)
 	if err != nil {
@@ -17,6 +22,9 @@ func archiveNames(ctx context.Context, root rootFS, base string) (map[string]boo
 	}
 	names := map[string]bool{}
 	remaining := 100000
+	if ctx.Value(peerInventoryKey{}) != nil {
+		remaining = piManifestLimit
+	}
 	var walk func(string, int) error
 	walk = func(rel string, depth int) error {
 		if e := ctx.Err(); e != nil {

@@ -1,3 +1,69 @@
+## Pi imported thumbnail timestamp compatibility — November 28, 2026
+
+- Read-only live checks found 38 cache entries beside 34 top-level archive media
+  files. One media key matched directly; all other 33 matched after truncating
+  the media timestamp to Samba's 100-nanosecond precision. Five sampled VPS
+  counterparts already served cached thumbnails, while those Pi requests
+  returned 404. No media, credentials or caches were changed by diagnosis.
+- Pi cache-only lookup now tries the exact revision first, then the former Samba
+  revision. Existing linked-video v1 fallback also accepts the Samba revision.
+  Non-Pi lookup, public mutation revisions, protection checks, cache size limits
+  and Pi generation suppression remain unchanged. No renderer packages added.
+- Regression coverage exercises imported JPEG/video caches, exact-key precedence,
+  cache-only misses after actual timestamp changes, absence of cache writes,
+  Pi-only compatibility, legacy video versions and locked protected-file denial.
+  Targeted Pi/Samba, existing cache-only and locked-policy Go regressions pass,
+  as does `go vet ./internal/service`. The disposable test container and exact
+  `.build/thumbnail-check` directory/backing filesystem were removed. The owner
+  subsequently authorized server deployment and app release. Runtime
+  source 03ab502 is deployed as HA app 0.1.4. After owner unlock, all 34
+  top-level thumbnails and nine nested samples returned HTTP 200/image/jpeg.
+
+## Source-screen and delete corrections — November 28, 2026
+
+- The Pi ordinary-file delete message was traced to the app's cached archive
+  check: live resources for `/vps_exchange` and the reported file had no archive
+  membership; only `/pics` was marked as the archive. The app could reject deletion
+  before contacting the Pi based on an earlier cached flag. Repository deletion
+  now delegates archive authorization to the server Trash endpoint, which checks
+  the live boundary before mutation. Other source/permission/system-path guards
+  remain. Added mocked-server tests for stale-cache acceptance and genuine server
+  archive rejection, plus message-format coverage. SDK validation 46097196522
+  passed 171 unit/four UI tests; static checks pass.
+- Archive messages now display the logical source and a real path when known,
+  instead of internal `peer:` coordinates or `.`. Filesystem archive-library
+  metadata uses the same public owner/source representation as archive links.
+  These formatting/metadata changes passed the full Go service suite and vet
+  and are deployed in the server-corrections release.
+- Source `cf02413` removes repeated source captions, replaces the legacy default
+  File Browser Quantum name with VPS for the existing VPS endpoint, and opens a
+  single-root server directly without an intermediate folder. Multiple roots stay
+  selectable; connection/credential IDs and custom names are preserved. Validation
+  [46092196122](https://github.com/agawlbb/fileBeans/actions/runs/46092196122)
+  passed 168 unit tests and four UI tests. The corrections are included in signed
+  build 57; the exact IPA was uploaded in run 46097745266.
+- Source `45e024f` upgrades a readable legacy archive-policy cache directly instead
+  of requiring the separately protected original link to be readable. It verifies
+  the original-link revision, adds the existing redacted boundary format, preserves
+  policy encryption/AAD and the original-link bytes, and updates only an unchanged
+  policy row. The SQLite regression actually moves an ordinary file to Trash with
+  the Archive locked, checks ciphertext preservation, then checks ordinary guards
+  with the Library also locked and verifies the Archive remains read-only. Related
+  locked-boundary, mirror, handoff and preview regressions plus Go vet pass.
+- Live inspection found VPS unlocked, Pi locked, and the legacy policy missing
+  its boundary. After the owner unlocked Pi separately, the running server's
+  existing fallback refreshed that cache; its boundary is now present. The source
+  correction prevents that initial upgrade from requiring the Archive key. Pi
+  visibility needed no code change and is resolved by the owner's unlock.
+- The owner explicitly authorized server deployment and app release. VPS runtime
+  03ab502 and HA app 0.1.4 are deployed and verified. Signed app 57 passed the
+  larger-runner SDK suite and was uploaded without rebuilding; Apple build 57
+  is VALID / IN_BETA_TESTING. Previously started build 56 was never uploaded,
+  and its signed artifact was removed.
+- Disposable Go regression tooling, dependencies, caches, outputs, container
+  `filebeans-delete-check`, and `.build/delete-check` / `.build/delete-check.ext4`
+  were removed after verification. No task artifact is retained for these fixes.
+
 ## Thumbnail and streaming performance — November 27, 2026
 
 - Thumbnail regressions cover synchronous decoded-image reuse, shared fetch/decode,

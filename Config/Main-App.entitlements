@@ -10,6 +10,7 @@
 	<array>
 		<string>$(KEYCHAIN_GROUP)</string>
 		<string>$(AppIdentifierPrefix)$(BUNDLE_ID_PREFIX).vaults</string>
+		<string>$(AppIdentifierPrefix)$(BUNDLE_ID_PREFIX).google</string>
 	</array>
 </dict>
 </plist>

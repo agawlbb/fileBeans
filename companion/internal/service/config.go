@@ -15,21 +15,29 @@ type Root struct {
 	MountSource string `json:"mountSource,omitempty"`
 }
 type Config struct {
-	ArchiveMediaSocket string              `json:"archiveMediaSocket,omitempty"`
-	ArchiveDrainFile   string              `json:"archiveDrainFile,omitempty"`
-	Filesystem         FilesystemConfig    `json:"filesystem,omitempty"`
-	ProtectedRuntime   string              `json:"protectedRuntime,omitempty"`
-	Vaults             []VaultConfig       `json:"vaults,omitempty"`
-	Rclone             string              `json:"rclone,omitempty"`
-	Normalization      NormalizationConfig `json:"normalization,omitempty"`
-	Listen             string              `json:"listen"`
-	DSN                string              `json:"dsn"`
-	Token              string              `json:"token"`
-	State              string              `json:"state"`
-	Roots              []Root              `json:"roots"`
-	GoogleClientID     string              `json:"googleClientID"`
-	GoogleClientSecret string              `json:"googleClientSecret"`
-	GoogleRedirect     string              `json:"googleRedirect"`
+	ProtectionSync     *ProtectionSyncConfig `json:"protectionSync,omitempty"`
+	ArchivePeerKey     string                `json:"archivePeerKey,omitempty"`
+	ArchiveCoordinator string                `json:"archiveCoordinator,omitempty"`
+	Profile            string                `json:"profile,omitempty"`
+	SQLite             string                `json:"sqlite,omitempty"`
+	ServerID           string                `json:"serverId,omitempty"`
+	TLS                TLSConfig             `json:"tls,omitempty"`
+	Peers              []PeerConfig          `json:"peers,omitempty"`
+	ArchiveMediaSocket string                `json:"archiveMediaSocket,omitempty"`
+	ArchiveDrainFile   string                `json:"archiveDrainFile,omitempty"`
+	Filesystem         FilesystemConfig      `json:"filesystem,omitempty"`
+	ProtectedRuntime   string                `json:"protectedRuntime,omitempty"`
+	Vaults             []VaultConfig         `json:"vaults,omitempty"`
+	Rclone             string                `json:"rclone,omitempty"`
+	Normalization      NormalizationConfig   `json:"normalization,omitempty"`
+	Listen             string                `json:"listen"`
+	DSN                string                `json:"dsn"`
+	Token              string                `json:"token"`
+	State              string                `json:"state"`
+	Roots              []Root                `json:"roots"`
+	GoogleClientID     string                `json:"googleClientID"`
+	GoogleClientSecret string                `json:"googleClientSecret"`
+	GoogleRedirect     string                `json:"googleRedirect"`
 }
 
 func Load(path string) (Config, error) {
@@ -53,8 +61,11 @@ func Load(path string) (Config, error) {
 	if c.Listen == "" {
 		c.Listen = "127.0.0.1:8095"
 	}
-	if len(c.Token) < 32 || c.DSN == "" || !filepath.IsAbs(c.State) {
+	if len(c.Token) < 32 || (c.DSN == "" && c.SQLite == "") || !filepath.IsAbs(c.State) {
 		return c, errors.New("configure DSN, absolute state directory, and token of at least 32 characters")
+	}
+	if err := c.validateNode(); err != nil {
+		return c, err
 	}
 	names := map[string]bool{}
 	for _, r := range c.Roots {

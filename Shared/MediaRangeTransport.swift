@@ -13,12 +13,14 @@ final class MediaRangeTransport: NSObject, URLSessionDataDelegate, @unchecked Se
             self.offset = offset; self.length = length; self.continuation = continuation
         }
     }
+    private let connection: Connection?
     private let configuration: URLSessionConfiguration
     private lazy var session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
     private let lock = NSLock()
     private var reads: [Int: Read] = [:]
 
-    init(configuration: URLSessionConfiguration) {
+    init(configuration: URLSessionConfiguration, connection: Connection? = nil) {
+        self.connection = connection
         let config = configuration.copy() as! URLSessionConfiguration
         config.httpCookieStorage = nil; config.urlCache = nil
         config.httpMaximumConnectionsPerHost = 8
@@ -28,6 +30,23 @@ final class MediaRangeTransport: NSObject, URLSessionDataDelegate, @unchecked Se
     }
 
     func chunks(_ request: URLRequest, offset: Int64, length: Int) -> AsyncThrowingStream<MediaChunk, Error> {
+        AsyncThrowingStream { continuation in
+            let operation = Task {
+                do {
+                    let routed: URLRequest
+                    if let connection { routed = try await ServerRoute.shared.prepare(request, connection: connection) }
+                    else { routed = request }
+                    for try await value in rawChunks(routed, offset: offset, length: length) { continuation.yield(value) }
+                    continuation.finish()
+                } catch {
+                    if let connection, ServerRoute.connectionFailed(error) { await ServerRoute.shared.preferRemote(connection) }
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in operation.cancel() }
+        }
+    }
+    private func rawChunks(_ request: URLRequest, offset: Int64, length: Int) -> AsyncThrowingStream<MediaChunk, Error> {
         AsyncThrowingStream { continuation in
             guard offset >= 0, length > 0, length <= MediaRange.chunkSize,
                   offset <= Int64.max - Int64(length) else {
@@ -63,9 +82,24 @@ final class MediaRangeTransport: NSObject, URLSessionDataDelegate, @unchecked Se
         return MediaChunk(data: bytes, totalLength: metadata.totalLength, mimeType: metadata.mimeType)
     }
 
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        guard let connection else { completionHandler(.performDefaultHandling, nil); return }
+        ServerTrust.handle(challenge, connection: connection, completion: completionHandler)
+    }
+
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
-        completionHandler(nil)
+        guard let connection, connection.isGoogleDrive, let url = request.url,
+              GoogleDriveTransport.googleURL(url) else { completionHandler(nil); return }
+        Task {
+            do {
+                var next = request
+                next.setValue("Bearer " + (try await GoogleDriveAuthorization.shared.accessToken(connection)), forHTTPHeaderField: "Authorization")
+                if let range = task.originalRequest?.value(forHTTPHeaderField: "Range") { next.setValue(range, forHTTPHeaderField: "Range") }
+                completionHandler(next)
+            } catch { completionHandler(nil) }
+        }
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,

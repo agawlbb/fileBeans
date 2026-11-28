@@ -18,8 +18,17 @@ on:
         description: Optional unique positive build number; defaults to the workflow run number
         type: string
         required: false
+      signed_artifact_run:
+        description: Existing signed-build run to upload without rebuilding
+        type: string
+        required: false
+      signed_artifact_sha256:
+        description: Required SHA-256 of the existing IPA
+        type: string
+        required: false
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: testflight
   cancel-in-progress: false
@@ -34,6 +43,18 @@ jobs:
           persist-credentials: false
       - name: Test release validation
         run: node --test scripts/test-apple-setup.mjs
+      - name: Validate retained artifact selection
+        env:
+          ARTIFACT_RUN: ${{ inputs.signed_artifact_run }}
+          ARTIFACT_SHA256: ${{ inputs.signed_artifact_sha256 }}
+          OPERATION: ${{ inputs.operation }}
+          EXPLICIT_BUILD_NUMBER: ${{ inputs.build_number }}
+        run: python3 scripts/verify-release-artifact.py --selection
+      - name: Validate native Google sign-in registration
+        if: inputs.signed_artifact_run == ''
+        env:
+          GOOGLE_IOS_CLIENT_ID: ${{ vars.GOOGLE_IOS_CLIENT_ID }}
+        run: python3 scripts/check-google-oauth.py
       - name: Verify signing and App Store Connect prerequisites without building
         env:
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
@@ -69,6 +90,11 @@ jobs:
           python3 scripts/check-apple-sdk.py
           brew install xcodegen
           xcodegen generate
+      - name: Configure native Google sign-in
+        if: inputs.signed_artifact_run == ''
+        env:
+          GOOGLE_IOS_CLIENT_ID: ${{ vars.GOOGLE_IOS_CLIENT_ID }}
+        run: python3 scripts/check-google-oauth.py --export-env
       - name: Prepare signing
         env:
           DISTRIBUTION_P12_BASE64: ${{ secrets.DISTRIBUTION_P12_BASE64 }}
@@ -80,9 +106,23 @@ jobs:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
         run: python3 scripts/prepare-signing.py
       - name: Archive and export
+        if: inputs.signed_artifact_run == ''
         run: |
-          xcodebuild archive -project myFiles.xcodeproj -scheme myFiles -configuration Release -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/myFiles.xcarchive" DEVELOPMENT_TEAM="$APPLE_TEAM_ID" BUNDLE_ID_PREFIX="$BUNDLE_ID_PREFIX" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Apple Distribution" APP_PROFILE_UUID="$APP_PROFILE_UUID" PROVIDER_PROFILE_UUID="$PROVIDER_PROFILE_UUID" SHARE_PROFILE_UUID="$SHARE_PROFILE_UUID" OTHER_CODE_SIGN_FLAGS="--keychain $SIGNING_KEYCHAIN"
+          xcodebuild archive -project myFiles.xcodeproj -scheme myFiles -configuration Release -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/myFiles.xcarchive" DEVELOPMENT_TEAM="$APPLE_TEAM_ID" BUNDLE_ID_PREFIX="$BUNDLE_ID_PREFIX" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" GOOGLE_IOS_CLIENT_ID="$GOOGLE_IOS_CLIENT_ID" GOOGLE_IOS_REVERSED_CLIENT_ID="$GOOGLE_IOS_REVERSED_CLIENT_ID" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Apple Distribution" APP_PROFILE_UUID="$APP_PROFILE_UUID" PROVIDER_PROFILE_UUID="$PROVIDER_PROFILE_UUID" SHARE_PROFILE_UUID="$SHARE_PROFILE_UUID" OTHER_CODE_SIGN_FLAGS="--keychain $SIGNING_KEYCHAIN"
           xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/myFiles.xcarchive" -exportPath "$RUNNER_TEMP/myFiles-export" -exportOptionsPlist "$RUNNER_TEMP/myfiles-signing/ExportOptions.plist"
+      - name: Download retained signed build
+        if: inputs.signed_artifact_run != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: myFiles-signed-${{ env.BUILD_NUMBER }}
+          run-id: ${{ inputs.signed_artifact_run }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/myFiles-export
+      - name: Verify retained IPA identity
+        if: inputs.signed_artifact_run != ''
+        env:
+          ARTIFACT_SHA256: ${{ inputs.signed_artifact_sha256 }}
+        run: python3 scripts/verify-release-artifact.py "$RUNNER_TEMP/myFiles-export/myFiles.ipa"
       - name: Upload to TestFlight
         if: inputs.operation == 'upload'
         working-directory: ${{ runner.temp }}/myfiles-signing

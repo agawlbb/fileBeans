@@ -13,7 +13,14 @@ var ErrArchiveReadOnly = errors.New("linked archive is read-only")
 type archiveReadOnlyError struct{ Library ArchiveEndpoint }
 
 func (e *archiveReadOnlyError) Error() string {
-	return fmt.Sprintf("Make changes in %s %s.", e.Library.Source, archivePath(e.Library.Path))
+	source := e.Library.Source
+	if _, root, qualified := splitPeerSource(source); qualified {
+		source = root
+	}
+	if e.Library.Path == "" || e.Library.Path == "." || e.Library.Path == "/" {
+		return fmt.Sprintf("Make changes in the linked folder on %s.", source)
+	}
+	return fmt.Sprintf("Make changes in %s %s.", source, archivePath(e.Library.Path))
 }
 func (e *archiveReadOnlyError) Unwrap() error { return ErrArchiveReadOnly }
 

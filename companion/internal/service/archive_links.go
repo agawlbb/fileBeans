@@ -13,6 +13,7 @@ var ErrArchiveLinked = errors.New("unlink the archive before deleting or moving 
 // Vault-relative endpoints follow broker relocations without exposing locations
 // in plaintext records. Pending records recover interrupted ordinary renames.
 type ArchiveEndpoint struct {
+	ServerID  string           `json:"server,omitempty"`
 	Source    string           `json:"source"`
 	Path      string           `json:"path"`
 	Vault     string           `json:"vault,omitempty"`
@@ -34,7 +35,7 @@ func (s *Service) archiveLinks() ([]ArchiveLink, error) {
 	if s.db == nil {
 		return []ArchiveLink{}, nil
 	}
-	rows, err := s.db.Query("SELECT id,body FROM fb_operations WHERE kind='archiveLink'")
+	rows, err := s.db.Query(s.sqlDialect("SELECT l.id,l.body,COALESCE(p.body,'{}') FROM fb_operations l LEFT JOIN fb_operations p ON p.id=CONCAT('policy-',l.id) AND p.kind='archivePolicy' WHERE l.kind='archiveLink'"))
 	if err != nil {
 		return nil, err
 	}
@@ -42,8 +43,8 @@ func (s *Service) archiveLinks() ([]ArchiveLink, error) {
 	links := []ArchiveLink{}
 	for rows.Next() {
 		var id string
-		var data []byte
-		if err = rows.Scan(&id, &data); err != nil {
+		var data, policy []byte
+		if err = rows.Scan(&id, &data, &policy); err != nil {
 			return nil, err
 		}
 		data, err = s.decodeRecord(id, "archiveLink", data)
@@ -54,7 +55,14 @@ func (s *Service) archiveLinks() ([]ArchiveLink, error) {
 		if err = json.Unmarshal(data, &link); err != nil {
 			return nil, err
 		}
-		links = append(links, link)
+		var envelope struct {
+			Owner       string `json:"archiveOwner"`
+			LocalSource string `json:"archiveLocalSource"`
+		}
+		if json.Unmarshal(policy, &envelope) != nil {
+			return nil, ErrUnsafe
+		}
+		links = append(links, s.archiveMirrorCoordinates(link, envelope.Owner, envelope.LocalSource))
 	}
 	if err = rows.Err(); err != nil {
 		return nil, err
@@ -72,6 +80,12 @@ func endpointOverlap(a, b ArchiveEndpoint) bool {
 	return a.Source == b.Source && (within(archivePath(a.Path), archivePath(b.Path)) || within(archivePath(b.Path), archivePath(a.Path)))
 }
 func (s *Service) endpointAt(source, path string) (ArchiveEndpoint, error) {
+	if p := s.peerFor(source); p != nil {
+		var out ArchiveEndpoint
+		e := (&archivePeerRoot{peer: *p, source: source}).call(archivePeerRequest{Operation: "endpoint", Path: path}, &out)
+		out.Source = source
+		return out, e
+	}
 	p, err := filesystemPath(path)
 	if err != nil || p == "." || protected(p) {
 		return ArchiveEndpoint{}, ErrUnsafe
@@ -91,7 +105,12 @@ func (s *Service) endpointAt(source, path string) (ArchiveEndpoint, error) {
 	if !st.IsDir() {
 		return ArchiveEndpoint{}, ErrUnsafe
 	}
-	if err = validateFilenameTree(root, p); err != nil {
+	if s.config.Profile == "pi" {
+		err = validateArchivePeerTree(root, p)
+	} else {
+		err = validateFilenameTree(root, p)
+	}
+	if err != nil {
 		return ArchiveEndpoint{}, err
 	}
 	endpoint := ArchiveEndpoint{Source: source, Path: archivePath(p), Identity: moveIdentity(st), Available: true}
@@ -106,6 +125,16 @@ func (s *Service) endpointAt(source, path string) (ArchiveEndpoint, error) {
 	return endpoint, err
 }
 func (s *Service) resolveEndpoint(e ArchiveEndpoint) ArchiveEndpoint {
+	if p := s.peerFor(e.Source); p != nil {
+		var out ArchiveEndpoint
+		err := (&archivePeerRoot{peer: *p, source: e.Source}).call(archivePeerRequest{Operation: "resolve", Endpoint: e}, &out)
+		if err != nil {
+			e.Available = false
+			return e
+		}
+		out.Source = e.Source
+		return out
+	}
 	e.Available = false
 	if e.Vault != "" {
 		found := false
@@ -182,6 +211,9 @@ func (s *Service) archiveRoutes(mux *http.ServeMux) {
 			fail(w, err)
 			return
 		}
+		for i := range links {
+			links[i] = s.publicArchiveLink(links[i])
+		}
 		reply(w, 200, links)
 	})
 	mux.HandleFunc("POST /v1/archive-links", func(w http.ResponseWriter, r *http.Request) {
@@ -200,12 +232,26 @@ func (s *Service) archiveRoutes(mux *http.ServeMux) {
 		defer s.fsMu.Unlock()
 		filenamePublication.Lock()
 		defer filenamePublication.Unlock()
-		a, err := s.endpointAt(input.Library.Source, input.Library.Path)
+		library, normalError := s.normalizeTransferLocation(input.Library)
+		if normalError != nil {
+			fail(w, normalError)
+			return
+		}
+		archive, normalError := s.normalizeTransferLocation(input.Archive)
+		if normalError != nil {
+			fail(w, normalError)
+			return
+		}
+		if s.peerFor(library.Source) != nil {
+			fail(w, ErrUnsafe)
+			return
+		}
+		a, err := s.endpointAt(library.Source, library.Path)
 		if err != nil {
 			fail(w, err)
 			return
 		}
-		b, err := s.endpointAt(input.Archive.Source, input.Archive.Path)
+		b, err := s.endpointAt(archive.Source, archive.Path)
 		if err != nil {
 			fail(w, err)
 			return
@@ -217,7 +263,7 @@ func (s *Service) archiveRoutes(mux *http.ServeMux) {
 		}
 		for _, link := range links {
 			if link.Library.Source == a.Source && link.Library.Path == a.Path && link.Archive.Source == b.Source && link.Archive.Path == b.Path {
-				reply(w, 200, link)
+				reply(w, 200, s.publicArchiveLink(link))
 				return
 			}
 		}
@@ -234,7 +280,7 @@ func (s *Service) archiveRoutes(mux *http.ServeMux) {
 			fail(w, err)
 			return
 		}
-		reply(w, 201, link)
+		reply(w, 201, s.publicArchiveLink(link))
 	})
 	mux.HandleFunc("DELETE /v1/archive-links/{id}", func(w http.ResponseWriter, r *http.Request) {
 		archiveMu.Lock()
@@ -446,4 +492,19 @@ func (s *Service) archiveEndpointsIdle(endpoints ...ArchiveEndpoint) error {
 		}
 	}
 	return nil
+}
+
+func (s *Service) publicArchiveLink(link ArchiveLink) ArchiveLink {
+	endpoint := func(e ArchiveEndpoint) ArchiveEndpoint {
+		if peer := s.peerFor(e.Source); peer != nil {
+			e.ServerID = peer.ID
+			e.Source = peerSourceFor(e.Source, peer.ID)
+		} else {
+			e.ServerID = s.config.ServerID
+		}
+		return e
+	}
+	link.Library = endpoint(link.Library)
+	link.Archive = endpoint(link.Archive)
+	return link
 }

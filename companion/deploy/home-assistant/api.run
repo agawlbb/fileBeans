@@ -1,0 +1,30 @@
+#!/bin/sh
+set -eu
+export GOMAXPROCS=1
+export GOMEMLIMIT=192MiB
+maintenance=$(jq -r '.maintenance // "off"' /data/options.json)
+if [ "$maintenance" != off ]; then
+ case "$maintenance" in
+  permissions)
+   python3 /usr/local/libexec/prepare-pi-access.py --config /config/vault-broker.json
+   ;;
+  initialize)
+   su-exec 1000:1000 /usr/local/bin/filebeans -config /config/server.json -migrate
+   ;;
+  import)
+   python3 /usr/local/libexec/migrate-pi-vaults.py import --config /config/vault-broker.json --bundle /config/sealed-vaults.json --receipt /config/retirement-receipt.json --apply
+   su-exec 1000:1000 /usr/local/bin/filebeans -config /config/server.json -handoff-bundle /config/sealed-vaults.json -import-source-state /config/source-operations.json -preserve-archive-links
+   ;;
+  *) exit 1 ;;
+ esac
+ printf 'FileBeans explicit maintenance completed: %s\n' "$maintenance"
+ exec sleep infinity
+fi
+count=0
+while [ ! -S /run/filebeans-vaults/broker.sock ]; do
+ count=$((count + 1))
+ [ "$count" -lt 30 ] || exit 1
+ sleep 1
+done
+# Schema changes are explicit maintenance operations, never performed by boot.
+exec su-exec 1000:1000 /usr/local/bin/filebeans -config /config/server.json

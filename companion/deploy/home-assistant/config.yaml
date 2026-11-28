@@ -1,0 +1,32 @@
+name: FileBeans
+slug: filebeans
+description: FileBeans storage server
+version: 0.1.8
+arch: [aarch64]
+startup: services
+boot: auto
+init: false
+image: files.coffeybean.com/filebeans-pi-{arch}
+ports:
+  8095/tcp: 8095
+ports_description:
+  8095/tcp: HTTPS
+map:
+  - type: share
+    read_only: false
+  - type: app_config
+    read_only: true
+devices: [/dev/fuse]
+privileged: [SYS_ADMIN]
+apparmor: false
+host_network: false
+host_pid: false
+host_ipc: false
+full_access: false
+hassio_api: false
+homeassistant_api: false
+docker_api: false
+options:
+  maintenance: "off"
+schema:
+  maintenance: list(off|initialize|permissions|import)

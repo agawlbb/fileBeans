@@ -22,6 +22,11 @@ const archiveStage = ".filebeans-stage/archive-sync"
 const archiveOutputLimit = int64(16 << 30)
 
 func archiveSpace(root rootFS, path string, extra int64) (int64, error) {
+	if p, ok := root.(*archivePeerRoot); ok {
+		var out int64
+		e := p.call(archivePeerRequest{Operation: "space", Path: path, Size: extra}, &out)
+		return out, e
+	}
 	f, e := root.Open(path)
 	if e != nil {
 		return 0, e
@@ -46,6 +51,11 @@ func archiveHash(root rootFS, path string) (string, error) {
 	return archiveHashContext(context.Background(), root, path)
 }
 func archiveHashContext(ctx context.Context, root rootFS, path string) (string, error) {
+	if p, ok := root.(*archivePeerRoot); ok {
+		var out string
+		e := p.callContext(ctx, archivePeerRequest{Operation: "hash", Path: path}, &out)
+		return out, e
+	}
 	var err error
 	path, err = clean(path)
 	if err != nil {
@@ -70,12 +80,27 @@ func (r archiveReader) Read(p []byte) (int, error) {
 	if e := r.ctx.Err(); e != nil {
 		return 0, e
 	}
+	if pace, ok := r.ctx.Value(piPaceKey{}).(func(context.Context, int) error); ok {
+		if len(p) > 256<<10 {
+			p = p[:256<<10]
+		}
+		n, e := r.r.Read(p)
+		if n > 0 {
+			if err := pace(r.ctx, n); err != nil {
+				return n, err
+			}
+		}
+		return n, e
+	}
 	return r.r.Read(p)
 }
 
 // A temporary original is bounded to the exact source length. Publication is
 // no-overwrite, with a full checksum readback before the VPS retention is released.
 func (s *Service) copyArchiveOriginal(ctx context.Context, src rootFS, from string, dst rootFS, to, expected, stage string) error {
+	if p, ok := dst.(*archivePeerRoot); ok {
+		return p.copyOriginal(ctx, src, from, to, expected, stage)
+	}
 	input, e := filesystemOpenFile(src, from)
 	if e != nil {
 		return e
@@ -333,12 +358,6 @@ func (s *Service) runArchiveIngest(ctx context.Context, j *archiveTask, encodeOn
 	if e := validateArchiveTask(j); e != nil {
 		return e
 	}
-	if j.State == "waiting" {
-		if err := s.archiveAdmission(ctx, j.WaitingForMemory); err != nil {
-			return err
-		}
-		j.WaitingForMemory = false
-	}
 	r, e := s.root(j.Library.Source)
 	if e != nil {
 		return e
@@ -413,6 +432,30 @@ func (s *Service) runArchiveIngest(ctx context.Context, j *archiveTask, encodeOn
 		return s.saveArchiveTask(j)
 	}
 	if j.State == "waiting" {
+		archive, err := s.archiveWriter().root(j.Target.Backend)
+		if err != nil {
+			return err
+		}
+		_, err = archiveBaselineMatch(archive, ArchiveEndpoint{Source: j.Target.Backend, Path: j.Target.Base, Vault: j.Target.VaultID, Relative: j.Target.Relative}, j.Relative)
+		archive.Close()
+		if err == nil {
+			// Do not release an interrupted job's retained bytes. Only an
+			// unstarted intent can be retired by an existing filename pair.
+			if _, err = r.Stat(base); !errors.Is(err, os.ErrNotExist) {
+				if err != nil {
+					return err
+				}
+				return ErrConflict
+			}
+			return s.removeArchiveTask(j)
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if err := s.archiveAdmission(ctx, j.WaitingForMemory); err != nil {
+			return err
+		}
+		j.WaitingForMemory = false
 		path := filepath.Join(j.Library.Path, j.Relative)
 		st, e := r.Stat(path)
 		if errors.Is(e, os.ErrNotExist) {
@@ -658,10 +701,29 @@ func (s *Service) runArchiveIngest(ctx context.Context, j *archiveTask, encodeOn
 	}
 	return s.removeArchiveTask(j)
 }
-func (s *Service) publishArchiveEncoded(root rootFS, j *archiveTask, base, raw string) error {
+func (s *Service) publishArchiveEncoded(root rootFS, j *archiveTask, base, raw string) (result error) {
 	from := filepath.Join(j.Library.Path, j.Relative)
 	to := filepath.Join(j.Library.Path, j.Output)
 	output := filepath.Join(base, "output"+filepath.Ext(j.Output))
+	published := false
+	defer func() {
+		if result == nil || published {
+			return
+		}
+		// A failed publication must not hide the original. This also recovers
+		// jobs stranded by older versions after their original was staged.
+		if _, err := root.Stat(from); !errors.Is(err, os.ErrNotExist) {
+			return
+		}
+		if _, err := root.Stat(raw); err != nil {
+			return
+		}
+		if err := renameExclusive(root, raw, from); err != nil {
+			result = errors.Join(result, err)
+			return
+		}
+		result = errors.Join(result, syncDir(root, filepath.Dir(from)))
+	}()
 	if _, e := root.Stat(raw); errors.Is(e, os.ErrNotExist) {
 		st, e := root.Stat(from)
 		if e != nil {
@@ -669,6 +731,10 @@ func (s *Service) publishArchiveEncoded(root rootFS, j *archiveTask, base, raw s
 		}
 		if version(st) != j.Version {
 			return ErrConflict
+		}
+		// Prepare owner-only metadata before moving a visible original.
+		if e = normSetModified(root, output, st.ModTime().UTC().Format(time.RFC3339Nano)); e != nil {
+			return e
 		}
 		if e = renameExclusive(root, from, raw); e != nil {
 			return e
@@ -694,6 +760,7 @@ func (s *Service) publishArchiveEncoded(root rootFS, j *archiveTask, base, raw s
 			}
 			return e
 		}
+		published = true
 		if e = syncDir(root, filepath.Dir(to)); e != nil {
 			return e
 		}
@@ -707,10 +774,12 @@ func (s *Service) publishArchiveEncoded(root rootFS, j *archiveTask, base, raw s
 		if hash != j.OutputHash {
 			return ErrConflict
 		}
+		published = true
 		if e = normSetModified(root, to, modified); e != nil {
 			return e
 		}
 	}
+	published = true
 	j.Relative = j.Output
 	visible, e := root.Stat(to)
 	if e != nil {

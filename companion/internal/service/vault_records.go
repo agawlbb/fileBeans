@@ -21,10 +21,10 @@ type sealedRecord struct {
 }
 
 func (s *Service) recordSources(b []byte) ([]string, error) {
-	if s.vaults == nil {
+	if s.vaults == nil && len(s.config.Peers) == 0 {
 		return nil, nil
 	}
-	if s.vaults.guard != nil {
+	if s.vaults != nil && s.vaults.guard != nil {
 		lease, e := s.vaults.guard.Acquire()
 		if e != nil {
 			return nil, ErrVaultLocked
@@ -48,6 +48,9 @@ func (s *Service) recordSources(b []byte) ([]string, error) {
 			source := inherited
 			if src, ok := x["source"].(string); ok {
 				source = src
+			}
+			if vault, ok := x["vault"].(string); ok && vault != "" && s.peerFor(source) != nil {
+				labels["peer-vault:"+source+"~"+vault] = true
 			}
 			for _, v := range configs {
 				if v.Source != source {
@@ -141,7 +144,7 @@ func (s *Service) encodeRecord(id, kind string, b []byte) ([]byte, error) {
 	if len(sources) == 0 {
 		return b, nil
 	}
-	a, e := s.vaults.recordCipher(sources)
+	a, e := s.nodeRecordCipher(sources, false)
 	if e != nil {
 		return nil, e
 	}
@@ -165,7 +168,7 @@ func (s *Service) decodeRecord(id, kind string, b []byte) ([]byte, error) {
 	if sealed.Version != 1 || sealed.ID != id || len(sealed.Sources) == 0 {
 		return nil, ErrUnsafe
 	}
-	a, e := s.vaults.recordCipher(sealed.Sources)
+	a, e := s.nodeRecordCipher(sealed.Sources, true)
 	if e != nil {
 		return nil, e
 	}
@@ -187,7 +190,7 @@ func (s *Service) migrateVaultRecords() error {
 		return e
 	}
 	defer tx.Rollback()
-	rows, e := tx.QueryContext(ctx, "SELECT id,kind,body FROM fb_operations FOR UPDATE")
+	rows, e := tx.QueryContext(ctx, s.sqlDialect("SELECT id,kind,body FROM fb_operations FOR UPDATE"))
 	if e != nil {
 		return e
 	}

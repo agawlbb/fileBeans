@@ -148,33 +148,8 @@ struct BrowserView: View {
             }
         }
     }
-    private enum SourceEntry: Identifiable {
-        case local(StoredItem)
-        case drive
-        var id: String { switch self { case .local(let item): return item.id; case .drive: return "google-drive" } }
-        var name: String { switch self { case .local(let item): return item.file.name; case .drive: return "Google Drive" } }
-    }
-    private var sources: [SourceEntry] {
-        var result = visible.map(SourceEntry.local)
-        if search.isEmpty || "Google Drive".localizedStandardContains(search) { result.append(.drive) }
-        return result.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-    }
     @ViewBuilder private var fileContent: some View {
-        if parent == nil {
-            BrowserFileCollection(items: sources, grid: grid, header: companionLinks, row: { source, large in sourceEntry(source, large: large) })
-        } else {
-            BrowserFileCollection(items: visible, grid: grid, header: companionLinks, row: { item, large in entry(item, large: large) })
-        }
-    }
-    @ViewBuilder private func sourceEntry(_ source: SourceEntry, large: Bool) -> some View {
-        switch source {
-        case .local(let item): entry(item, large: large)
-        case .drive:
-            NavigationLink(value: SourceDestination(connection: connection, kind: .drive)) {
-                BrowserItemCell(name: source.name, size: nil, folder: true, large: large, selecting: false, selected: false,
-                                thumbnail: Image(systemName: "folder.fill").resizable().scaledToFit().padding(8).foregroundStyle(Color.accentColor))
-            }.disabled(selecting)
-        }
+        BrowserFileCollection(items: visible, grid: grid, header: companionLinks, row: { item, large in entry(item, large: large) })
     }
     private var companionLinks: some View { EmptyView() }
     private var browserContent: some View {
@@ -279,7 +254,7 @@ struct BrowserView: View {
             }
             else if displayedItems.isEmpty && model.error == nil && parent != nil {
                 ContentUnavailableView("No files", systemImage: "folder")
-            } else if parent == nil && sources.isEmpty || parent != nil && !model.items.isEmpty && visible.isEmpty {
+            } else if parent == nil && visible.isEmpty || parent != nil && !model.items.isEmpty && visible.isEmpty {
                 ContentUnavailableView.search(text: search)
             }
     }
@@ -401,12 +376,16 @@ struct BrowserView: View {
                         thumbnail: ThumbnailView(item: item, client: model.repository?.client), protection: item.protection, pending: pending(item), linked: item.file.archiveRoot == true)
     }
     private func changeLock(_ item: StoredItem, action: String) {
-        guard let protection = item.protection else { return }
+        guard item.protection != nil else { return }
         Task {
             await model.perform {
                 let client = CompanionClient(connection: connection); defer { client.close() }
                 let code = action == "unlock" ? try await VaultKeySession.shared.authorizedCode(requireBackup: false) : nil
-                try await client.vaultAction(id: protection.id, action: action, code: code)
+                let body = try code.map { try JSONEncoder().encode(["key": $0]) }
+                let status = try JSONDecoder().decode(ProtectionStatus.self,
+                    from: await client.request("protection/" + action, method: "POST", body: body,
+                        key: UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()))
+                try await ProtectionChanges.apply(status, origin: connection)
                 await reload()
             }
         }
@@ -515,6 +494,7 @@ final class Movie: ObservableObject, Identifiable {
 struct MovieView: View {
     @ObservedObject var movie: Movie
     var fullScreen = false
+    var exitFullScreen: () -> Void = {}
     @Environment(\.dismiss) private var dismiss
     private var player: AVPlayer { movie.player }
     @State private var error = false
@@ -542,6 +522,15 @@ struct MovieView: View {
             }
             .alert("Unable to Play", isPresented: $error) { Button("OK") { dismiss() } } message: {
                 Text("Playback failed.\n\n\(failureDetails)")
+            }
+            // AVKit may consume taps before a parent SwiftUI gesture sees
+            // them. A full-screen-only surface gives the exit gesture a
+            // stable target without changing the attached player.
+            .overlay {
+                if fullScreen {
+                    Color.clear.contentShape(Rectangle())
+                        .onTapGesture(perform: exitFullScreen)
+                }
             }
             #if DEBUG
             .overlay(alignment: .bottomLeading) {

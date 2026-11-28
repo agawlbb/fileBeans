@@ -1,17 +1,36 @@
 import Foundation
 
+enum SourceKind: String, Codable, CaseIterable { case server, googleDrive }
+
 struct Connection: Codable, Identifiable, Hashable {
     var id: UUID = UUID()
     var name: String
     var url: URL
     var companionURL: URL?
     var companionTokenID: UUID?
+    var localURL: URL? = nil
+    var localFingerprint: String? = nil
+    var serverID: String? = nil
+    var kind: SourceKind? = nil
+    var googleAccountID: String? = nil
+    var isGoogleDrive: Bool { kind == .googleDrive }
     // Existing connections already identify the companion, which now hosts
     // file access too. Keep connection/domain IDs and stored credentials.
     var filesystemURL: URL { companionURL ?? url }
     var filesystemTokenID: UUID { companionTokenID ?? id }
     var unified: Connection {
+        guard !isGoogleDrive else { return self }
         var value = self
+        if name.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("File Browser Quantum") == .orderedSame {
+            let endpoint = filesystemURL
+            if serverID == "filebeans-vps" || endpoint.host?.lowercased() == "files.coffeybean.com" && endpoint.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) == "companion" {
+                value.name = "VPS"
+            } else if serverID == "filebeans-pi" {
+                value.name = "Pi"
+            } else {
+                value.name = "FileBeans"
+            }
+        }
         value.companionURL = filesystemURL
         value.companionTokenID = filesystemTokenID
         return value

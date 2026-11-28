@@ -79,6 +79,8 @@ with open(os.environ["GITHUB_ENV"], "a") as env:
             sys.exit("APP provisioning profile is missing the app-only vault Keychain group.")
         if entitlements.get("get-task-allow") or profile.get("ProvisionedDevices"):
             sys.exit(f"{kind} provisioning profile must be for App Store distribution.")
+        if kind in ("APP", "SHARE") and prefix + "*" not in groups and prefix + os.environ["BUNDLE_ID_PREFIX"] + ".google" not in groups:
+            sys.exit(f"{kind} provisioning profile cannot access the app/Share-only Google Keychain group.")
         uuid = profile["UUID"]
         destination = profiles / f"{uuid}.mobileprovision"
         shutil.copyfile(profile_file, destination)

@@ -4,6 +4,8 @@ import CryptoKit
 struct CompanionCapabilities: Decodable {
     struct Root: Decodable { let source: String; let trash: String }
     let version: Int
+    let serverId: String?
+    let driveTransferKey: String?
     let roots: [Root]
     let driveConnected: Bool
     let normalizationEnabled: Bool?
@@ -12,30 +14,34 @@ struct CompanionCapabilities: Decodable {
 }
 struct CopyLocation: Codable {
     let source: String
-    let path: String
+    var path: String
     var name: String? = nil
+    var server: String? = nil
     var displayLocation: String { "\(source): \(name ?? (path.isEmpty || path == "." ? "/" : path))" }
 }
 struct BackgroundCopy: Encodable {
     let items: [CopyLocation]
-    let destination: CopyLocation
+    var destination: CopyLocation
     var operation: String? = nil
     var destinationName: String? = nil
+    var driveAccount: String? = nil
+    var driveGrant: SealedGoogleDriveGrant? = nil
 }
-struct CopyJob: Decodable, Identifiable {
-    struct Request: Decodable {
+struct CopyJob: Codable, Identifiable {
+    struct Request: Codable {
         let items: [CopyLocation]
         let destination: CopyLocation
         let operation: String?
         let destinationName: String?
+        let driveAccount: String?
     }
-    let id: String
-    let state: String
+    var id: String
+    var state: String
     let total: Int64
     let done: Int64
     let speed: Double
     let current: String
-    let error: String?
+    var error: String?
     let progressUnit: String?
     let itemsTotal: Int?
     let itemsDone: Int?
@@ -71,6 +77,7 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
     private let credential: String?
     private let configuration: URLSessionConfiguration
     private let store: SharedStore?
+    private lazy var googleTransport = GoogleDriveTransport(connection: connection, configuration: configuration)
     private lazy var session: URLSession = {
         let config = configuration.copy() as! URLSessionConfiguration
         config.httpCookieStorage = nil
@@ -78,18 +85,29 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
         config.timeoutIntervalForRequest = 30
         return URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }()
-    private lazy var mediaSession = MediaRangeTransport(configuration: configuration)
+    private lazy var mediaSession = MediaRangeTransport(configuration: configuration, connection: connection)
     init(connection: Connection, credential: String? = nil, configuration: URLSessionConfiguration = .ephemeral,
          store: SharedStore? = nil) {
         self.connection = connection.unified; self.credential = credential; self.configuration = configuration
         self.store = store
     }
-    func close() { session.invalidateAndCancel(); mediaSession.close() }
+    func close() { session.invalidateAndCancel(); mediaSession.close(); if connection.isGoogleDrive { googleTransport.close() } }
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        ServerTrust.handle(challenge, connection: connection, completion: completionHandler)
+    }
     func authorizedRequest(_ route: String, method: String = "GET", body: Data? = nil,
                            key: String? = nil, permanent: Bool = false, query: [String: String] = [:],
                            headers: [String: String] = [:]) throws -> URLRequest {
+        if connection.isGoogleDrive {
+            let parts = route.split(separator: "/").map(String.init)
+            if method == "PUT", parts.count == 3, parts[0] == "drive", parts[1] == "uploads" {
+                return try GoogleDriveUploads.authorized(connection: connection, id: parts[2], headers: headers)
+            }
+            return try googleTransport.authorized(route, method: method, headers: headers)
+        }
         guard let configured = connection.companionURL, let tokenID = connection.companionTokenID else { throw APIError.authentication }
         let base = try FilesystemClient.validateURL(configured.absoluteString)
         var parts = URLComponents(url: base.appendingPathComponent("v1/" + route), resolvingAgainstBaseURL: false)!
@@ -97,6 +115,7 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
         parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         var r = URLRequest(url: parts.url!)
         r.httpMethod = method; r.httpBody = body
+        if route == "protection" { r.timeoutInterval = 5 }
         if route.hasPrefix("protection/") { r.timeoutInterval = 60 }
         r.setValue("Bearer " + (try credential ?? TokenStore.read(tokenID)), forHTTPHeaderField: "Authorization")
         if body != nil { r.setValue("application/json", forHTTPHeaderField: "Content-Type") }
@@ -108,8 +127,36 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
     func request(_ route: String, method: String = "GET", body: Data? = nil,
                  key: String? = nil, permanent: Bool = false, query: [String: String] = [:],
                  headers: [String: String] = [:]) async throws -> Data {
-        let r = try authorizedRequest(route, method: method, body: body, key: key, permanent: permanent, query: query, headers: headers)
-        let (data, response) = try await session.data(for: r)
+        if let (owner, forwarded, alias) = try ClientTransferLinks.resolve(route, origin: connection, store: store) {
+            let client = CompanionClient(connection: owner); defer { client.close() }
+            let data = try await client.request(forwarded, method: method, body: body, key: key, permanent: permanent, query: query, headers: headers)
+            var job = try JSONDecoder().decode(CopyJob.self, from: data); job.id = alias
+            try ClientTransferLinks.remember(job, origin: connection, store: store)
+            return try JSONEncoder().encode(job)
+        }
+        if connection.isGoogleDrive {
+            return try await googleTransport.request(route, method: method, body: body, key: key, permanent: permanent, query: query, headers: headers)
+        }
+        var requestBody = body
+        let jobRoute = route.split(separator: "/").map(String.init)
+        if method == "POST", body == nil, jobRoute.count == 3, jobRoute[0] == "jobs",
+           jobRoute[2] == "retry" || jobRoute[2] == "cancel" {
+            do {
+                let job = try JSONDecoder().decode(CopyJob.self, from: await request("jobs/" + jobRoute[1]))
+                if let account = job.request?.driveAccount {
+                    guard let drive = try SharedStore().connections().first(where: { $0.isGoogleDrive && $0.googleAccountID == account }) else { throw APIError.authentication }
+                    let grant = try await GoogleDriveDelegation.seal(account: drive, server: await capabilities())
+                    struct Renewal: Encodable { let driveAccount: String; let driveGrant: SealedGoogleDriveGrant }
+                    requestBody = try JSONEncoder().encode(Renewal(driveAccount: account, driveGrant: grant))
+                }
+            } catch {
+                // Cancellation can still use the server's unexpired job grant
+                // when the Google account has been disconnected on this device.
+                if jobRoute[2] == "retry" { throw error }
+            }
+        }
+        let r = try authorizedRequest(route, method: method, body: requestBody, key: key, permanent: permanent, query: query, headers: headers)
+        let (data, response) = try await ServerRoute.shared.data(r, connection: connection, session: session)
         guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
         guard (200..<300).contains(http.statusCode) else {
             if http.statusCode == 401 { throw APIError.authentication }
@@ -122,13 +169,25 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
         return data
     }
     func streamChunk(_ request: URLRequest, offset: Int64, length: Int) async throws -> MediaChunk {
-        try await mediaSession.chunk(request, offset: offset, length: length)
+        let prepared = connection.isGoogleDrive ? try await googleTransport.refreshed(request) : request
+        return try await mediaSession.chunk(prepared, offset: offset, length: length)
     }
     func streamChunks(_ request: URLRequest, offset: Int64, length: Int) -> AsyncThrowingStream<MediaChunk, Error> {
-        mediaSession.chunks(request, offset: offset, length: length)
+        guard connection.isGoogleDrive else { return mediaSession.chunks(request, offset: offset, length: length) }
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let prepared = try await googleTransport.refreshed(request)
+                    for try await chunk in mediaSession.chunks(prepared, offset: offset, length: length) { continuation.yield(chunk) }
+                    continuation.finish()
+                } catch { continuation.finish(throwing: error) }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
     }
     func download(_ route: String) async throws -> URL {
-        let (file, response) = try await session.download(for: authorizedRequest(route))
+        if connection.isGoogleDrive { return try await googleTransport.download(route) }
+        let (file, response) = try await session.download(for: ServerRoute.shared.prepare(authorizedRequest(route), connection: connection))
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             try? FileManager.default.removeItem(at: file)
             throw APIError.status((response as? HTTPURLResponse)?.statusCode ?? 0)
@@ -142,13 +201,13 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
         let c = try JSONDecoder().decode(CompanionCapabilities.self, from: await request("capabilities"))
         guard c.version == 1 else { throw APIError.incompatible }; return c
     }
-    func submit(_ copy: BackgroundCopy, key: String? = nil) async throws -> CopyJob {
+    func submit(_ copy: BackgroundCopy, key: String? = nil, googleDrive: Connection? = nil) async throws -> CopyJob {
         let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
-        let canonical = BackgroundCopy(items: try copy.items.map(sourceLocation).sorted {
+        var canonical = BackgroundCopy(items: try copy.items.map(sourceLocation).sorted {
             $0.source == $1.source ? $0.path < $1.path : $0.source < $1.source
-        }, destination: try sourceLocation(copy.destination), operation: copy.operation, destinationName: copy.destinationName)
-        let body = try encoder.encode(canonical)
-        let identity = Data((connection.id.uuidString + (connection.companionURL?.absoluteString ?? "")).utf8) + body
+        }, destination: try sourceLocation(copy.destination), operation: copy.operation, destinationName: copy.destinationName, driveAccount: googleDrive?.googleAccountID ?? copy.driveAccount)
+        let identityBody = try encoder.encode(canonical)
+        let identity = Data((connection.id.uuidString + (connection.companionURL?.absoluteString ?? "")).utf8) + identityBody
         let hash = SHA256.hash(data: identity).map { String(format: "%02x", $0) }.joined()
         let directory = try (store?.directory ?? AppConfiguration.directory).appendingPathComponent("copy-submissions", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -158,6 +217,11 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
         let requestKey = saved ?? key ?? UUID().uuidString
         if saved == nil { try Data(requestKey.utf8).write(to: pending, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]) }
         do {
+            if let googleDrive {
+                let server = try await capabilities()
+                canonical.driveGrant = try await GoogleDriveDelegation.seal(account: googleDrive, server: server)
+            }
+            let body = try encoder.encode(canonical)
             let job = try JSONDecoder().decode(CopyJob.self, from: await workRequest("jobs", method: "POST", body: body, key: requestKey))
             try? FileManager.default.removeItem(at: pending)
             return job
@@ -196,16 +260,20 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
             return try await request(route, method: method, body: body, key: key)
         }
     }
-    func jobs() async throws -> [CopyJob] { try JSONDecoder().decode([CopyJob].self, from: await workRequest("jobs")) }
+    func jobs() async throws -> [CopyJob] {
+        let local = try JSONDecoder().decode([CopyJob].self, from: await workRequest("jobs"))
+        return local + (try await ClientTransferLinks.jobs(origin: connection, store: store))
+    }
     func trash(_ item: StoredItem) async throws {
         let location = try sourceLocation(CopyLocation(source: item.source, path: item.file.path))
         _ = try await request("trash", method: "POST", body: JSONEncoder().encode(location), key: UUID().uuidString)
     }
     func sourceLocation(_ location: CopyLocation) throws -> CopyLocation {
         guard location.source != "drive", location.source != "upload" else { return location }
+        if let owner = location.server, owner != connection.serverID { return location }
         let scope = try (store ?? SharedStore()).sourceScope(connection.id, source: location.source)
         return CopyLocation(source: location.source,
-                            path: try FilePath.inSource(location.path, scope: scope), name: location.name)
+                            path: try FilePath.inSource(location.path, scope: scope), name: location.name, server: location.server)
     }
     func trashEntries(source: String? = nil) async throws -> [TrashEntry] {
         try JSONDecoder().decode([TrashEntry].self, from: await request("trash", query: source.map { ["source": $0] } ?? [:]))

@@ -196,7 +196,8 @@ func (s *Service) filesystemResource(w http.ResponseWriter, r *http.Request) {
 		if entry.ArchiveRole == "archive" {
 			for _, link := range links {
 				if link.ID == entry.ArchiveLink {
-					entry.ArchiveLibrary = &ArchiveEndpoint{Source: link.Library.Source, Path: link.Library.Path, Available: link.Library.Available}
+					library := s.publicArchiveLink(link).Library
+					entry.ArchiveLibrary = &ArchiveEndpoint{ServerID: library.ServerID, Source: library.Source, Path: library.Path, Available: library.Available}
 					break
 				}
 			}
@@ -244,7 +245,12 @@ func (s *Service) filesystemResource(w http.ResponseWriter, r *http.Request) {
 			}
 			defer metadataRoot.Close()
 		}
-		children, e := f.ReadDir(-1)
+		var children []os.DirEntry
+		if s.config.Profile == "pi" {
+			children, e = boundedReadDir(f, piManifestLimit)
+		} else {
+			children, e = f.ReadDir(-1)
+		}
 		if e != nil {
 			filesystemFail(w, e)
 			return

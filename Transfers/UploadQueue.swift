@@ -243,6 +243,11 @@ final class UploadQueue: NSObject, ObservableObject, URLSessionTaskDelegate {
                     let data = try await client.request(route + record.session!)
                     let state = try JSONDecoder().decode(DriveUpload.self, from: data)
                     received = state.received; record.job = state.jobId
+                    if connection.isGoogleDrive, state.state == "completed" {
+                        remove(record)
+                        _ = try? await client.request(route + state.id + "/acknowledge", method: "POST")
+                        return
+                    }
                     if let job = state.jobId {
                         try save(record)
                         let status = try JSONDecoder().decode(CopyJob.self, from: await client.request("jobs/" + job))
@@ -312,7 +317,8 @@ final class UploadQueue: NSObject, ObservableObject, URLSessionTaskDelegate {
                 try? FileManager.default.removeItem(at: chunk)
             }
             let code = (task.response as? HTTPURLResponse)?.statusCode ?? 0
-            if error == nil && ((200..<300).contains(code) || code == 409) || records.first(where: { $0.id == id })?.cancelled == true {
+            let nativeDrive = (try? SharedStore().connections().first { $0.id == records.first(where: { $0.id == id })?.connection }?.isGoogleDrive) == true
+            if error == nil && ((200..<300).contains(code) || code == 409 || code == 308 && nativeDrive) || records.first(where: { $0.id == id })?.cancelled == true {
                 schedule(id)
             } else if var record = records.first(where: { $0.id == id }) {
                 record.failure = error?.localizedDescription ?? APIError.status(code).localizedDescription

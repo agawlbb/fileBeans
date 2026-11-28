@@ -48,6 +48,10 @@ func (s *Service) discoverDriveTree(parent context.Context, top DriveItem, conne
 						result.err = errors.New("Drive folder listing is incomplete")
 						break
 					}
+					if ctx.Value(peerInventoryKey{}) != nil && len(result.children)+len(list.Files) > piManifestLimit {
+						result.err = ErrUnsafe
+						break
+					}
 					result.children = append(result.children, list.Files...)
 					if list.Next == "" {
 						break
@@ -70,6 +74,9 @@ func (s *Service) discoverDriveTree(parent context.Context, top DriveItem, conne
 	seen := map[string]bool{}
 	makeNode := func(item DriveItem, path string) (*driveCopyNode, error) {
 		if !validName(item.Name) || !driveID(item.ID) {
+			return nil, ErrUnsafe
+		}
+		if ctx.Value(peerInventoryKey{}) != nil && len(seen) >= piManifestLimit {
 			return nil, ErrUnsafe
 		}
 		if seen[item.ID] {

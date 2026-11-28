@@ -115,6 +115,13 @@ func inventoryMove(ctx context.Context, root rootFS, base string, hash bool) ([]
 		if !st.IsDir() && !st.Mode().IsRegular() {
 			return ErrUnsafe
 		}
+		limit := 100000
+		if ctx.Value(peerInventoryKey{}) != nil {
+			limit = piManifestLimit
+		}
+		if len(entries) >= limit {
+			return ErrUnsafe
+		}
 		entry := MoveEntry{Path: relative, Directory: st.IsDir(), Version: version(st)}
 		if stat, ok := st.Sys().(*syscall.Stat_t); ok {
 			entry.Identity = fmt.Sprintf("%d:%d", stat.Dev, stat.Ino)
@@ -125,7 +132,7 @@ func inventoryMove(ctx context.Context, root rootFS, base string, hash bool) ([]
 			if e != nil {
 				return e
 			}
-			children, e := f.ReadDir(-1)
+			children, e := boundedReadDir(f, limit)
 			closeErr := f.Close()
 			if e != nil {
 				return e
@@ -191,6 +198,14 @@ type moveReader struct {
 func (r moveReader) Read(p []byte) (int, error) {
 	if err := r.ctx.Err(); err != nil {
 		return 0, err
+	}
+	if pace, ok := r.ctx.Value(piPaceKey{}).(func(context.Context, int) error); ok {
+		if len(p) > 256<<10 {
+			p = p[:256<<10]
+		}
+		if err := pace(r.ctx, len(p)); err != nil {
+			return 0, err
+		}
 	}
 	return r.reader.Read(p)
 }

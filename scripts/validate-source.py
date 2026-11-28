@@ -36,13 +36,15 @@ assert f"APPLE_TEAM_ID = {release['teamID']}" in configuration
 project = yaml.safe_load((root / 'project.yml').read_text())
 for path in root.glob('.github/workflows/*.yml'):
     workflow = yaml.safe_load(path.read_text())
-    assert workflow['permissions'] == {'contents': 'read'}, f'Unexpected workflow permissions: {path}'
+    expected_permissions = {'contents': 'read', 'actions': 'read'} if path.name == 'testflight.yml' else {'contents': 'read'}
+    assert workflow['permissions'] == expected_permissions, f'Unexpected workflow permissions: {path}'
     assert workflow.get('on', workflow.get(True)), f'Missing workflow triggers: {path}'
-assert set(project['targets']) == {'myFiles', 'QuantumFileProvider', 'FileBeansShare', 'myFilesTests'}
+assert set(project['targets']) == {'myFiles', 'QuantumFileProvider', 'FileBeansShare', 'myFilesTests', 'myFilesUITests'}
 for name, target in project['targets'].items():
     for source in target['sources']:
-        assert (root / source).exists(), f'Missing source directory: {source}'
-    if name != 'myFilesTests':
+        source_path = source['path'] if isinstance(source, dict) else source
+        assert (root / source_path).exists(), f'Missing source directory: {source_path}'
+    if not name.endswith('Tests'):
         info = plistlib.loads((root / target['settings']['base']['INFOPLIST_FILE']).read_bytes())
         assert info['AppGroup'] == '$(APP_GROUP)'
         assert info['KeychainGroup'] == '$(KEYCHAIN_GROUP)'
@@ -79,3 +81,9 @@ assert '$(KEYCHAIN_GROUP)' in share_entitlements['keychain-access-groups']
 assert 'App' not in share['sources']
 assert any(dep.get('target') == 'FileBeansShare' for dep in project['targets']['myFiles']['dependencies'])
 print('Passed Share extension embedding and vault-key isolation checks.')
+
+# Native Google account credentials belong to App/Share, not File Provider.
+assert app_info['GoogleKeychainGroup'] in app_entitlements['keychain-access-groups']
+assert app_info['GoogleKeychainGroup'] in share_entitlements['keychain-access-groups']
+assert app_info['GoogleKeychainGroup'] not in provider_entitlements['keychain-access-groups']
+print('Passed native Google credential / File Provider Keychain isolation checks.')

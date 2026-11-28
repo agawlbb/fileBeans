@@ -144,6 +144,28 @@ func (s *Service) executeDrive(ctx context.Context, j *Job) error {
 			}
 		}
 	}
+	if len(j.PeerPlan) > 0 {
+		for _, p := range j.PeerPlan {
+			current, e := s.peerSnapshot(ctx, p.Item)
+			if e != nil {
+				return e
+			}
+			if !samePeerFiles(p.Files, current) {
+				return ErrConflict
+			}
+		}
+		for _, f := range j.Manifest {
+			if !f.Directory {
+				m, e := s.driveMeta(ctx, f.TargetID, j.Connection)
+				if e != nil {
+					return e
+				}
+				if e = verifyPeerDriveFile(f, m); e != nil {
+					return e
+				}
+			}
+		}
+	}
 	for i := range j.Manifest {
 		f := &j.Manifest[i]
 		if filepath.Dir(f.To) != "." || contains(j.Published, f.To) {
@@ -305,6 +327,9 @@ func (s *Service) verifyCopySource(ctx context.Context, j *Job, f *File) error {
 		}
 		return nil
 	}
+	if s.peerFor(f.Source) != nil {
+		return s.verifyPeerFile(ctx, *f)
+	}
 	root, e := s.root(f.Source)
 	if e != nil {
 		return e
@@ -438,19 +463,22 @@ func (s *Service) uploadDriveFile(ctx context.Context, j *Job, f *File, metadata
 	if e = s.checkpoint(j); e != nil {
 		return e
 	}
-	root, e := s.root(f.Source)
-	if e != nil {
-		return e
+	var source *os.File
+	if s.peerFor(f.Source) == nil {
+		root, er := s.root(f.Source)
+		if er != nil {
+			return er
+		}
+		defer root.Close()
+		if er = safe(root, f.From); er != nil {
+			return er
+		}
+		source, er = root.Open(f.From)
+		if er != nil {
+			return er
+		}
+		defer source.Close()
 	}
-	defer root.Close()
-	if e = safe(root, f.From); e != nil {
-		return e
-	}
-	source, e := root.Open(f.From)
-	if e != nil {
-		return e
-	}
-	defer source.Close()
 	chunk := make([]byte, 4*1024*1024)
 	for f.Done < f.Size {
 		if ctx.Err() != nil {
@@ -463,7 +491,24 @@ func (s *Service) uploadDriveFile(ctx context.Context, j *Job, f *File, metadata
 			return e
 		}
 		length := min(int64(len(chunk)), f.Size-f.Done)
-		n, er := source.ReadAt(chunk[:length], f.Done)
+		var n int
+		var er error
+		if source != nil {
+			n, er = source.ReadAt(chunk[:length], f.Done)
+		} else {
+			for int64(n) < length {
+				data, e := s.readPeerChunk(ctx, *f, f.Done+int64(n), int(min(256<<10, length-int64(n))))
+				if e != nil {
+					er = e
+					break
+				}
+				if len(data) == 0 {
+					er = io.ErrUnexpectedEOF
+					break
+				}
+				n += copy(chunk[n:], data)
+			}
+		}
 		if er != nil && er != io.EOF {
 			return er
 		}

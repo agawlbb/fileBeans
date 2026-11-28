@@ -18,7 +18,7 @@ final class DriveBrowserModel: ObservableObject {
     private(set) var client: DriveClient?
     private var pages = 1
     func load(connection: Connection, folder: String, page: String = "", refreshLoaded: Bool = false) async {
-        guard !busy, connection.companionURL != nil else { return }
+        guard !busy, connection.isGoogleDrive || connection.companionURL != nil else { return }
         busy = true; defer { busy = false }
         do {
             if client?.transport.connection != connection {
@@ -315,37 +315,21 @@ struct DriveBrowser: View {
                                             excludedLocal: [], excludedDrive: Set(chosen.filter(\.folder).map(\.id))) { destination in
                         let items = chosen; let isCopy = copying; choosingDestination = false
                         Task {
-                            guard let client = model.client else { return }
                             let target: CopyLocation
-                            switch destination { case .local(let item): target = CopyLocation(source: item.source, path: item.file.path)
-                            case .drive(let item): target = CopyLocation(source: "drive", path: item.id, name: item.name) }
+                            switch destination.destination {
+                            case .local(let item): target = CopyLocation(source: item.source, path: item.file.path, name: item.file.name)
+                            case .drive(let item): target = CopyLocation(source: "drive", path: item.id, name: item.name)
+                            }
                             let ids = activity.begin(items.map { ActivityFile(source: "drive", path: $0.id, name: $0.name, folder: $0.folder) },
                                 connection: connection.id, operation: isCopy ? "copy" : "move", destination: target)
                             var failures: [String] = []
-                            if isCopy {
-                                do {
-                                    guard target.source == "drive" || !items.contains(where: \.nativeDocument) else { throw APIError.forbidden }
-                                    let job = try await client.transport.submit(BackgroundCopy(items: items.map { CopyLocation(source: "drive", path: $0.id, name: $0.name) }, destination: target))
-                                    activity.attach(job, ids: ids, connection: connection.id)
-                                } catch { activity.finish(ids); failures.append(error.localizedDescription) }
-                            } else if target.source != "drive" {
-                                do {
-                                    guard items.allSatisfy({ $0.canTrash && ($0.folder || $0.downloadable) }),
-                                          try await client.transport.capabilities().features?.contains("crossDriveMoves") == true else { throw APIError.forbidden }
-                                    let job = try await client.transport.submit(BackgroundCopy(items: items.map { CopyLocation(source: "drive", path: $0.id, name: $0.name) },
-                                        destination: target, operation: "move"))
-                                    activity.attach(job, ids: ids, connection: connection.id)
-                                } catch { activity.finish(ids); failures.append(error.localizedDescription) }
-                            } else {
-                                for (i,item) in items.enumerated() {
-                                    do {
-                                        guard case .drive(let folder) = destination else { throw APIError.forbidden }
-                                        try await client.mutate(DriveMutationRequest(action: "move", fileId: item.id, parent: folder.id, version: item.version))
-                                        model.files.removeAll { $0.id == item.id }
-                                    } catch { failures.append(item.name + ": " + error.localizedDescription) }
-                                    activity.finish([ids[i]])
-                                }
-                            }
+                            do {
+                                guard target.source == "drive" || !items.contains(where: \.nativeDocument) else { throw APIError.forbidden }
+                                let job = try await SourceTransfers.submit(origin: connection, destination: destination.connection,
+                                    copy: BackgroundCopy(items: items.map { CopyLocation(source: "drive", path: $0.id, name: $0.name) },
+                                        destination: target, operation: isCopy ? "copy" : "move"))
+                                activity.attach(job, ids: ids, connection: connection.id)
+                            } catch { activity.finish(ids); failures.append(error.localizedDescription) }
                             selected.removeAll(); selecting = false; await reload(refreshLoaded: true)
                             if !failures.isEmpty { model.error = failures.joined(separator: "\n") }
                         }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"io/fs"
 	"os"
@@ -20,6 +21,9 @@ func (s *Service) checkpoint(j *Job) error {
 	var saved Job
 	if e := s.read(j.ID, "copy", &saved); e != nil {
 		return e
+	}
+	if s.config.Profile == "pi" && !piHasHeadroom() {
+		return errPiPressure
 	}
 	if saved.Cancel {
 		return errCancelled
@@ -177,6 +181,10 @@ func (s *Service) discover(ctx context.Context, j *Job) error {
 	return nil
 }
 func (s *Service) runJob(ctx context.Context, j *Job) {
+	if s.config.Profile == "pi" {
+		s.piBulk.Lock()
+		defer s.piBulk.Unlock()
+	}
 	var preparationErr error
 	if j.Request.Operation == "move" && (j.Move == nil || !j.Move.Committed) {
 		j.State = "preparing"
@@ -195,6 +203,9 @@ func (s *Service) runJob(ctx context.Context, j *Job) {
 		defer lease.Close()
 	}
 	copyCtx, stop := context.WithCancel(ctx)
+	if s.config.Profile == "pi" {
+		copyCtx = context.WithValue(copyCtx, piPaceKey{}, s.piPace)
+	}
 	s.mu.Lock()
 	if s.copyCancels == nil {
 		s.copyCancels = make(map[string]context.CancelFunc)
@@ -266,11 +277,15 @@ func (s *Service) runJob(ctx context.Context, j *Job) {
 	// Failure to save leaves the previous recoverable state, never an invented success.
 	if s.save(j.ID, "copy", j.State, j) == nil && (j.State == "completed" || j.State == "cancelled") {
 		s.cleanupJobUploads(j)
+		s.removeNativeGoogle(j.Connection)
 	}
 }
 func (s *Service) execute(ctx context.Context, j *Job) error {
 	if e := s.guardArchiveJob(j.Request); e != nil {
 		return e
+	}
+	if s.crossPeer(j.Request) || strings.HasPrefix(j.Connection, "native:") || s.config.Profile == "pi" && j.Request.Operation != "move" {
+		return s.executePeer(ctx, j)
 	}
 	if j.Request.Operation == "move" {
 		return s.executeMove(ctx, j)

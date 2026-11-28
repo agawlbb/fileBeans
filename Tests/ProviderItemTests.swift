@@ -66,4 +66,12 @@ extension ProviderItemTests {
         XCTAssertNotEqual(before.metadataVersion, ProviderItem(stored).itemVersion.metadataVersion)
         XCTAssertEqual(before.contentVersion, ProviderItem(stored).itemVersion.contentVersion)
     }
+    func testArchiveErrorHidesInternalPeerCoordinatesAndUnknownPaths() {
+        var file = RemoteFile(name: "photo.jpg", path: "/pics/photo.jpg", type: "image/jpeg", archiveRole: "archive",
+                              archiveLibrary: ArchiveEndpoint(source: "peer:filebeans-vps:VPS", path: "/pics", available: true))
+        XCTAssertEqual(file.archiveWriteMessage, "Make changes in VPS /pics.")
+        file.archiveLibrary = ArchiveEndpoint(source: "peer:filebeans-vps:VPS", path: ".", available: false)
+        XCTAssertEqual(file.archiveWriteMessage, "Make changes in the linked folder on VPS.")
+    }
+
 }

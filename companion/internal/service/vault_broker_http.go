@@ -257,6 +257,14 @@ func (b *mountBroker) handler() http.Handler {
 		r.Body = http.MaxBytesReader(w, r.Body, 4096)
 		isGlobal := strings.HasPrefix(r.URL.Path, "/v1/protection/")
 		isLegacy := strings.HasPrefix(r.URL.Path, "/v1/vaults/") && protectionAction(r.URL.Path) != ""
+		if r.URL.Path == "/v1/protection-session" {
+			if uid != b.config.ControlUID {
+				fail(w, ErrAuthorization)
+				return
+			}
+			b.protectionSyncHTTP(w, r)
+			return
+		}
 		if r.Method == "POST" && (isGlobal || isLegacy) {
 			b.globalProtection(w, r)
 			return

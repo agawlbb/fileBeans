@@ -18,7 +18,10 @@ struct DriveConnectionSettings: View {
                     Task {
                         busy = true; defer { busy = false }
                         let client = DriveClient(connection: connection); defer { client.close() }
-                        do { openURL(try await client.connect()) }
+                        do {
+                            _ = try await GoogleDriveSignIn.shared.connect(existing: connection)
+                            await refresh()
+                        }
                         catch { self.error = error.localizedDescription }
                     }
                 }
@@ -58,6 +61,6 @@ struct DriveConnectionSettings: View {
             connected = capabilities.driveConnected
             writable = capabilities.driveWriteAccess == true
             loaded = true
-        } catch { self.error = error.localizedDescription }
+        } catch { connected = false; writable = false; loaded = true; self.error = error.localizedDescription }
     }
 }

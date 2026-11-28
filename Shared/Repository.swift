@@ -8,12 +8,14 @@ final class Repository {
     let store: SharedStore
     let fileProvider: Bool
     private var protectionAvailable = false
-    init(connection: Connection, store: SharedStore, token: String? = nil, fileProvider: Bool = false) throws {
+    init(connection: Connection, store: SharedStore, token: String? = nil, fileProvider: Bool = false,
+         configuration: URLSessionConfiguration = .ephemeral) throws {
+        guard !connection.isGoogleDrive else { throw APIError.incompatible }
         let connection = connection.unified
         self.fileProvider = fileProvider
         self.connection = connection; self.store = store
-        client = FilesystemClient(connection: connection, token: token)
-        companion = CompanionClient(connection: connection, credential: token, store: store)
+        client = FilesystemClient(connection: connection, token: token, configuration: configuration)
+        companion = CompanionClient(connection: connection, credential: token, configuration: configuration, store: store)
     }
     deinit { client.close(); companion?.close() }
     func refreshProtection() async {
@@ -213,7 +215,8 @@ final class Repository {
         throw APIError.incompatible
     }
     func delete(_ item: StoredItem) async throws {
-        try requireArchiveWritable(item)
+        // Archive flags can be stale after protection changes. The server's
+        // Trash endpoint checks the current boundary before any mutation.
         guard !item.isSource, item.permissions.delete else { throw APIError.forbidden }
         if let companion {
             guard !CompanionClient.protected(item.file.path) else { throw APIError.forbidden }

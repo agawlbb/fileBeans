@@ -2,6 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Connect to your FileBeans server on your local network.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>AppGroup</key>
 	<string>$(APP_GROUP)</string>
 	<key>CFBundleDisplayName</key>
@@ -39,5 +46,7 @@
 		<key>NSExtensionPrincipalClass</key>
 		<string>$(PRODUCT_MODULE_NAME).ShareViewController</string>
 	</dict>
+	<key>GoogleKeychainGroup</key>
+	<string>$(AppIdentifierPrefix)$(BUNDLE_ID_PREFIX).google</string>
 </dict>
 </plist>

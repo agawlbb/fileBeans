@@ -1,4 +1,93 @@
+## Source, delete and Pi-thumbnail corrections — TestFlight 57
+
+Build **0.1.0 (57)** was signed from runtime source `03ab502` on the isolated
+feature branch. Sources show one label, migrate the legacy default VPS name,
+and open a sole storage root directly. Deletion asks the server for current
+archive authorization rather than rejecting an ordinary file from stale cached
+metadata. Internal peer coordinates are removed from archive error text.
+
+[SDK validation 46097196522](https://github.com/agawlbb/fileBeans/actions/runs/46097196522)
+passed **171 unit tests and four UI tests**, with no retries/failures, on the
+larger Apple runner. Initial standard-runner validation 46095867937 had video
+playback/seek timeouts and a full-screen gesture failure; the source/delete
+regressions passed there too. No code was changed between the two validations.
+
+[Signed build 46095867823](https://github.com/agawlbb/fileBeans/actions/runs/46095867823)
+and [upload 46097745266](https://github.com/agawlbb/fileBeans/actions/runs/46097745266)
+verified the same IPA SHA-256
+`99561445dcd1e4b7b748be0fdcf6c62aeae8693fbfb354209965744c847df04b`,
+bundle `com.agawlbb.myfiles` and build 57. Upload reused the signed artifact,
+without rebuilding; temporary runner signing credentials were removed.
+Apple build `0b57b5b0-6da4-4990-bf99-0829aaee7d1c` is **VALID /
+IN_BETA_TESTING**, not expired, with automatic notification enabled. The existing
+Joe internal group still has access to all builds; no audience changes were made.
+The direct per-build beta-group listing endpoint returned 403 for the existing
+API role; app-level group configuration and build beta state were verified.
+
+The server release is deployed: VPS `filebeans-api:03ab502-fixes`, Pi HA app
+0.1.4. Full Go service regressions and vet pass against the actual runtime;
+all 34 top-level archive thumbnails and nine nested samples return HTTP 200.
+Pi generation stays disabled and no renderer packages were added. The archive
+link/ciphertext and existing 297 backup retries are preserved. See
+[PI-SERVER.md](PI-SERVER.md) for image identities, resource checks and cleanup.
+The signed artifact and both simulator result bundles were removed after
+verified delivery/results. No build/deployment remains pending. Source branches
+remain unmerged and shared default branches were not modified.
+
 # Signing and TestFlight
+
+## Independent sources TestFlight 55 — November 28, 2026
+
+Released **0.1.0 (55)** from isolated app source `79e42eb`. Saved sources are
+independent FileBeans servers or native Google Drive accounts; no Pi storage is
+automatically exposed through a VPS connection. Server/Drive copy and move jobs
+use sealed job authorization and server-side payload transfers. The existing
+VPS-library/Pi-originals archive relationship is preserved.
+
+[Apple validation 46089723836](https://github.com/agawlbb/fileBeans/actions/runs/46089723836)
+passed 165 unit tests and four UI gesture tests, all first attempts. Release checks
+fixed transfer-history storage injection and a full-screen video tap consumed by
+native controls; the same player remains attached. Static syntax/Keychain checks,
+the full Go service/SQLite suite and vet pass; VM MariaDB integration is skipped
+because no FileBeans test configuration exists.
+
+[Signed build 46089726152](https://github.com/agawlbb/fileBeans/actions/runs/46089726152)
+contains the supplied iOS OAuth ID, reversed callback and correctly expanded
+Google-only main/Share Keychain groups. [Upload 46090331733](https://github.com/agawlbb/fileBeans/actions/runs/46090331733)
+verified the exact IPA SHA-256
+`24f224c4c856ca984404a8c6dad0c8cdd7247fe6ce76adbeb93fca8f3b3fed7f`
+and uploaded it without rebuilding. Apple build
+`a4044cda-b2f3-4906-abfc-723cff65d469` is **VALID / IN_BETA_TESTING**, not expired,
+with automatic notification enabled. Existing audience remains unchanged. Temporary
+runner credentials were removed; permanent signing credentials are preserved.
+
+VPS API `filebeans-api:df59644-independent` and HA app 0.1.3 are deployed and
+verified. Own-root/own-vault isolation, cross-owner browse rejection, Pi LAN/public
+identity, preserved archive ciphertext, resource limits and HA health passed.
+Deployment staging, superseded API image, temporary Pi SSH access, VM exports,
+caches, contexts and disposable tools were removed. See [PI-SERVER.md](PI-SERVER.md)
+for image identities, retained permission-journal purpose and manual acceptance.
+No deployment or app build remains pending; all feature branches are unmerged.
+Device Google consent and migrated Pi protected/archive acceptance remain manual.
+
+## Pi trial TestFlight 54 — November 27, 2026
+
+Released **0.1.0 (54)**, built from isolated runtime source `ee576bd`, through
+[upload run 46055923673](https://github.com/agawlbb/fileBeans/actions/runs/46055923673).
+This reused the existing signed artifact from run 46044466696 without compiling
+again. SHA-256 `01e5a882e51dfb6ef976a6c0ebe5c5b5bdbbf95814f76a961a1a8a78041bd3bb`,
+bundle ID and build number were verified before upload. Apple build
+`7ddc3b48-519c-4a0a-b1b6-cc3f590a548b` is **VALID / IN_BETA_TESTING** with
+automatic notification enabled. Existing internal group Joe retains access to
+all builds; no audience changes were made. Runner credential cleanup passed.
+The app supplies local-first pinned HTTPS routing; Pi ownership cutover is still
+pending the archive-link decision described in [PI-SERVER.md](PI-SERVER.md).
+Feature source remains unmerged. Physical-device acceptance remains manual.
+
+For future retained-build releases, supply `operation=upload`, the explicit
+`build_number`, `signed_artifact_run` and `signed_artifact_sha256` to TestFlight.
+Selection validation rejects missing checksums and ambiguous build numbers; the
+upload fails if the downloaded IPA's hash, app identifier or build differ.
 
 ## Requested server deployment and TestFlight 41 — November 27, 2026
 
@@ -1926,3 +2015,413 @@ matched prepared source and live idempotent execution passed. No second reboot
 was performed after the fix. Broker/protected stack active, Samba child is CIFS,
 API anonymous capability endpoint 401, isolated media worker running, no failed
 systemd units. No image/mobile build, release, data migration or task staging.
+
+
+### Shared protection delivery — 2026-11-28
+
+VPS API `1ac7725` and Pi HA app 0.1.6 are deployed. The broker remains
+`1306507` (SHA-256 `8f3d6c6ba52358fc94935040521d639cb5055159c0f7c505c3dd49b39aafbf39`).
+Both authenticated public APIs report the same locked group and their own source
+scopes. One live Lock command through VPS confirmed both members locked.
+Owner Unlock and live shared-activity acceptance remain pending; no recovery key
+was accessed. The linked archive was preserved; Pi thumbnail generation stays off.
+
+Full Go service tests against the final runtime image, targeted synchronization
+race tests and service vet passed. Apple validation 46102198409 passed 177 unique
+unit tests and four UI tests; the existing HEVC seek test needed its configured
+retry. Signed build 46102198390 and exact-artifact upload 46102952077 delivered
+TestFlight 0.1.0 (59), source `755685b`, Apple build
+`0d9db3a1-66b8-4a97-ad11-e1cb4462d0e7`, VALID / IN_BETA_TESTING.
+IPA SHA-256: `f6961b0aa055f2f6450ed4d23180cf60c6c359b14ecebd9f0c406e8ed38af7db`.
+The final API retry-receipt fix changes no app source. Existing tester audience
+and auto-notification remain unchanged; build 58 was never uploaded.
+
+VM test/preparation containers, disposable API images, two bounded scratch
+filesystems and backing files, exported images, caches and temporary SSH key
+were removed. Pi private staging and VPS `.protection-sync` staging were removed;
+the temporary Pi key now fails authentication and original SSH options are
+restored. Superseded VPS API images and obsolete Pi registry manifests/blobs were
+removed after workload checks. All four task build/test workflow artifact lists
+are empty. Current operational images remain. The older Pi access journal
+`/share/.filebeans-access-62877acfd70fe72e.sqlite` remains solely for pending
+migrated archive backup/publication acceptance (A-025). Existing archive retries
+were preserved, not discarded. Feature branches remain unmerged; main untouched.
+
+
+### Missing VPS pictures repair — 2026-11-28
+
+Deployed VPS API/broker `e2e777a`. Native filesystem-consumer mounts now map
+ownership to the API control UID (1000), while legacy browser mounts retain
+reader ownership. This permits preserving timestamps without broadening API
+capabilities or changing stored ciphertext ownership.
+
+Publication prepares output timestamps before staging the visible original.
+Failure restores an otherwise-hidden original with no-overwrite rename; an
+interrupted publication receives one recovery attempt when it becomes visible
+to the worker after startup/unlock. Ordinary backoff remains in place.
+
+The deployed API recovered all 79 stranded originals before broker restart:
+visible files rose from 670 to 749, no unpublished output retained a hidden
+original, and all 79 original SHA-256 values matched visible-file readback.
+The broker correction is installed and healthy/locked. Its restart left a
+disconnected public FUSE bind; with API/broker stopped, both exact disconnected
+aliases were detached and the underlying marker device/inode matched the sealed
+registry before restart. Final state: VPS locked, Pi unlocked, group partial;
+owner Unlock is needed for live timestamp/publication acceptance. No recovery
+key was accessed. Existing linked archive records, queued jobs and retained
+originals are preserved; Pi HA 0.1.6, thumbnail suppression and TestFlight 59
+are unchanged. No app build is required for this repair.
+
+Focused publication/shared-protection race regressions and vet pass. A real
+isolated encrypted FUSE mount verified timestamp preservation as UID 1000.
+The full Go service suite passes against the exact repair runtime image.
+API image `filebeans-api:e2e777a-pics`, manifest
+`sha256:982e064bbd103a1d96a78a13e8153dea742782d7aa956818d617397bb52bbdb6`;
+transfer SHA-256 `9a8fb70d88dc5a8a8511dff3fc667025057fad567a38bf7ba332c32e8d77e1c5`.
+API binary SHA-256 `7a8d169221660856ed7442815ba3eae3134399cf5871a083d74a4f3182660d8b`;
+broker `b22bb207766b1febf510460ebed29ad01e7f6bbf1e7a4ab89236236bed6e61c8`.
+API 2 GiB/no-swap/128-PID limits remain; restart count zero/OOM false at initial
+cutover. All unrelated container identities/start times remain unchanged.
+
+VPS `.pics-repair` staging/rollback copies and superseded API image removed.
+VM preparation/test/FUSE containers, local image, two bounded scratch filesystems
+and backing files, contexts, caches, test tools, exports and temporary checksum
+comparisons removed. Shared builder stopped with its normal cache volume restored.
+The older A-025 Pi access journal remains for pending archive backup/publication
+acceptance; live archive staging is application data, not disposable task scratch.
+Feature worktrees remain unmerged and main untouched.
+
+
+Owner Unlock acceptance (2026-11-28): both APIs report unlocked/group unlocked.
+All 79 recovered files completed publication; all 79 visible timestamps match
+retained originals. Visible count remains 749; unpublished output count zero;
+all 377 staged originals remain retained for archive backup. Permission errors
+and attention problems cleared. The existing 298 Samba-unavailable backup retries
+remain separate; 79 newly published items await backup. Missing-picture repair
+is finished and verified; no further deployment or app build needed.
+
+
+### Pi archive backlog repair — 2026-11-28
+
+Finished and verified. VPS API `filebeans-api:83342fc-archive` is deployed,
+manifest `sha256:e446d25012527904794c94a0bfe16d469cc3fa0ae68ed87c4163e918d1661f33`,
+transfer SHA-256 `eb99dd0e00252b42b565d97660c113726c60f466b2d30766dd44390a71252d78`,
+binary SHA-256 `c3b38ff3334f89babc120066225a4b95564917bbd43fa6fd4998b31d63f98657`.
+Pi HA app 0.1.7 uses source `1a3a2a3`, manifest
+`sha256:ffb5e0f113758388f583484dafbc2d64afe482b3afa2ab6de34672b704fa0aca`;
+ARM64 API/broker SHA-256 values are
+`dd53b4df472c80cb4a1d65cfe59eb17e6d2b84e392951a2280754867638c218e` and
+`ddac8ed681f738fd671d69a23fc53348e8b88f787b15c248515ef8778c5f085c`.
+The VPS broker remains the earlier ownership-fixed `e2e777a` binary.
+
+Timestamp writes on Pi native protected mounts now succeed as API UID 1000.
+Peer permission failures retain their actual classification; matching originals
+are verified before retransmission. Alternate-extension conflicts are checked
+before upload, while genuinely missing parent directories remain supported.
+The full final service suite passes in the exact runtime image; focused archive,
+recovery and protection race regressions and vet pass.
+
+Of 377 retained inputs, 294 completed normal verified backup/confirmation and 83
+differing versions were preserved separately on Pi. These job inputs may already
+be encoded derivatives; they are not assumed to be master originals. The scoped
+maintenance plan also cleared 92 unchanged, unstarted discovery intents whose
+archive counterparts already existed. Both servers now report zero pending work
+and zero problems after normal processing resumed; VPS visible files remain 749,
+VPS retained input count is zero, and the audited Pi canonical inventory remains
+749 with no removed entries. Existing canonical Pi originals were not overwritten.
+Original link ciphertext remains SHA-256
+`e628005f4682156549021c8de491a78bb397ebd045de6fe5d49a0ba5354107fd`.
+
+The 83 retained user versions total 1,505,441,079 bytes in the protected Pi vault:
+`/share/fileBeans/pics/.filebeans-stage/archive-recovery/<job-id>/`.
+`index-20261128.json` lists exact recovery filenames, sizes and SHA-256 values;
+per-job `details.json` records the canonical original and visible library path.
+All copied bytes and metadata were read back before releasing VPS retention.
+These are user recovery data, not task scratch; preserve until owner review or
+an explicit restore/discard decision. Thumbnail generation remains suppressed
+on Pi; no video/PDF tools or Apple build were added. TestFlight remains build 59.
+
+API 2 GiB/no-swap/128-PID limits and Pi 512 MiB/no-swap/one-CPU/128-PID startup
+controls remain. HA stayed healthy during transfer (Core about 0.6–1.95% CPU,
+about 0.78–0.81 GiB in representative samples). Unrelated VPS containers and the
+media worker were unchanged. Both servers are unlocked with independent scopes;
+anonymous protection requests still return 401.
+
+Cleanup verified: exact VPS `.archive-reconcile` staging and drain absent;
+superseded API images and old Pi registry manifests/unreferenced blobs removed;
+current registry has 17 blobs / 138,906,448 bytes. VM five task containers, three
+loaded API tags, bounded scratch filesystems/backings, contexts, tools, caches,
+exports, audit data and temporary SSH control files removed. Shared builder is
+stopped with its normal state volume restored. Temporary Pi key now fails
+public-key authentication; original SSH options restored. Pi manifest staging
+and the old A-025 permission journal were removed after archive acceptance.
+The sole newly retained data are the user recovery versions (A-029). Feature
+branches remain pushed/unmerged and shared main checkouts untouched.
+
+
+### Archive provenance investigation — 2026-11-28
+
+This corrects the interpretation of the backlog repair above. An empty queue did
+not establish that admission was correct. Its retained inputs were not a list of
+missing Pi masters, and the recovery metadata's generic “bytes differ” reason is
+incorrect for 30 entries. No production files, configuration, jobs, locks or
+service versions were changed during this investigation.
+
+Evidence: the protected recovery catalog and all 83 details records; fresh
+on-Pi SHA-256 reads of all 59 canonical counterparts (metadata only across the
+network); all 743 surviving normalization records; and the existing scheduled
+VPS backup `055cf07d` from 2026-11-28 06:34:22 UTC. The backup SQL was streamed
+through resource-limited read-only containers, never restored or imported into
+any database. It recovered 381 archive-task records, including every recovery
+ID: 298 ingest/backup, 79 ingest/waiting and four directory tasks. One other
+historical plaintext task was omitted by the ordinary protected-record decoder;
+it was not needed for these counts or the 83-file classification.
+
+| Recovery entries | Canonical paths | Proven version |
+| ---: | ---: | --- |
+| 30 | 15 | Byte-identical to the Pi master and an earlier normalization output; filenames/extensions differ. |
+| 32 | 26 | Exact earlier normalization JPEG outputs, differing from the Pi masters. |
+| 2 | 1 | The same existing VPS `NPool.jpg` bytes retained by two jobs; the Pi counterpart is `NPool.png`. No surviving record establishes the earlier generating job. |
+| 19 | 17 | Exact inputs to the historical VPS archive jobs, differing from the Pi masters. Two paths have two distinct processing generations. The earlier production of every first-generation video input is not established. |
+
+These total 83 entries, 59 canonical paths, 61 distinct retained SHA-256 values
+and 1,505,441,079 bytes. Twenty-four paths have two recovery entries; 22 of those
+pairs are duplicate bytes. Every counterpart hash request succeeded. This
+comparison checks identity between versions; it does not expect a deliberately
+encoded VPS derivative to match its Pi master.
+
+The raw inputs were on VPS at
+`/folder/pics/.filebeans-stage/archive-sync/<job-id>/original`. The worker creates
+that path by renaming the then-visible VPS file there before publishing the next
+output. Thus “original” means input to that job, potentially an earlier VPS
+output. It is not an assertion of camera/master provenance. The later repair
+copied these retained inputs into Pi's hidden recovery area; that transfer was
+not required to reconstruct the already-present canonical master library.
+
+Recovered chronology, UTC:
+
+- 295 of the 298 retained backup jobs were created on November 27 between
+  23:19:57.686902 and 23:21:12.283930. Their inputs include 276 exact earlier
+  normalization outputs across the full retained cohort. The transfer history
+  has no corresponding bulk-library copy; the six known later additions do not
+  explain this cohort. Creation records do not record the admission caller.
+- The remaining three backup jobs were created November 27 at 21:26 and 22:21,
+  and November 28 at 02:28. All three concern the same video path.
+- At 03:19 on November 28, 79 waiting ingests and four directory tasks were added.
+  All 79 ingests match an earlier backup job's path and inode number. In every
+  case the mount-device component changed from 87 to 86. Seventy-eight also have
+  identical size/mtime versions; the remaining `NReading.mp4` changed from
+  8,186,352 to 8,186,360 bytes while retaining its mtime. Twenty-three of these
+  waiting jobs later contributed recovery entries; 60 entries came from the
+  older backup cohort.
+
+An exact generation chain survives for
+`V/Fake/BA663276-516B-41A5-BC94-DB1CADF4D021.mp4`:
+
+1. Job `9f847129fd8b13825b1c14fcec3f40c4` at 21:26 consumed SHA-256
+   `226618003f1d624e6e0335829244c46298f0cdad204af59f3b02ef2dd3b07eeb`,
+   which matches the current Pi master, and produced `45a42b13540675c5...`.
+2. Job `a02795996d43e2651c0d5c2298a00198` at 22:21 consumed that exact output
+   and produced `72248eb4f2b28685...`.
+3. Job `305a010431fb68a00d2211befaa2c186` at 02:28 consumed that second output;
+   its own output hash is unchanged. The two recovery entries hold generations
+   one and two, not two missing masters. Changed container hashes alone do not
+   establish lossy re-encoding; the video plan can remux existing HEVC streams.
+
+Two admission defects were reproduced using only synthetic VM files, isolated
+SQLite databases and TLS peers:
+
+- `archiveAdded` deduplicates a live job by path plus device/inode identity. A
+  device-only change admits another job for the same path, inode, size and mtime.
+  This matches all 79 historical remount duplicates. The key is not a durable
+  content/generation identity across FUSE remounts.
+- If the archive path disappears after the names inventory in an already-started
+  discovery scan, matching returns missing and the scan admits the existing
+  library file. Restoring the counterpart leaves that intent queued. Waiting
+  ingest does not revalidate an existing baseline pairing before processing.
+  The synthetic reproduction models lost visibility; it does not prove which
+  production event caused the first false-missing observation.
+
+The separate native-owner/timestamp-publication defect explains why those later
+jobs could hide 79 visible VPS inputs on failure. Its deployed recovery fixed
+that publication failure, not admission. The sender's alternate-extension
+conflict check also does not compare bytes at the matched alternate path;
+classifying all such conflicts as differing content caused the 30 false recovery
+classifications.
+
+Remaining uncertainty is specific: neither retained task schema nor the disabled
+API request logging identifies the caller and remote vault generation for the
+first bulk admission. Historical broker journal inspection supplied no relevant
+mount event. Therefore a production lock/visibility race is a reproduced failure
+mode, not a proven historical initiating event. The previous blanket assertion
+that the 83 files were distinct originals needing transfer was unsupported.
+Admission and generation reconciliation remain unfixed; no new server deployment
+or Apple build/release was performed. Feature source remains unmerged.
+
+
+### Filename-based archive admission correction — 2026-11-28
+
+Source correction on the existing Pi feature branch; deployment remains pending.
+File intents are deduplicated by linked relative filename/stem across extension
+changes. Directory intents are deduplicated by relative directory name. Neither
+admission key includes mount device, inode, byte length or modification time;
+legacy queued records are also found by filename rather than their old key.
+
+Before processing a waiting ingest, the worker checks for its existing archive
+counterpart by filename, allowing deliberate encoding/extension differences.
+An existing counterpart retires only an unstarted intent with no processing
+stage. An interrupted stage remains retained for explicit reconciliation. A
+locked, parked or unavailable archive pauses processing instead of being treated
+as a set of missing originals. The peer performs the protected-root validation
+and filename lookup within one broker lease. Uploads can remain visible/waiting
+while the archive is unavailable; they are not encoded on an unverified absence.
+
+Eight new remount, extension, baseline, visibility, offline, retention and
+request-budget regressions pass. The full service and protection suites pass using the existing
+VM FFmpeg 7.1.5 tools and checksum-pinned rclone 1.76.0. Focused admission/guard
+race checks and service/protection vet pass. No client source changes or Apple
+build are needed. The ongoing full Pi original-hash verification and recovery
+copy disposition will be recorded separately after their results are known.
+
+
+Filename-inventory refinement: discovery now keeps its successful archive names
+snapshot and skips already-paired names directly. It does not re-query every
+known original after the snapshot, so a later lock cannot turn that known
+baseline into new-file intents. Only previously unknown names need a further
+atomic match before admission. The peer validates the expected protected root
+inside the names-inventory lease too. The request-budget regression proves one
+archive names request and zero per-file matches for an unchanged baseline.
+The final full service/protection suites, focused race checks and vet pass.
+
+
+### Master-integrity and VPS quality checks — 2026-11-28
+
+The owner stopped the remaining large-file checksum reads and explicitly accepted
+those files as originals. Actual completed results: **740 of 749 Pi masters**
+match their recorded original SHA-256 values, with stable size/mtime through each
+read, **zero mismatches**, and 26,795,190,510 bytes checked locally on Pi. The
+remaining **nine files / 18,359,766,411 bytes are assumed originals**, not reported
+as checksum-verified. Partial-result SHA-256:
+`80c2ab1820264d0528e66f3f290344ab0fab1e69022651970802b1323bfe7d8a`.
+
+All **59 canonical masters corresponding to the 83 recovery entries** passed the
+original-byte comparison. The comparison used original Drive-import checksums
+for the established 742-file baseline (upstream Drive SHA-256 where available,
+otherwise the recorded original-download SHA-256), plus original move receipts
+for six later additions and the first original-input receipt for the seventh.
+Every normalization provenance record is a Drive import; none of its recorded
+input hashes contradict an available upstream hash. The read-only laptop
+reference inventory agrees with original sizes; four extension-only name
+changes are accounted for. Its additional cancelled-import PNG was outside the
+established 742-file paired library. The master check did not recopy the library
+or compare deliberately encoded VPS bytes against Pi originals.
+
+VPS quality evidence:
+
+- All **402 current images** match their recorded original/first-encoded bytes:
+  399 baseline normalized outputs and the three later image additions. No extra
+  image compression was found.
+- All **347 videos** were inspected locally on VPS without encoding. The 343
+  baseline videos retain the approved independent queue's CRF-22 x265 headers;
+  the four later additions use CRF-18. The archive's lossy encoder uses CRF-18,
+  so the baseline headers do not show an additional archive-encoder generation.
+  The 194 older normalization video-output hashes predate the deliberate
+  independent re-encoding and are not the later CRF-22 reference outputs.
+- Six retained recovery versions small enough for the existing private read API
+  were checked by SHA-256 and compared against current VPS compressed audio/video
+  payload hashes. All six match, including both retained generations of the
+  repeatedly processed `BA663276-516B-41A5-BC94-DB1CADF4D021.mp4`. Those passes
+  changed/remuxed containers without changing the encoded audio/video payloads.
+- Direct payload comparison was not performed for the larger hidden recovery
+  files, including the two `NReading.mp4` versions; the existing private read is
+  capped at 2 MiB. NReading's whole-file difference is eight bytes. Read-only
+  container-metadata experiments did not reproduce the earlier whole-file hash;
+  no byte-level reconstruction or complete historical payload proof is claimed.
+  Its known initial output is compatible with the stream-copy plan. No additional
+  lossy pass was demonstrated. No user media was altered by these checks.
+
+Runtime correction is `96f88d4` plus inventory refinement `9bbd02c`, tested on the
+isolated feature branch. Full service/protection suites, focused races, vet and
+Linux/ARM64 server compilation pass with VM FFmpeg 7.1.5 and pinned rclone 1.76.0.
+The source is pushed and unmerged. Deployment and permanent recovery-copy deletion
+were separately presented for explicit approval and remain pending; no server
+image, mobile build, release, master file or recovery copy was changed. Live API
+83342fc and Pi 0.1.7 both reported zero queued work/problems. HA remained healthy
+and supported; observed FileBeans RAM about 88–111 MiB, CPU about 19–23% in
+Supervisor's aggregate display, with existing pacing and limits unchanged.
+
+
+Cleanup verified after the owner stopped the audit: VPS verifier container and
+exact `/opt/services/filebeans/.archive-name-audit` staging are absent. VM
+`filebeans-archive-name-fix` container, `.build/archive-name-fix` loop filesystem,
+backing file, prepared audit binaries, copied media runtime, toolchain, dependency
+and compiler/test caches and raw diagnostic outputs were removed. Existing
+read-only original-reference mount, user masters, all 83 A-029 recovery copies,
+configured images and shared development tools were preserved. VM disk headroom
+114 GiB / available RAM about 2.8 GiB; VPS disk headroom 28 GiB / available RAM
+about 5.9 GiB. No deployment, mobile build or merge occurred.
+
+
+## Filename pairing deployment and redundant-copy removal — November 28, 2026
+
+Owner explicitly authorized server deployment and deletion of the redundant copies.
+VPS now runs `filebeans-api:df5115d-filename`, manifest
+`sha256:1248d6f7a152538cb2a922a32ae9d4edecd8506982a47592a30f6568df2469c6`,
+API SHA-256 `7fed8192dd4a26e83540b7a1feb0c4ceb7ba574ef73f17f13644ad2dd402bc4f`.
+The VM-built transfer SHA-256 was
+`9b9bca0f61ae624b4b0c5300825848b71ac8409e904573d9a243083c095c7009`.
+Pi app 0.1.8 is installed/started, manifest
+`sha256:8a0b782713045c539bf74c486e65e95d444d3bed43f981f268e32d26a9d85a5a`,
+API SHA-256 `f5aec1333f0b324871d3f500f82761586e734e767e3956c3139cc27e47549845`.
+It reuses the 0.1.7 runtime, broker and tools. Four superseded binary-only layers
+were validated by their exact tar members and omitted from the prepared OCI image;
+current registry is 14 blobs / 117,616,455 bytes, below its 128 MiB packaging cap.
+The pinned Caddy manifest route was updated after the initial pull returned 404;
+Supervisor update succeeded after the exact manifest was served and verified.
+Pi rendering remains disabled, without new video/PDF tools. API limits remain
+2 GiB/no swap/128 PIDs; Pi startup confirms 512 MiB/no swap/one CPU/128 processes.
+Supervisor is healthy/supported; Pi app used 16,896,000 bytes at 1.39% CPU,
+HA Core 829,181,952 bytes at 3.49% CPU. The release-41 media worker is unchanged.
+
+Before restarting Pi, the exact recovery catalog was validated: 83 distinct job
+copies, 1,505,441,079 bytes, 59 canonical paths. Every copy size and details record
+matched; each canonical master still had its recorded size/timestamp. Only the
+83 catalogued files, their details.json files, empty job directories, index and
+empty `pics/.filebeans-stage/archive-recovery` root were removed with individual
+remove calls. All 59 masters still stat successfully afterward; the visible Pi
+inventory remained 749 and recovery-root stat returned missing. No new full-media
+hashing or transfer was performed. The nine previously unverified masters remain
+accepted as original at the owner's instruction. Archive-link ciphertext remains
+`e628005f4682156549021c8de491a78bb397ebd045de6fe5d49a0ba5354107fd`.
+
+Both public APIs respond with their independent server IDs/scopes. VPS has zero
+restarts/OOM events. Pi restart locked its protected folders; VPS is still unlocked.
+At this restart boundary 174 pending work entries appeared (173 waiting and one
+change), with zero pending originals/problems. Deployment drain remains installed
+at `/opt/services/filebeans/media-runtime/drain`: no encoder child was running.
+Owner Unlock has been requested. Final acceptance must verify the filename guard
+retires existing-counterpart waits, remove drain, then confirm quiet queues and
+749 masters. Do not declare archive acceptance complete while this remains pending.
+
+Superseded VPS 83342fc image, old Pi manifests/five unreferenced registry blobs,
+image transfers and operation-local config copies were removed. Temporary Pi SSH
+options were restored, app restarted and task-key authentication confirmed denied;
+private control files removed. VM preparation container, exports, SDK/caches and
+`.build/archive-filename-deploy` plus both bounded filesystems/backings are absent;
+shared builder state restored and worker stopped. VM has 114 GiB free and 3599 MiB
+available RAM. Pending live check alone retains the bounded VPS filesystem
+`/opt/services/filebeans/.filename-deploy` and backing `.filename-deploy.ext4`,
+containing only the 9,228,482-byte prepared read-only status helper plus lost+found.
+Remove that helper, mount/backing and drain after successful owner-unlock acceptance.
+All feature branches remain unmerged; no mobile build/release was requested or run.
+
+
+Owner-unlock acceptance completed November 28, 2026: both servers report unlocked
+with the shared group unlocked. Deployment drain was removed; all 174 restart-boundary
+pending entries cleared through normal processing. Both servers now report zero
+pending originals, changes, work and problems. Pi visible media inventory remains
+749 and recovery-root stat returns missing. The media worker has only its normal
+init/server processes, with no encoder child. The prepared status helper, bounded
+VPS `.filename-deploy` mount and `.filename-deploy.ext4` backing were removed;
+all exact staging paths and deployment drain checked absent. Deployment and
+redundant-copy deletion are finished and verified; no mobile build is needed.

@@ -1,3 +1,39 @@
+## VPS/Pi synchronized session
+
+The explicitly configured VPS/Pi group uses one Lock/Unlock command and one
+hour of inactivity across protected file activity on either server. The broker
+retains enforcement when the client closes or the API is unavailable. A ten-second
+coordination allowance accommodates the existing five-second watcher/poll cadence.
+Directory polling, peer status/heartbeats and private cache activity do not reset
+the deadline; imported activity is never re-exported as local activity.
+
+Both APIs configure `protectionSync` with matching `group`, their local `name`,
+the existing `peer` ID, `peerName`, and a separate shared `key`. Addresses/TLS
+pins stay in existing peer configuration. Both brokers configure the same group
+and their own `server` and `peer` IDs, without any network credential. Settings
+shows one Protected folders control and per-member status when mixed. Other
+server groups and file browsing remain independent.
+
+Commands work through either server. Local access remains available when the
+peer is unreachable. An offline/restarted member stays locked until another
+explicit Unlock; no recovery key or unlock retry is stored. Lock generations,
+acknowledgments and bounded command IDs are durably stored in the broker's private
+`protection-session.json`; pending locks reconcile on reconnect, and a newer lock
+rejects stale unlocks. Busy mounts retain pending lock intent for broker retry.
+The API stores bounded, key-free command receipts in `protection-receipts.json`
+under its private state directory. These pin transport retries to the original
+member boots and lock generations, so a lost reply cannot turn an old Unlock
+into a fresh one after Lock or restart. Receipts are never executable work or
+a source of unlock keys; no background unlock retry exists.
+
+Public `/v1/protection` and lock/unlock routes preserve local `state` and add
+`group`, `groupState`, and `members` (server ID, name, state, error). Legacy vault
+commands coordinate the group while retaining their list response. The private
+peer route requires the separate group credential and configured member/group;
+normal API and archive credentials do not authorize it. Internal snapshots carry
+local activity sequence/age and effective session age, without paths or keys.
+API and broker builds must both be updated before enabling the group configuration.
+
 # Experimental protected folders
 
 fileBeans uses gocryptfs vault controls in the companion and iOS app.
@@ -377,3 +413,145 @@ the Share extension receives the encryption key or can unlock folders.
 Eviction can fail for open files or unsynced edits. Locking cannot revoke copies
 already delivered to Apple Files or another application. This behavior needs an
 explicitly requested Apple build and real-device acceptance; it is not yet deployed.
+
+
+### Shared protection delivery — 2026-11-28
+
+VPS API `1ac7725` and Pi HA app 0.1.6 are deployed. The broker remains
+`1306507` (SHA-256 `8f3d6c6ba52358fc94935040521d639cb5055159c0f7c505c3dd49b39aafbf39`).
+Both authenticated public APIs report the same locked group and their own source
+scopes. One live Lock command through VPS confirmed both members locked.
+Owner Unlock and live shared-activity acceptance remain pending; no recovery key
+was accessed. The linked archive was preserved; Pi thumbnail generation stays off.
+
+Full Go service tests against the final runtime image, targeted synchronization
+race tests and service vet passed. Apple validation 46102198409 passed 177 unique
+unit tests and four UI tests; the existing HEVC seek test needed its configured
+retry. Signed build 46102198390 and exact-artifact upload 46102952077 delivered
+TestFlight 0.1.0 (59), source `755685b`, Apple build
+`0d9db3a1-66b8-4a97-ad11-e1cb4462d0e7`, VALID / IN_BETA_TESTING.
+IPA SHA-256: `f6961b0aa055f2f6450ed4d23180cf60c6c359b14ecebd9f0c406e8ed38af7db`.
+The final API retry-receipt fix changes no app source. Existing tester audience
+and auto-notification remain unchanged; build 58 was never uploaded.
+
+VM test/preparation containers, disposable API images, two bounded scratch
+filesystems and backing files, exported images, caches and temporary SSH key
+were removed. Pi private staging and VPS `.protection-sync` staging were removed;
+the temporary Pi key now fails authentication and original SSH options are
+restored. Superseded VPS API images and obsolete Pi registry manifests/blobs were
+removed after workload checks. All four task build/test workflow artifact lists
+are empty. Current operational images remain. The older Pi access journal
+`/share/.filebeans-access-62877acfd70fe72e.sqlite` remains solely for pending
+migrated archive backup/publication acceptance (A-025). Existing archive retries
+were preserved, not discarded. Feature branches remain unmerged; main untouched.
+
+
+### Missing VPS pictures repair — 2026-11-28
+
+Deployed VPS API/broker `e2e777a`. Native filesystem-consumer mounts now map
+ownership to the API control UID (1000), while legacy browser mounts retain
+reader ownership. This permits preserving timestamps without broadening API
+capabilities or changing stored ciphertext ownership.
+
+Publication prepares output timestamps before staging the visible original.
+Failure restores an otherwise-hidden original with no-overwrite rename; an
+interrupted publication receives one recovery attempt when it becomes visible
+to the worker after startup/unlock. Ordinary backoff remains in place.
+
+The deployed API recovered all 79 stranded originals before broker restart:
+visible files rose from 670 to 749, no unpublished output retained a hidden
+original, and all 79 original SHA-256 values matched visible-file readback.
+The broker correction is installed and healthy/locked. Its restart left a
+disconnected public FUSE bind; with API/broker stopped, both exact disconnected
+aliases were detached and the underlying marker device/inode matched the sealed
+registry before restart. Final state: VPS locked, Pi unlocked, group partial;
+owner Unlock is needed for live timestamp/publication acceptance. No recovery
+key was accessed. Existing linked archive records, queued jobs and retained
+originals are preserved; Pi HA 0.1.6, thumbnail suppression and TestFlight 59
+are unchanged. No app build is required for this repair.
+
+Focused publication/shared-protection race regressions and vet pass. A real
+isolated encrypted FUSE mount verified timestamp preservation as UID 1000.
+The full Go service suite passes against the exact repair runtime image.
+API image `filebeans-api:e2e777a-pics`, manifest
+`sha256:982e064bbd103a1d96a78a13e8153dea742782d7aa956818d617397bb52bbdb6`;
+transfer SHA-256 `9a8fb70d88dc5a8a8511dff3fc667025057fad567a38bf7ba332c32e8d77e1c5`.
+API binary SHA-256 `7a8d169221660856ed7442815ba3eae3134399cf5871a083d74a4f3182660d8b`;
+broker `b22bb207766b1febf510460ebed29ad01e7f6bbf1e7a4ab89236236bed6e61c8`.
+API 2 GiB/no-swap/128-PID limits remain; restart count zero/OOM false at initial
+cutover. All unrelated container identities/start times remain unchanged.
+
+VPS `.pics-repair` staging/rollback copies and superseded API image removed.
+VM preparation/test/FUSE containers, local image, two bounded scratch filesystems
+and backing files, contexts, caches, test tools, exports and temporary checksum
+comparisons removed. Shared builder stopped with its normal cache volume restored.
+The older A-025 Pi access journal remains for pending archive backup/publication
+acceptance; live archive staging is application data, not disposable task scratch.
+Feature worktrees remain unmerged and main untouched.
+
+
+Owner Unlock acceptance (2026-11-28): both APIs report unlocked/group unlocked.
+All 79 recovered files completed publication; all 79 visible timestamps match
+retained originals. Visible count remains 749; unpublished output count zero;
+all 377 staged originals remain retained for archive backup. Permission errors
+and attention problems cleared. The existing 298 Samba-unavailable backup retries
+remain separate; 79 newly published items await backup. Missing-picture repair
+is finished and verified; no further deployment or app build needed.
+
+
+### Pi archive backlog repair — 2026-11-28
+
+Finished and verified. VPS API `filebeans-api:83342fc-archive` is deployed,
+manifest `sha256:e446d25012527904794c94a0bfe16d469cc3fa0ae68ed87c4163e918d1661f33`,
+transfer SHA-256 `eb99dd0e00252b42b565d97660c113726c60f466b2d30766dd44390a71252d78`,
+binary SHA-256 `c3b38ff3334f89babc120066225a4b95564917bbd43fa6fd4998b31d63f98657`.
+Pi HA app 0.1.7 uses source `1a3a2a3`, manifest
+`sha256:ffb5e0f113758388f583484dafbc2d64afe482b3afa2ab6de34672b704fa0aca`;
+ARM64 API/broker SHA-256 values are
+`dd53b4df472c80cb4a1d65cfe59eb17e6d2b84e392951a2280754867638c218e` and
+`ddac8ed681f738fd671d69a23fc53348e8b88f787b15c248515ef8778c5f085c`.
+The VPS broker remains the earlier ownership-fixed `e2e777a` binary.
+
+Timestamp writes on Pi native protected mounts now succeed as API UID 1000.
+Peer permission failures retain their actual classification; matching originals
+are verified before retransmission. Alternate-extension conflicts are checked
+before upload, while genuinely missing parent directories remain supported.
+The full final service suite passes in the exact runtime image; focused archive,
+recovery and protection race regressions and vet pass.
+
+Of 377 retained inputs, 294 completed normal verified backup/confirmation and 83
+differing versions were preserved separately on Pi. These job inputs may already
+be encoded derivatives; they are not assumed to be master originals. The scoped
+maintenance plan also cleared 92 unchanged, unstarted discovery intents whose
+archive counterparts already existed. Both servers now report zero pending work
+and zero problems after normal processing resumed; VPS visible files remain 749,
+VPS retained input count is zero, and the audited Pi canonical inventory remains
+749 with no removed entries. Existing canonical Pi originals were not overwritten.
+Original link ciphertext remains SHA-256
+`e628005f4682156549021c8de491a78bb397ebd045de6fe5d49a0ba5354107fd`.
+
+The 83 retained user versions total 1,505,441,079 bytes in the protected Pi vault:
+`/share/fileBeans/pics/.filebeans-stage/archive-recovery/<job-id>/`.
+`index-20261128.json` lists exact recovery filenames, sizes and SHA-256 values;
+per-job `details.json` records the canonical original and visible library path.
+All copied bytes and metadata were read back before releasing VPS retention.
+These are user recovery data, not task scratch; preserve until owner review or
+an explicit restore/discard decision. Thumbnail generation remains suppressed
+on Pi; no video/PDF tools or Apple build were added. TestFlight remains build 59.
+
+API 2 GiB/no-swap/128-PID limits and Pi 512 MiB/no-swap/one-CPU/128-PID startup
+controls remain. HA stayed healthy during transfer (Core about 0.6–1.95% CPU,
+about 798–813 MiB in the observed samples). Unrelated VPS containers and the
+media worker were unchanged. Both servers are unlocked with independent scopes;
+anonymous protection requests still return 401.
+
+Cleanup verified: exact VPS `.archive-reconcile` staging and drain absent;
+superseded API images and old Pi registry manifests/unreferenced blobs removed;
+current registry has 17 blobs / 138,906,448 bytes. VM five task containers, three
+loaded API tags, bounded scratch filesystems/backings, contexts, tools, caches,
+exports, audit data and temporary SSH control files removed. Shared builder is
+stopped with its normal state volume restored. Temporary Pi key now fails
+public-key authentication; original SSH options restored. Pi manifest staging
+and the old A-025 permission journal were removed after archive acceptance.
+The sole newly retained data are the user recovery versions (A-029). Feature
+branches remain pushed/unmerged and shared main checkouts untouched.

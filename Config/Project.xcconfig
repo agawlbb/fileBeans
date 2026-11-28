@@ -1,5 +1,8 @@
 // Public app identifiers; credentials belong in Keychain/GitHub environment secrets.
 APPLE_TEAM_ID = FKR675M7PM
 BUNDLE_ID_PREFIX = com.agawlbb.myfiles
+// Public native OAuth registration. The release check requires a real iOS client.
+GOOGLE_IOS_CLIENT_ID = 621834025585-rp0fv3eijeii91pp0ppi7qnebpacufif.apps.googleusercontent.com
+GOOGLE_IOS_REVERSED_CLIENT_ID = com.googleusercontent.apps.621834025585-rp0fv3eijeii91pp0ppi7qnebpacufif
 // Override locally or through explicit xcodebuild settings.
 #include? "Local.xcconfig"

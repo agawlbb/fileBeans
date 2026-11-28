@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -146,5 +147,56 @@ func TestBrokerSetUIDCredentialSwitch(t *testing.T) {
 		}
 	} else if errno != 0 {
 		t.Fatalf("with SETUID: %v", errno)
+	}
+}
+
+func TestNativeFilesystemConsumerPreservesTimestampAsAPIUser(t *testing.T) {
+	if os.Getenv("FILEBEANS_TIMESTAMP_WRITER") == "1" {
+		root, err := os.OpenRoot("/proc/self/fd/3")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer root.Close()
+		stamp := time.Unix(1539447530, 123456789)
+		if err = normSetModified(root, "output.jpg", stamp.UTC().Format(time.RFC3339Nano)); err != nil {
+			t.Fatal("API cannot preserve timestamp", err)
+		}
+		st, err := root.Stat("output.jpg")
+		if err != nil || !st.ModTime().Equal(stamp) {
+			t.Fatal("date changed", err)
+		}
+		return
+	}
+	if os.Getenv("FILEBEANS_TEST_FUSE") != "1" {
+		t.Skip("isolated FUSE runtime required")
+	}
+	b := testBroker(t)
+	b.config.FilesystemConsumer = true
+	b.config.ControlUID = 1000
+	b.config.ReaderUID = 10001
+	b.config.Gocryptfs = os.Getenv("FILEBEANS_TEST_GOCRYPTFS")
+	b.config.Fusermount = "/test-tools/fusermount3"
+	b.manager.memoryCheck = func() error { return nil }
+	entry, err := b.reserve("disk", "/", "Private", "native-timestamp-owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = b.open(entry, bytes.Repeat([]byte{0x42}, 32)); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(b.publicPath(entry), "output.jpg"), []byte("encoded"), 0660); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := os.Open(b.publicPath(entry))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestNativeFilesystemConsumerPreservesTimestampAsAPIUser$", "-test.v")
+	cmd.Env = append(os.Environ(), "FILEBEANS_TIMESTAMP_WRITER=1")
+	cmd.ExtraFiles = []*os.File{dir}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: 1000, Gid: uint32(b.config.GID)}}
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("native mount timestamp: %v\n%s", err, out)
 	}
 }

@@ -180,6 +180,10 @@ func (b *mountBroker) globalProtection(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Service) protectionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/protection", func(w http.ResponseWriter, r *http.Request) {
+		if s.config.ProtectionSync != nil {
+			s.protectionGroupHTTP(w, r, "")
+			return
+		}
 		if s.vaults == nil || s.vaults.remote == nil {
 			fail(w, ErrUnsupported)
 			return
@@ -193,6 +197,10 @@ func (s *Service) protectionRoutes(mux *http.ServeMux) {
 	})
 	for _, action := range []string{"lock", "unlock"} {
 		mux.HandleFunc("POST /v1/protection/"+action, func(w http.ResponseWriter, r *http.Request) {
+			if s.config.ProtectionSync != nil {
+				s.protectionGroupHTTP(w, r, action)
+				return
+			}
 			if s.vaults == nil || s.vaults.remote == nil {
 				fail(w, ErrUnsupported)
 				return

@@ -136,6 +136,13 @@ func (s *Service) resolveTask(j *archiveTask) {
 	}
 	j.Library.Path, _ = clean(j.Library.Path)
 	j.Target.Base, _ = clean(j.Target.Base)
+	if s.peerFor(j.Target.Backend) != nil && j.Target.VaultID != "" {
+		e := s.resolveEndpoint(ArchiveEndpoint{Source: j.Target.Backend, Path: j.Target.Base, Vault: j.Target.VaultID, Relative: j.Target.Relative})
+		if e.Available {
+			j.Target.Base, _ = clean(e.Path)
+			j.Target.Identity = e.Identity
+		}
+	}
 }
 func newArchiveTask(link ArchiveLink, kind, relative string) archiveTask {
 	link.Library.Path, _ = clean(link.Library.Path)
@@ -207,9 +214,12 @@ func (s *Service) archiveAdded(source, path string) error {
 			return ErrUnsupported
 		}
 		for _, old := range tasks {
-			if old.Link == link.ID && old.Kind == "ingest" && old.Relative == rel && old.Identity == moveIdentity(st) {
-				if old.State == "waiting" && old.Version != version(st) {
+			if old.Link == link.ID && old.Kind == "ingest" && archiveTouches(old.Relative, rel, false) {
+				if old.State == "waiting" && old.Hash == "" && (old.Version != version(st) || old.Relative != rel) {
+					old.Relative, old.Original, old.Birth = rel, rel, rel
 					old.Version = version(st)
+					old.Identity = moveIdentity(st)
+					old.Size = st.Size()
 					old.Next = time.Now().Add(archiveQuiet).Unix()
 					old.Error = ""
 					return s.saveArchiveTask(&old)
@@ -222,7 +232,7 @@ func (s *Service) archiveAdded(source, path string) error {
 		j.Identity = moveIdentity(st)
 		j.Size = st.Size()
 		j.Next = time.Now().Add(archiveQuiet).Unix()
-		key := normKey("archive-add", link.ID, rel, j.Version, j.Identity)
+		key := normKey("archive-add-name", link.ID, filepath.Dir(rel), archiveStem(filepath.Base(rel)))
 		if e = s.insert(j.ID, archiveTaskKind, j.State, key, j); e != nil {
 			var old archiveTask
 			if s.existing(key, archiveTaskKind, &old) == nil {
@@ -247,7 +257,63 @@ func archiveTouches(relative, path string, directory bool) bool {
 	}
 	return filepath.Dir(relative) == filepath.Dir(path) && archiveStem(filepath.Base(relative)) == archiveStem(filepath.Base(path))
 }
-func archiveMatch(root rootFS, base, relative string, directory bool) (string, error) {
+
+// A paired filename is the baseline even when its extension and encoded bytes
+// differ. Validate the archive root in the same leased operation as the lookup:
+// a parked protected folder is unavailable, not a collection of missing files.
+func archiveBaselineMatch(root rootFS, endpoint ArchiveEndpoint, relative string) (string, error) {
+	if p, ok := root.(*archivePeerRoot); ok {
+		var out string
+		err := p.call(archivePeerRequest{Operation: "match", Path: endpoint.Path, Other: relative, Endpoint: endpoint}, &out)
+		return out, err
+	}
+	if err := archiveBaselineRoot(root, endpoint); err != nil {
+		return "", err
+	}
+	return archiveMatch(root, endpoint.Path, relative, false)
+}
+
+func archiveBaselineNames(ctx context.Context, root rootFS, endpoint ArchiveEndpoint) (map[string]bool, error) {
+	if p, ok := root.(*archivePeerRoot); ok {
+		var out map[string]bool
+		err := p.callContext(ctx, archivePeerRequest{Operation: "names", Path: endpoint.Path, Endpoint: endpoint}, &out)
+		return out, err
+	}
+	if err := archiveBaselineRoot(root, endpoint); err != nil {
+		return nil, err
+	}
+	return archiveNames(ctx, root, endpoint.Path)
+}
+
+func archiveBaselineRoot(root rootFS, endpoint ArchiveEndpoint) error {
+	if endpoint.Vault != "" {
+		guarded, ok := root.(*guardedRoot)
+		if !ok || guarded.lease == nil {
+			return ErrVaultLocked
+		}
+		v, _, err := guarded.lease.Boundary(filepath.Join(root.Name(), endpoint.Path))
+		if err != nil {
+			return protectionError(err)
+		}
+		if v == nil || v.ID != endpoint.Vault || v.State != "unlocked" {
+			return ErrVaultLocked
+		}
+	}
+	if err := archiveCheckRoot(root, endpoint.Path, endpoint.Vault, ""); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return ErrMount
+		}
+		return err
+	}
+	return nil
+}
+
+func archiveMatch(root rootFS, base, relative string, directory bool, limits ...int) (string, error) {
+	if p, ok := root.(*archivePeerRoot); ok {
+		var out string
+		e := p.call(archivePeerRequest{Operation: "match", Path: base, Other: relative, Directory: directory}, &out)
+		return out, e
+	}
 	p, err := clean(filepath.Join(base, relative))
 	if err != nil {
 		return "", err
@@ -264,7 +330,12 @@ func archiveMatch(root rootFS, base, relative string, directory bool) (string, e
 		return "", e
 	}
 	defer d.Close()
-	entries, e := d.ReadDir(-1)
+	var entries []os.DirEntry
+	if len(limits) > 0 {
+		entries, e = boundedReadDir(d, limits[0])
+	} else {
+		entries, e = d.ReadDir(-1)
+	}
 	if e != nil {
 		return "", e
 	}
@@ -502,10 +573,17 @@ func (s *Service) archiveSyncRoutes(mux *http.ServeMux) {
 }
 
 func (s *Service) archiveSyncLoop(ctx context.Context) {
+	seenBackups := map[string]bool{}
 	if !s.config.Filesystem.Enabled {
 		return
 	}
-	// Encoding must continue even if Samba discovery or a backup transfer stalls.
+	go func() {
+		for ctx.Err() == nil {
+			_ = s.syncArchiveMirrors(ctx)
+			wait(ctx, 30*time.Second)
+		}
+	}()
+	// A slow backup transfer must not block checks for other ready filenames.
 	encodeDone := make(chan struct{})
 	discoverDone := make(chan struct{})
 	go func() { defer close(encodeDone); s.archiveEncodeLoop(ctx) }()
@@ -520,7 +598,11 @@ func (s *Service) archiveSyncLoop(ctx context.Context) {
 	for ctx.Err() == nil {
 		tasks, e := s.archiveTasks()
 		if e == nil {
+			nextBackups := map[string]bool{}
 			for _, j := range tasks {
+				if j.State == "backup" || j.State == "trash-backup" {
+					nextBackups[j.ID] = true
+				}
 				if ctx.Err() != nil {
 					return
 				}
@@ -536,7 +618,7 @@ func (s *Service) archiveSyncLoop(ctx context.Context) {
 						j.Next = 0
 					}
 				}
-				if j.Next > time.Now().Unix() {
+				if j.Next > time.Now().Unix() && !(nextBackups[j.ID] && !seenBackups[j.ID]) {
 					continue
 				}
 				s.resolveTask(&j)
@@ -546,16 +628,24 @@ func (s *Service) archiveSyncLoop(ctx context.Context) {
 					s.archiveEpoch.Add(1)
 				}
 			}
+			seenBackups = nextBackups
 		}
 		wait(ctx, 5*time.Second)
 	}
 }
 func (s *Service) archiveEncodeLoop(ctx context.Context) {
+	// Retry interrupted publications once after startup/unlock, rather than
+	// leaving their originals hidden for an old network backoff interval.
+	seenPublishing := map[string]bool{}
 	for ctx.Err() == nil {
 		tasks, e := s.archiveTasks()
 		if e == nil {
+			nextPublishing := map[string]bool{}
 			recovering := false
 			for _, task := range tasks {
+				if task.Kind == "ingest" && task.State == "publishing" {
+					nextPublishing[task.ID] = true
+				}
 				recovering = recovering || task.WaitingForMemory
 			}
 			s.archiveCanStart(ctx, recovering)
@@ -566,7 +656,7 @@ func (s *Service) archiveEncodeLoop(ctx context.Context) {
 				if j.State == "waiting" && s.archiveDraining() {
 					continue
 				}
-				if j.Kind != "ingest" || j.Next > time.Now().Unix() || (j.State != "waiting" && j.State != "publishing" && j.State != "cleanup") {
+				if j.Kind != "ingest" || (j.Next > time.Now().Unix() && !(j.State == "publishing" && !seenPublishing[j.ID])) || (j.State != "waiting" && j.State != "publishing" && j.State != "cleanup") {
 					continue
 				}
 				s.resolveTask(&j)
@@ -574,6 +664,7 @@ func (s *Service) archiveEncodeLoop(ctx context.Context) {
 					s.failArchiveTask(&j, e)
 				}
 			}
+			seenPublishing = nextPublishing
 		}
 		wait(ctx, 5*time.Second)
 	}
@@ -625,11 +716,22 @@ func (s *Service) discoverArchiveMedia(ctx context.Context) {
 			continue
 		}
 		epoch := s.archiveEpoch.Load()
-		drift, e := archiveDrift(ctx, r, link.Library.Path, a, link.Archive.Path)
+		libraryNames, e := archiveNames(ctx, r, link.Library.Path)
+		var originals map[string]bool
+		if e == nil {
+			originals, e = archiveBaselineNames(ctx, a, link.Archive)
+		}
 		if e != nil || epoch != s.archiveEpoch.Load() {
 			r.Close()
 			a.Close()
 			continue
+		}
+		drift := false
+		for name := range originals {
+			if !libraryNames[name] {
+				drift = true
+				break
+			}
 		}
 		if drift {
 			found := false
@@ -697,8 +799,13 @@ func (s *Service) discoverArchiveMedia(ctx context.Context) {
 				if !archiveMedia(entry.Name()) {
 					continue
 				}
+				// Keep the successful names snapshot. A later lock must not
+				// reinterpret known originals as missing or probe each one again.
+				if originals[filepath.Join(filepath.Dir(cp), archiveStem(entry.Name()))] {
+					continue
+				}
 				fileEpoch := s.archiveEpoch.Load()
-				if _, e := archiveMatch(a, link.Archive.Path, cp, false); errors.Is(e, os.ErrNotExist) {
+				if _, e := archiveBaselineMatch(a, link.Archive, cp); errors.Is(e, os.ErrNotExist) {
 					archiveMu.Lock()
 					if s.archiveEpoch.Load() == fileEpoch && fileEpoch == epoch {
 						_ = s.archiveAdded(link.Library.Source, filepath.Join(link.Library.Path, cp))
@@ -840,6 +947,15 @@ func (s *Service) archiveDirectoryAdded(source, path string) error {
 		if !ok {
 			continue
 		}
+		tasks, err := s.archiveTasks()
+		if err != nil {
+			return err
+		}
+		for _, old := range tasks {
+			if old.Link == link.ID && old.Kind == "mkdir" && old.Relative == rel {
+				return nil
+			}
+		}
 		j := newArchiveTask(link, "mkdir", rel)
 		j.State = "mkdir"
 		r, e := s.root(source)
@@ -851,8 +967,10 @@ func (s *Service) archiveDirectoryAdded(source, path string) error {
 		if e != nil {
 			return e
 		}
-		j.Identity = moveIdentity(info)
-		key := normKey("archive-directory", link.ID, rel, j.Identity)
+		if !info.IsDir() {
+			return ErrUnsafe
+		}
+		key := normKey("archive-directory-name", link.ID, rel)
 		if e = s.insert(j.ID, archiveTaskKind, j.State, key, j); e != nil {
 			var old archiveTask
 			if s.existing(key, archiveTaskKind, &old) == nil {
@@ -1114,6 +1232,9 @@ func (s *Service) finishArchiveMoved(ctx context.Context, j *archiveTask, r, a r
 	return s.removeArchiveTask(j)
 }
 func (s *Service) runArchiveTrash(ctx context.Context, j *archiveTask) error {
+	if p := s.peerFor(j.Target.Backend); p != nil {
+		return s.runArchivePeerTrash(ctx, j, &archivePeerRoot{peer: *p, source: j.Target.Backend})
+	}
 	var t Trash
 	if e := s.read(j.TrashID, "trash", &t); e != nil {
 		return e
@@ -1360,6 +1481,18 @@ func (s *Service) copyArchiveThumbnail(j *archiveTask, library, archive rootFS, 
 	}
 	if e = mkdir(archive, dir); e != nil {
 		return e
+	}
+	if remote, ok := archive.(*archivePeerRoot); ok {
+		temp := filepath.Join(dir, "import-"+j.ID)
+		_ = remote.Remove(temp)
+		defer remote.Remove(temp)
+		if e = remote.WriteFile(temp, data, 0660); e != nil {
+			return e
+		}
+		if e = renameExclusive(remote, temp, target); e != nil {
+			return e
+		}
+		return syncDir(remote, dir)
 	}
 	temp := filepath.Join(dir, "import-"+j.ID)
 	_ = archive.Remove(temp)

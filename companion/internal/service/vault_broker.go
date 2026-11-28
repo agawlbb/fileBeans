@@ -22,16 +22,17 @@ const brokerStore = ".filebeans-vaults"
 const brokerProtocol = 1
 
 type BrokerConfig struct {
-	FilesystemConsumer bool     `json:"filesystemConsumer,omitempty"`
-	LocationBackups    []string `json:"locationBackups,omitempty"`
-	State              string   `json:"state"`
-	Runtime            string   `json:"runtime"`
-	Roots              []Root   `json:"roots"`
-	Gocryptfs          string   `json:"gocryptfs"`
-	Fusermount         string   `json:"fusermount"`
-	ControlUID         uint32   `json:"controlUID"`
-	ReaderUID          uint32   `json:"readerUID"`
-	GID                int      `json:"gid"`
+	ProtectionSync     *BrokerProtectionSyncConfig `json:"protectionSync,omitempty"`
+	FilesystemConsumer bool                        `json:"filesystemConsumer,omitempty"`
+	LocationBackups    []string                    `json:"locationBackups,omitempty"`
+	State              string                      `json:"state"`
+	Runtime            string                      `json:"runtime"`
+	Roots              []Root                      `json:"roots"`
+	Gocryptfs          string                      `json:"gocryptfs"`
+	Fusermount         string                      `json:"fusermount"`
+	ControlUID         uint32                      `json:"controlUID"`
+	ReaderUID          uint32                      `json:"readerUID"`
+	GID                int                         `json:"gid"`
 }
 
 type brokerEntry struct {
@@ -79,6 +80,7 @@ type brokerSnapshot struct {
 }
 
 type mountBroker struct {
+	protectionSync        *brokerProtectionSync
 	unavailableSources    map[string]error
 	datasetActivity       time.Time
 	locationKey           []byte
@@ -96,6 +98,11 @@ type mountBroker struct {
 }
 
 func validateBrokerConfig(c BrokerConfig) error {
+	if p := c.ProtectionSync; p != nil {
+		if !nodeIDPattern.MatchString(p.Group) || !nodeIDPattern.MatchString(p.Server) || !nodeIDPattern.MatchString(p.Peer) || p.Server == p.Peer {
+			return ErrUnsafe
+		}
+	}
 	if len(c.Roots) == 0 || c.GID < 0 || c.ControlUID == c.ReaderUID {
 		return ErrUnsafe
 	}
@@ -398,8 +405,14 @@ func (b *mountBroker) vaultConfig(e brokerEntry) VaultConfig {
 		Mount: filepath.Join(b.config.Runtime, "mounts", e.ID), Gocryptfs: b.config.Gocryptfs,
 		Fusermount: b.config.Fusermount, BackingMount: r.Mount, BackingSource: r.MountSource,
 		StartClient: "/bin/true", StopClient: "/bin/true"}
-	if r.Mount != "" {
-		v.forceOwner = fmt.Sprintf("%d:%d", b.config.ReaderUID, b.config.GID)
+	if r.Mount != "" || b.config.FilesystemConsumer {
+		owner := b.config.ReaderUID
+		if b.config.FilesystemConsumer {
+			// The native API performs owner-only metadata operations (notably
+			// preserving timestamps). The legacy browser uses ReaderUID.
+			owner = b.config.ControlUID
+		}
+		v.forceOwner = fmt.Sprintf("%d:%d", owner, b.config.GID)
 	}
 	return v
 }
@@ -703,30 +716,11 @@ func (b *mountBroker) installLockedMount(entry brokerEntry) error {
 }
 
 func (b *mountBroker) prepare(entry brokerEntry) error {
-	r, e := b.root(entry.Source)
-	if e != nil {
-		return e
-	}
-	root, e := os.OpenRoot(r.Path)
-	if e != nil {
-		return e
-	}
-	defer root.Close()
-	if e = safe(root, brokerStore); e != nil {
-		return e
-	}
-	if e = root.MkdirAll(brokerStore, 0700); e != nil {
-		return e
-	}
-	dir, e := brokerOpenDir(r.Path, brokerStore)
+	dir, e := b.openPrivateStore(entry.Source)
 	if e != nil {
 		return e
 	}
 	defer dir.Close()
-	var st unix.Stat_t
-	if unix.Fstat(int(dir.Fd()), &st) != nil || r.Mount == "" && (st.Uid != uint32(os.Geteuid()) || st.Mode&0022 != 0) {
-		return ErrUnsafe
-	}
 	if e = unix.Mkdirat(int(dir.Fd()), entry.ID, 0700); e != nil && !errors.Is(e, os.ErrExist) {
 		return e
 	}

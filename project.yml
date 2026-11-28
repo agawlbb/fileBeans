@@ -60,7 +60,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(BUNDLE_ID_PREFIX).Share
         INFOPLIST_FILE: Config/Share-Info.plist
-        CODE_SIGN_ENTITLEMENTS: Config/App.entitlements
+        CODE_SIGN_ENTITLEMENTS: Config/Share.entitlements
         APPLICATION_EXTENSION_API_ONLY: YES
         SKIP_INSTALL: YES
         PROVISIONING_PROFILE_SPECIFIER: $(SHARE_PROFILE_UUID)

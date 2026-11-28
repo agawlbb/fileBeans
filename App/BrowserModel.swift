@@ -76,8 +76,13 @@ final class BrowserModel: ObservableObject {
         }
         if !failures.isEmpty { error = failures.joined(separator: "\n") }
     }
-    func transfer(_ values: [StoredItem], to destination: BrowserDestination, copying: Bool) async {
+    func transfer(_ values: [StoredItem], to selection: SourceSelection, copying: Bool) async {
         guard let repository else { return }
+        let destination = selection.destination
+        if selection.connection.id != repository.connection.id {
+            await transferAcrossSources(values, to: selection, copying: copying)
+            return
+        }
         guard !values.isEmpty else { error = APIError.missing.localizedDescription; return }
         do {
             if !copying { for item in values { try repository.requireArchiveWritable(item) } }
@@ -86,7 +91,7 @@ final class BrowserModel: ObservableObject {
         let connection = repository.connection
         if values.contains(where: { $0.protection?.isRoot == true }) {
             for item in values {
-                if item.protection?.isRoot != true { await transfer([item], to: destination, copying: copying); continue }
+                if item.protection?.isRoot != true { await transfer([item], to: selection, copying: copying); continue }
                 let ids = FileActivity.shared.begin([ActivityFile(source:item.source,path:item.file.path,name:item.file.name,folder:true)],
                     connection:connection.id,operation:copying ? "copy" : "move",
                     destination: { if case .local(let parent) = destination { return CopyLocation(source:parent.source,path:parent.file.path) }; return nil }())
@@ -171,6 +176,34 @@ final class BrowserModel: ObservableObject {
         if !failures.isEmpty { error = failures.joined(separator: "\n") }
     }
 
+    private func transferAcrossSources(_ values: [StoredItem], to selection: SourceSelection, copying: Bool) async {
+        guard let repository, !values.isEmpty else { return }
+        var activityIDs: [UUID] = []
+        do {
+            guard values.allSatisfy({ !$0.isSource && $0.permissions.download && (copying || $0.permissions.delete) }) else { throw APIError.forbidden }
+            if values.contains(where: { $0.protection?.isRoot == true }) {
+                throw NSError(domain: "fileBeans.Transfer", code: 409,
+                    userInfo: [NSLocalizedDescriptionKey: "Select the contents of the protected folder and a protected destination."])
+            }
+            for item in values { try repository.requireUnlocked(item); if !copying { try repository.requireArchiveWritable(item) } }
+            let target: CopyLocation
+            switch selection.destination {
+            case .local(let parent):
+                guard parent.permissions.create, parent.protection?.unlocked != false else { throw APIError.forbidden }
+                try parent.file.requireArchiveWritable()
+                target = CopyLocation(source: parent.source, path: parent.file.path, name: parent.file.name)
+            case .drive(let parent):
+                guard parent.capabilities?.canAddChildren == true else { throw APIError.forbidden }
+                target = CopyLocation(source: "drive", path: parent.id, name: parent.name)
+            }
+            activityIDs = FileActivity.shared.begin(values.map { ActivityFile(source: $0.source, path: $0.file.path, name: $0.file.name, folder: $0.file.isDirectory) },
+                connection: repository.connection.id, operation: copying ? "copy" : "move", destination: target)
+            let job = try await SourceTransfers.submit(origin: repository.connection, destination: selection.connection,
+                copy: BackgroundCopy(items: values.map { CopyLocation(source: $0.source, path: $0.file.path, name: $0.file.name) },
+                    destination: target, operation: copying ? "copy" : "move"))
+            FileActivity.shared.attach(job, ids: activityIDs, connection: repository.connection.id)
+        } catch { FileActivity.shared.finish(activityIDs); self.error = error.localizedDescription }
+    }
     private func transferProtectedFolder(_ item: StoredItem, to destination: BrowserDestination, copying: Bool) async throws -> CopyJob? {
         guard let repository, let companion = repository.companion else { throw APIError.forbidden }
         try repository.requireUnlocked(item)
