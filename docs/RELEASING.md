@@ -1,5 +1,39 @@
 # Signing and TestFlight
 
+## Independent sources TestFlight 55 — November 28, 2026
+
+Released **0.1.0 (55)** from isolated app source `79e42eb`. Saved sources are
+independent FileBeans servers or native Google Drive accounts; no Pi storage is
+automatically exposed through a VPS connection. Server/Drive copy and move jobs
+use sealed job authorization and server-side payload transfers. The existing
+VPS-library/Pi-originals archive relationship is preserved.
+
+[Apple validation 46089723836](https://github.com/agawlbb/fileBeans/actions/runs/46089723836)
+passed 165 unit tests and four UI gesture tests, all first attempts. Release checks
+fixed transfer-history storage injection and a full-screen video tap consumed by
+native controls; the same player remains attached. Static syntax/Keychain checks,
+the full Go service/SQLite suite and vet pass; VM MariaDB integration is skipped
+because no FileBeans test configuration exists.
+
+[Signed build 46089726152](https://github.com/agawlbb/fileBeans/actions/runs/46089726152)
+contains the supplied iOS OAuth ID, reversed callback and correctly expanded
+Google-only main/Share Keychain groups. [Upload 46090331733](https://github.com/agawlbb/fileBeans/actions/runs/46090331733)
+verified the exact IPA SHA-256
+`24f224c4c856ca984404a8c6dad0c8cdd7247fe6ce76adbeb93fca8f3b3fed7f`
+and uploaded it without rebuilding. Apple build
+`a4044cda-b2f3-4906-abfc-723cff65d469` is **VALID / IN_BETA_TESTING**, not expired,
+with automatic notification enabled. Existing audience remains unchanged. Temporary
+runner credentials were removed; permanent signing credentials are preserved.
+
+VPS API `filebeans-api:df59644-independent` and HA app 0.1.3 are deployed and
+verified. Own-root/own-vault isolation, cross-owner browse rejection, Pi LAN/public
+identity, preserved archive ciphertext, resource limits and HA health passed.
+Deployment staging, superseded API image, temporary Pi SSH access, VM exports,
+caches, contexts and disposable tools were removed. See [PI-SERVER.md](PI-SERVER.md)
+for image identities, retained permission-journal purpose and manual acceptance.
+No deployment or app build remains pending; all feature branches are unmerged.
+Device Google consent and migrated Pi protected/archive acceptance remain manual.
+
 ## Pi trial TestFlight 54 — November 27, 2026
 
 Released **0.1.0 (54)**, built from isolated runtime source `ee576bd`, through

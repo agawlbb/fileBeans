@@ -35,12 +35,19 @@ Source through `df59644` passes the full service/SQLite Go suite, Go vet, scoped
 copy/move byte checks in both directions for Pi/VPS with a simulated Google API,
 archive byte/owner/read-only regressions, and Swift/config/Keychain static checks.
 MariaDB integration is skipped: no FileBeans VM `.test-config` exists. TestFlight
-preflight `46086597258` passed. Signed app build 55 from `af675f4` passed
-`46088856258`; its IPA SHA-256 is
-`e72c4e8688ca3fc22cc00911f2f93711bbc49ec466ae8cd11d102dfab5c0c1a6`.
+preflight `46086597258` passed. Signed app build 55 from `79e42eb` passed
+`46089726152`; its IPA SHA-256 is
+`24f224c4c856ca984404a8c6dad0c8cdd7247fe6ce76adbeb93fca8f3b3fed7f`.
 The signed IPA contains the supplied native OAuth ID, reversed callback scheme
-and Google-only Keychain group. Apple validation `46088853408` and upload remain
-pending. Physical Google consent and protected-folder acceptance require device use.
+and Google-only Keychain group. Apple validation `46089723836` passed 165 unit
+tests and four UI tests on their first attempts. Release checks also caught a full-screen video exit tap intercepted
+by native controls; a full-screen tap surface now restores viewer controls while
+keeping the same player attached. The original regression passes unchanged.
+Upload `46090331733` reused and checksum-verified that exact IPA. Apple build
+`a4044cda-b2f3-4906-abfc-723cff65d469` is VALID / IN_BETA_TESTING, not expired, with
+automatic notification enabled. No tester/group changes were made. Physical Google
+consent and protected-folder acceptance still require device use. No further image
+deployment or app build is pending for this correction.
 
 The correction backend is deployed: VPS `filebeans-api:df59644-independent`
 (manifest `c76cff6686add3a08267938bc98d4c535207316be51995413f1f0652750ba8db`;
