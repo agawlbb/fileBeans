@@ -126,11 +126,11 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
     func request(_ route: String, method: String = "GET", body: Data? = nil,
                  key: String? = nil, permanent: Bool = false, query: [String: String] = [:],
                  headers: [String: String] = [:]) async throws -> Data {
-        if let (owner, forwarded, alias) = try ClientTransferLinks.resolve(route, origin: connection) {
+        if let (owner, forwarded, alias) = try ClientTransferLinks.resolve(route, origin: connection, store: store) {
             let client = CompanionClient(connection: owner); defer { client.close() }
             let data = try await client.request(forwarded, method: method, body: body, key: key, permanent: permanent, query: query, headers: headers)
             var job = try JSONDecoder().decode(CopyJob.self, from: data); job.id = alias
-            try ClientTransferLinks.remember(job, origin: connection)
+            try ClientTransferLinks.remember(job, origin: connection, store: store)
             return try JSONEncoder().encode(job)
         }
         if connection.isGoogleDrive {
@@ -261,7 +261,7 @@ final class CompanionClient: NSObject, URLSessionTaskDelegate {
     }
     func jobs() async throws -> [CopyJob] {
         let local = try JSONDecoder().decode([CopyJob].self, from: await workRequest("jobs"))
-        return local + (try await ClientTransferLinks.jobs(origin: connection))
+        return local + (try await ClientTransferLinks.jobs(origin: connection, store: store))
     }
     func trash(_ item: StoredItem) async throws {
         let location = try sourceLocation(CopyLocation(source: item.source, path: item.file.path))
