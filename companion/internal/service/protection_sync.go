@@ -253,13 +253,25 @@ func (s *Service) protectionGroupHTTP(w http.ResponseWriter, r *http.Request, ac
 		commandID = ID()
 	}
 	cmd := protectionSyncCommand{TargetBoot: local.Boot, Action: action, ID: commandID, Origin: s.config.ServerID, Key: input.Key, Epochs: mergeEpochs(local.Epochs, remote.Epochs)}
+	originalPeerBoot := remote.Boot
+	if action == "unlock" {
+		receipt, err := s.protectionUnlockReceipt(commandID, local, remote)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		cmd.Epochs = receipt.Epochs
+		cmd.TargetBoot = receipt.LocalBoot
+		originalPeerBoot = receipt.PeerBoot
+	}
+
 	// Local transition remains available even if the peer is unreachable.
 	local, localErr = s.localProtectionSession(&cmd)
 	if action == "lock" && localErr == nil {
 		cmd.Epochs = local.Epochs
 	}
 	if remoteErr == nil {
-		cmd.TargetBoot = remote.Boot
+		cmd.TargetBoot = originalPeerBoot
 		ctx, cancel = context.WithTimeout(r.Context(), 45*time.Second)
 		remote, remoteErr = s.protectionPeer(ctx, &cmd)
 		cancel()

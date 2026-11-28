@@ -20,6 +20,11 @@ explicit Unlock; no recovery key or unlock retry is stored. Lock generations,
 acknowledgments and bounded command IDs are durably stored in the broker's private
 `protection-session.json`; pending locks reconcile on reconnect, and a newer lock
 rejects stale unlocks. Busy mounts retain pending lock intent for broker retry.
+The API stores bounded, key-free command receipts in `protection-receipts.json`
+under its private state directory. These pin transport retries to the original
+member boots and lock generations, so a lost reply cannot turn an old Unlock
+into a fresh one after Lock or restart. Receipts are never executable work or
+a source of unlock keys; no background unlock retry exists.
 
 Public `/v1/protection` and lock/unlock routes preserve local `state` and add
 `group`, `groupState`, and `members` (server ID, name, state, error). Legacy vault

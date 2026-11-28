@@ -14,7 +14,7 @@ func protectionPair(t *testing.T) (*Service, *Service, *mountBroker, *mountBroke
 	a := syncBroker(t, "one", "two")
 	b := syncBroker(t, "two", "one")
 	node := func(id, peer string, broker *mountBroker) *Service {
-		s := &Service{config: Config{ServerID: id, Token: strings.Repeat("t", 32), ProtectionSync: &ProtectionSyncConfig{Group: "test-group", Name: id, Peer: peer, PeerName: peer, Key: strings.Repeat("s", 32)}}}
+		s := &Service{config: Config{ServerID: id, State: t.TempDir(), Token: strings.Repeat("t", 32), ProtectionSync: &ProtectionSyncConfig{Group: "test-group", Name: id, Peer: peer, PeerName: peer, Key: strings.Repeat("s", 32)}}}
 		s.protectionLocalTest = func(cmd *protectionSyncCommand) (protectionSyncSnapshot, error) {
 			value := protectionSyncCommand{}
 			if cmd != nil {
@@ -188,5 +188,39 @@ func TestProtectionSyncPeerIdleClosureDoesNotLockActiveMember(t *testing.T) {
 	a.pollIdleVaults(map[string]*vaultIdleWatch{}, time.Now())
 	if a.protectionStatus().State != "unlocked" || b.protectionStatus().State != "locked" {
 		t.Fatal("reconnect changed independent states without a user command")
+	}
+}
+
+func TestProtectionSyncRetriedPublicUnlockCannotCrossNewerLock(t *testing.T) {
+	one, _, a, b := protectionPair(t)
+	url := one.config.Peers[0].URL
+	one.config.Peers[0].URL = "https://127.0.0.1:1"
+	code := recoveryCode(bytes.Repeat([]byte{0x42}, 32))
+	original := ID()
+	protectionActionRequest(t, one, "unlock", code, original)
+	protectionActionRequest(t, one, "lock", "", ID())
+	one.config.Peers[0].URL = url
+	one.protectionExchange(t.Context())
+	b.pollIdleVaults(map[string]*vaultIdleWatch{}, time.Now())
+	status := protectionActionRequest(t, one, "unlock", code, original)
+	if a.protectionStatus().State != "locked" || b.protectionStatus().State != "locked" {
+		t.Fatal("transport retry refreshed an old unlock generation", status)
+	}
+}
+func TestProtectionSyncReceiptCannotRetargetRestartedPeer(t *testing.T) {
+	one, _, _, b := protectionPair(t)
+	code := recoveryCode(bytes.Repeat([]byte{0x42}, 32))
+	original := ID()
+	protectionActionRequest(t, one, "unlock", code, original)
+	b.mu.Lock()
+	err := b.lockAll()
+	b.protectionSync = nil
+	b.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := protectionActionRequest(t, one, "unlock", code, original)
+	if b.protectionStatus().State != "locked" {
+		t.Fatal("retry retargeted a restarted peer", status)
 	}
 }
