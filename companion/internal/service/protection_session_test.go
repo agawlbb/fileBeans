@@ -210,3 +210,18 @@ func TestProtectionSyncLockWinsWhileUnlockWaitsForLease(t *testing.T) {
 		t.Fatal("overlap reopened protection")
 	}
 }
+
+func TestProtectionSyncRejectsUnboundedEncodedCommandIDs(t *testing.T) {
+	b := syncBroker(t, "one", "two")
+	out, _ := syncBrokerCommand(t, b, protectionSyncCommand{Action: "lock", ID: strings.Repeat("<", 32), Origin: "one"})
+	if out.Code == 200 {
+		t.Fatal("non-UUID command ID accepted")
+	}
+	if _, err := os.Stat(filepath.Join(b.config.State, "protection-session.json")); !os.IsNotExist(err) {
+		t.Fatal("invalid command persisted", err)
+	}
+	out, _ = syncBrokerCommand(t, b, protectionSyncCommand{Action: "lock", ID: ID(), Origin: "one"})
+	if out.Code != 200 {
+		t.Fatal("valid command failed after rejected input", out.Code, out.Body.String())
+	}
+}

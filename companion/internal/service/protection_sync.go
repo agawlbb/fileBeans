@@ -249,7 +249,7 @@ func (s *Service) protectionGroupHTTP(w http.ResponseWriter, r *http.Request, ac
 		}
 	}
 	commandID := key(r)
-	if len(commandID) != 32 {
+	if !validProtectionID(commandID) {
 		commandID = ID()
 	}
 	cmd := protectionSyncCommand{Action: action, ID: commandID, Origin: s.config.ServerID, Key: input.Key, Epochs: mergeEpochs(local.Epochs, remote.Epochs)}

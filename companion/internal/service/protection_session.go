@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -117,6 +118,9 @@ func (b *mountBroker) protectionSyncInit() error {
 // unlock is written here. Publish the new state only after an atomic fsync.
 func (b *mountBroker) protectionSyncPersist(next protectionSyncDisk) error {
 	data, err := json.Marshal(next)
+	if len(data) > 16384 {
+		return ErrUnsafe
+	}
 	if err != nil {
 		return err
 	}
@@ -207,7 +211,7 @@ func (b *mountBroker) protectionSyncSnapshot(now time.Time) protectionSyncSnapsh
 // cannot slide the idle deadline, and event ages avoid depending on clock sync.
 func (b *mountBroker) protectionSyncImport(remote *protectionSyncSnapshot, now time.Time) error {
 	c := b.config.ProtectionSync
-	if remote == nil || remote.Group != c.Group || remote.Server != c.Peer || len(remote.Boot) != 32 || remote.AgeMillis < 0 {
+	if remote == nil || remote.Group != c.Group || remote.Server != c.Peer || !validProtectionID(remote.Boot) || remote.AgeMillis < 0 {
 		return ErrUnsafe
 	}
 	for k := range remote.Epochs {
@@ -284,7 +288,7 @@ func (b *mountBroker) protectionSyncHTTP(w http.ResponseWriter, r *http.Request)
 		reply(w, 200, result)
 		return
 	}
-	if (cmd.Action != "lock" && cmd.Action != "unlock") || len(cmd.ID) != 32 || (cmd.Origin != b.config.ProtectionSync.Server && cmd.Origin != b.config.ProtectionSync.Peer) {
+	if (cmd.Action != "lock" && cmd.Action != "unlock") || !validProtectionID(cmd.ID) || (cmd.Origin != b.config.ProtectionSync.Server && cmd.Origin != b.config.ProtectionSync.Peer) {
 		b.mu.Unlock()
 		brokerFail(w, ErrUnsafe)
 		return
@@ -365,4 +369,12 @@ func (b *mountBroker) protectionIdleTimeout() time.Duration {
 		return vaultIdleTimeout + 10*time.Second
 	}
 	return vaultIdleTimeout
+}
+
+func validProtectionID(value string) bool {
+	if len(value) != 32 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
 }
